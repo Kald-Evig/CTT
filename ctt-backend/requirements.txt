@@ -1,0 +1,15 @@
+# ── Dependencias CTT Backend (MVP) ─────────────────────────────────────────
+# Versiones alineadas con el Documento de Diseño Técnico v1.0 (Sección 3.2).
+# Para este prototipo autocontenido se usa SQLAlchemy 2.0 en modo síncrono y
+# SQLite; el diseño de producción (Postgres + async) se documenta en DEV_DOC.md.
+
+fastapi==0.111.0          # Framework API (async-ready, Swagger automático)
+uvicorn[standard]==0.30.1 # Servidor ASGI para correr la app
+SQLAlchemy==2.0.30        # ORM 2.0 (sintaxis idéntica para sync/async)
+pydantic==2.7.1           # Validación de esquemas (request/response)
+pydantic-settings==2.3.0  # Carga de configuración por entorno
+python-multipart==0.0.9   # Soporte form-data (subida de evidencias)
+
+# ── Testing ────────────────────────────────────────────────────────────────
+pytest==8.2.0
+httpx==0.27.0             # Cliente HTTP para TestClient de FastAPI
