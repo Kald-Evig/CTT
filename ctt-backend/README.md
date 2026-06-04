@@ -3,7 +3,7 @@
 Motor backend de **CTT**, una plataforma *offline-first* de gestión de trabajadores en terreno para obras de construcción en Chile. Este repositorio contiene el **núcleo operativo** del sistema: modelo de datos multi-tenant, máquina de estados de ítems, matriz de permisos por rol y una API REST documentada — todo testeado y ejecutable en local sin infraestructura externa.
 
 > Qué **es** este entregable: una base sólida y verificable del lado servidor.
-> Qué **no es** (todavía): la app móvil Flutter, el motor de sincronización offline en el dispositivo, y la infraestructura de nube (Firebase/AWS). Ver `DEV_DOC.md` → *Alcance y límites*.
+> Qué **no es** (todavía): la app móvil Flutter, el motor de sincronización offline en el dispositivo, y la infraestructura de nube (Firebase/AWS).
 
 ## Requisitos
 
@@ -80,5 +80,3 @@ app/
   seed.py           Datos de demo (chilenos)
 tests/              Suite pytest
 ```
-
-Para arquitectura, decisiones de diseño, extensiones al modelo y la ruta a producción, ver **`DEV_DOC.md`**.
