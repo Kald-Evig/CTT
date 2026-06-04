@@ -81,3 +81,71 @@ app/
 tests/              Suite pytest
 ```
 
+
+# CTT — Frontend de revisión (MVP)
+
+Cliente web para **revisar y probar end-to-end** el MVP de CTT contra el backend real. Sirve para que el equipo *vea* el sistema funcionando —roles, máquina de estados, reportes, notificaciones— sin esperar a la app móvil.
+
+> **Qué es:** un arnés de revisión / pruebas E2E. Estética deliberadamente mínima.
+> **Qué no es:** el frontend de producción. Según el DDT, el MVP de producción es **Flutter (móvil)**; la web (React) entra en Fase 2. Este cliente existe para desbloquear la revisión y las pruebas E2E hoy. Toda la lógica está en `app.js`; un dev puede reemplazar la estética sin tocarla, o usar esto como semilla del dashboard React de Fase 2.
+
+## Requisitos
+
+1. **El backend debe estar corriendo** (ver el README de la raíz). Por defecto en `http://127.0.0.1:8000`.
+2. Datos de demo sembrados (`python -m app.seed`, ya incluido en `./run.sh`).
+
+## Cómo ejecutarlo
+
+Es HTML + JS plano, sin build. Dos opciones:
+
+**A) Abrir el archivo directamente**
+
+Abre `frontend/index.html` en el navegador (doble clic). El backend tiene CORS abierto para el MVP, así que las llamadas funcionan incluso desde `file://`.
+
+**B) Servirlo con un servidor estático** (recomendado, evita rarezas de `file://`)
+
+```bash
+cd frontend
+python -m http.server 5500
+# luego abre http://127.0.0.1:5500
+```
+
+## Cómo usarlo
+
+1. En la barra superior, confirma la **URL del backend** (default `http://127.0.0.1:8000`).
+2. Elige un **usuario demo** del selector (rellena el token automáticamente) o pega un `firebase_uid`. Tokens disponibles:
+   - `uid-coordinador-a` — crea proyectos e ítems, asigna, aprueba/rechaza.
+   - `uid-trabajador-1` / `uid-trabajador-2` — ven sus tareas, Comenzar / Terminé / Reportar problema.
+   - `uid-residente-a` — aprueba/rechaza, cierra problemas, asigna.
+   - `uid-admin-a` — todo lo del coordinador + cerrar proyecto.
+   - `uid-superadmin` — crear empresas (pestaña Plataforma).
+   - `uid-itinerante` — pertenece a 2 empresas: requiere indicar **X-Empresa-Id**.
+3. Click en **Conectar**.
+
+La interfaz se adapta al rol (qué botones aparecen). El backend es siempre la autoridad: si una acción no está permitida, verás el error que devuelve el backend.
+
+## Recorrido E2E sugerido (para mostrar la visión)
+
+1. **Como `uid-coordinador-a`:** Proyectos → *Ver ítems* del proyecto "Pavimentación Ruta G-21". Crea un ítem raíz y un sub-ítem. Asigna el sub-ítem a un trabajador.
+2. **Como `uid-trabajador-2`:** entra (Salir → reconectar con otro token). En su ítem asignado: **Comenzar** → **Terminé**.
+3. **Como `uid-residente-a`:** el ítem aparece en *Pendiente revisión*. Pruébalo: **Rechazar** (pide comentario obligatorio) y luego, tras reenvío del trabajador, **Aprobar** → queda *Terminado*.
+4. **Flujo de problema:** un trabajador en un ítem *En progreso* → **Reportar problema** (queda bloqueado). El residente → **Cerrar problema** (vuelve al estado previo).
+5. **Reportes:** con un proyecto seleccionado, pestaña Reportes → Avance / Retrasos / Problemas / Actividad.
+6. **Notificaciones:** revisa cómo al pasar un ítem a revisión le llega una notificación al residente.
+
+## Estructura
+
+```
+frontend/
+  index.html   Estructura + estilos mínimos + modal
+  app.js       Toda la lógica (conexión, vistas, llamadas al backend)
+  README.md    Este archivo
+```
+
+## Nota sobre la conexión con el backend
+
+Para soportar este cliente, el backend incorpora dos cosas:
+- **CORS abierto** (`CORS_ORIGINS=*` por defecto) — restringir al dominio real en producción.
+- Un endpoint **`GET /me`** que resuelve usuario + empresa + rol, usado para adaptar la UI.
+
+La simulación de "Foto" solo registra el metadato de evidencia; la subida binaria real va directo a S3 vía *pre-signed URL* desde el dispositivo (no aplica en este cliente de revisión).
