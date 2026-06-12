@@ -1,0 +1,45 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    # Tratar como errores las violaciones más críticas.
+    avoid_print: error
+    always_use_package_imports: error
+    missing_return: error
+    dead_code: warning
+  exclude:
+    # Archivos generados por build_runner — no analizar.
+    - '**/*.g.dart'
+    - '**/*.freezed.dart'
+    - 'lib/firebase_options.dart'
+
+linter:
+  rules:
+    # Imports siempre como package: — evita rutas relativas que confunden el tree-shaker.
+    always_use_package_imports: true
+
+    # Nunca usar print() — usar el Logger del paquete logger.
+    avoid_print: true
+
+    # Preferir constructores const para mejorar performance de renders.
+    prefer_const_constructors: true
+    prefer_const_constructors_in_immutables: true
+    prefer_const_declarations: true
+
+    # Seguridad y claridad.
+    avoid_dynamic_calls: true
+    avoid_empty_else: true
+    avoid_relative_lib_imports: true
+    cancel_subscriptions: true
+    close_sinks: true
+
+    # Calidad de código.
+    prefer_final_locals: true
+    prefer_final_fields: true
+    unnecessary_nullable_for_final_variable_declarations: true
+    use_super_parameters: true
+    require_trailing_commas: true
