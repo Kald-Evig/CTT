@@ -2,6 +2,7 @@
 ///
 /// Expuesto como provider de Riverpod para inyección de dependencias.
 /// Logging activo solo en modo debug; en release no se registra nada de red.
+library;
 
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
@@ -19,9 +20,11 @@ SecureStorageService secureStorage(SecureStorageRef ref) =>
 
 @riverpod
 Logger logger(LoggerRef ref) => Logger(
-      // En release suprimir output de log.
       level: Entorno.esRelease ? Level.off : Level.debug,
-      printer: PrettyPrinter(methodCount: 0, printTime: true),
+      printer: PrettyPrinter(
+        methodCount: 0,
+        dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
+      ),
     );
 
 @riverpod
@@ -33,11 +36,11 @@ Dio dioClient(DioClientRef ref) {
     baseUrl: Entorno.urlBaseApi,
     connectTimeout: Entorno.timeoutConexion,
     receiveTimeout: Entorno.timeoutRecepcion,
-    headers: {
+    headers: const {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     },
-  ));
+  ),);
 
   // Interceptor de auth: adjunta JWT + X-Empresa-Id.
   dio.interceptors.add(AuthInterceptor(storage));
@@ -49,7 +52,7 @@ Dio dioClient(DioClientRef ref) {
       await storage.limpiarSesion();
       // TODO Fase 1.3: disparar evento de logout en el AuthNotifier de Riverpod.
     },
-  ));
+  ),);
 
   // Log detallado de requests solo en debug.
   if (Entorno.esDebug) {
@@ -57,7 +60,7 @@ Dio dioClient(DioClientRef ref) {
       requestBody: false,   // no loggear body — puede contener datos sensibles
       responseBody: false,  // ídem
       logPrint: (obj) => log.d(obj.toString()),
-    ));
+    ),);
   }
 
   return dio;

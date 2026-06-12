@@ -2,6 +2,7 @@
 ///
 /// Los repositorios devuelven Failure en vez de lanzar excepciones.
 /// Esto hace el manejo de errores explícito y testeable.
+library;
 
 sealed class Failure {
   const Failure(this.mensaje);

@@ -2,6 +2,7 @@
 ///
 /// Verifica que los valores string coincidan exactamente con los del backend
 /// (app/enums.py). Si el backend cambia un valor, este test falla primero.
+library;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';

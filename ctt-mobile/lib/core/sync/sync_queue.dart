@@ -3,6 +3,7 @@
 /// Todos los cambios del usuario se registran aquí PRIMERO (en Drift),
 /// antes de intentar enviarlos al API. Garantiza que ningún cambio se pierde
 /// aunque la conexión caiga a mitad de una operación.
+library;
 
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 

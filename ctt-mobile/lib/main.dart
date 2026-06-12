@@ -8,8 +8,9 @@
 ///
 /// Crashlytics captura todos los errores no controlados.
 /// NUNCA loggear tokens, RUT ni datos personales en los reportes.
+library;
 
-import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -18,7 +19,6 @@ import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
 import 'package:ctt_mobile/app.dart';
 
-/// Wrapper para capturar errores async fuera del árbol de widgets.
 Future<void> main() async {
   // Garantiza que los bindings estén listos antes de cualquier await.
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,12 +43,11 @@ void _configurarCrashlytics() {
   FlutterError.onError = crashlytics.recordFlutterFatalError;
 
   // Captura errores Dart asíncronos fuera del árbol de widgets.
-  PlatformDispatcher.instance.onError = (error, stack) {
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     crashlytics.recordError(error, stack, fatal: true);
     return true;
   };
 
   // En debug/profile solo colectar, no enviar a Firebase para no contaminar métricas.
-  // En release enviar automáticamente.
   crashlytics.setCrashlyticsCollectionEnabled(Entorno.esRelease);
 }

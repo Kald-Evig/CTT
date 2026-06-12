@@ -3,6 +3,7 @@
 /// La capa de datos lanza excepciones; los repositorios las capturan y las
 /// convierten en Failure (ver failures.dart). Separar excepciones de failures
 /// permite testear cada capa de forma independiente.
+library;
 
 class ExcepcionRed implements Exception {
   const ExcepcionRed([this.mensaje = 'Error de red.']);

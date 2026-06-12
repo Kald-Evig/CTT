@@ -3,6 +3,7 @@
 /// Convierte respuestas de error en excepciones tipadas para que los
 /// repositorios las transformen en Failure. El logging solo ocurre en
 /// modo debug — NUNCA loggear tokens ni payloads en release.
+library;
 
 import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
@@ -37,31 +38,33 @@ class ErrorInterceptor extends Interceptor {
           requestOptions: err.requestOptions,
           error: const ExcepcionNoAutorizado(),
           type: DioExceptionType.badResponse,
-        ));
+        ),);
       case 403:
         handler.reject(DioException(
           requestOptions: err.requestOptions,
           error: const ExcepcionSinPermiso(),
           type: DioExceptionType.badResponse,
-        ));
+        ),);
       case 422:
-        // FastAPI devuelve validación Pydantic en detail.
-        final detalle = err.response?.data?['detail']?.toString() ??
-            'Datos inválidos.';
+        // FastAPI devuelve validación Pydantic en el campo detail.
+        final detalle =
+            (err.response?.data as Map<String, dynamic>?)?['detail']
+                ?.toString() ??
+                'Datos inválidos.';
         handler.reject(DioException(
           requestOptions: err.requestOptions,
           error: ExcepcionValidacion(detalle),
           type: DioExceptionType.badResponse,
-        ));
-      case >= 500:
+        ),);
+      case final int code when code >= 500:
         handler.reject(DioException(
           requestOptions: err.requestOptions,
           error: ExcepcionServidor(
             'Error interno del servidor.',
-            codigoHttp: codigoHttp,
+            codigoHttp: code,
           ),
           type: DioExceptionType.badResponse,
-        ));
+        ),);
       default:
         // Sin respuesta (timeout, sin conexión).
         if (err.type == DioExceptionType.connectionTimeout ||
@@ -69,9 +72,11 @@ class ErrorInterceptor extends Interceptor {
             err.type == DioExceptionType.connectionError) {
           handler.reject(DioException(
             requestOptions: err.requestOptions,
-            error: const ExcepcionRed('Sin conexión o tiempo de espera agotado.'),
+            error: const ExcepcionRed(
+              'Sin conexión o tiempo de espera agotado.',
+            ),
             type: err.type,
-          ));
+          ),);
         } else {
           handler.next(err);
         }

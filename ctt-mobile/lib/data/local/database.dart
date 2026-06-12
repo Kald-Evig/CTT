@@ -6,6 +6,7 @@
 /// TODO Fase 1.5: integrar SQLCipher cuando se almacenen RUT y ubicación
 /// de trabajadores — datos personales que exigen cifrado en reposo (Ley 19.628).
 /// Ver: https://drift.simonbinder.eu/docs/platforms/encryption/
+library;
 
 import 'dart:io';
 import 'package:drift/drift.dart';
@@ -91,7 +92,7 @@ class UsuarioActivoTable extends Table {
   SyncPendientesTable,
   ItemsCacheTable,
   UsuarioActivoTable,
-])
+],)
 class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT() : super(_abrirConexion());
 

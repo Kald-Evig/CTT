@@ -3,6 +3,7 @@
 /// La URL base se configura aquí. Para cambiarla sin recompilar se puede usar
 /// --dart-define=API_BASE_URL=https://... al hacer flutter run/build.
 /// Nunca hardcodear credenciales ni tokens en este archivo.
+library;
 
 class Entorno {
   Entorno._();

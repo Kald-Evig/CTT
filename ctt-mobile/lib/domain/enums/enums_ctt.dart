@@ -3,6 +3,7 @@
 /// Espejo EXACTO de app/enums.py del backend. Los valores string coinciden
 /// con los que envía/recibe la API; fromString() permite deserialización JSON.
 /// Si el backend agrega un valor nuevo, agregarlo aquí también.
+library;
 
 // ── Rol de empresa ────────────────────────────────────────────────────────────
 /// Roles a nivel de empresa (tabla empresa_usuario.rol).
@@ -17,9 +18,10 @@ enum RolUsuario {
   const RolUsuario(this.valor);
   final String valor;
 
-  static RolUsuario fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('RolUsuario desconocido: $s'));
+  static RolUsuario fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('RolUsuario desconocido: $s'),
+      );
 }
 
 // ── Plan de empresa ───────────────────────────────────────────────────────────
@@ -31,9 +33,10 @@ enum PlanEmpresa {
   const PlanEmpresa(this.valor);
   final String valor;
 
-  static PlanEmpresa fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('PlanEmpresa desconocido: $s'));
+  static PlanEmpresa fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('PlanEmpresa desconocido: $s'),
+      );
 }
 
 // ── Estado de empresa ─────────────────────────────────────────────────────────
@@ -45,9 +48,10 @@ enum EstadoEmpresa {
   const EstadoEmpresa(this.valor);
   final String valor;
 
-  static EstadoEmpresa fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoEmpresa desconocido: $s'));
+  static EstadoEmpresa fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoEmpresa desconocido: $s'),
+      );
 }
 
 // ── Estado de usuario ─────────────────────────────────────────────────────────
@@ -58,9 +62,10 @@ enum EstadoUsuario {
   const EstadoUsuario(this.valor);
   final String valor;
 
-  static EstadoUsuario fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoUsuario desconocido: $s'));
+  static EstadoUsuario fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoUsuario desconocido: $s'),
+      );
 }
 
 // ── Estado de proyecto ────────────────────────────────────────────────────────
@@ -72,9 +77,10 @@ enum EstadoProyecto {
   const EstadoProyecto(this.valor);
   final String valor;
 
-  static EstadoProyecto fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoProyecto desconocido: $s'));
+  static EstadoProyecto fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoProyecto desconocido: $s'),
+      );
 }
 
 // ── Estado de ítem (máquina de estados Sección 6.2) ──────────────────────────
@@ -91,9 +97,10 @@ enum EstadoItem {
   const EstadoItem(this.valor);
   final String valor;
 
-  static EstadoItem fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoItem desconocido: $s'));
+  static EstadoItem fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoItem desconocido: $s'),
+      );
 }
 
 // ── Estado de problema ────────────────────────────────────────────────────────
@@ -104,9 +111,10 @@ enum EstadoProblema {
   const EstadoProblema(this.valor);
   final String valor;
 
-  static EstadoProblema fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoProblema desconocido: $s'));
+  static EstadoProblema fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoProblema desconocido: $s'),
+      );
 }
 
 // ── Estado de sync de evidencia (fotos offline) ───────────────────────────────
@@ -118,9 +126,10 @@ enum EstadoSyncEvidencia {
   const EstadoSyncEvidencia(this.valor);
   final String valor;
 
-  static EstadoSyncEvidencia fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoSyncEvidencia desconocido: $s'));
+  static EstadoSyncEvidencia fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoSyncEvidencia desconocido: $s'),
+      );
 }
 
 // ── Estado de conflicto de sync ───────────────────────────────────────────────
@@ -131,9 +140,10 @@ enum EstadoConflicto {
   const EstadoConflicto(this.valor);
   final String valor;
 
-  static EstadoConflicto fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoConflicto desconocido: $s'));
+  static EstadoConflicto fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoConflicto desconocido: $s'),
+      );
 }
 
 // ── Estado de sync local (cola de sincronización) ─────────────────────────────
@@ -150,7 +160,8 @@ enum EstadoSyncLocal {
   const EstadoSyncLocal(this.valor);
   final String valor;
 
-  static EstadoSyncLocal fromString(String s) =>
-      values.firstWhere((e) => e.valor == s,
-          orElse: () => throw ArgumentError('EstadoSyncLocal desconocido: $s'));
+  static EstadoSyncLocal fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('EstadoSyncLocal desconocido: $s'),
+      );
 }

@@ -2,6 +2,7 @@
 ///
 /// El GoRouter redirige al usuario según su rol autenticado.
 /// Las rutas privadas comprueban el estado de auth en cada navegación.
+library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

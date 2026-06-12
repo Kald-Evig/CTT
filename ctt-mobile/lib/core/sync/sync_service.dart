@@ -9,10 +9,10 @@
 ///   3. Enviar cada cambio al API.
 ///   4. Marcar como sincronizado o aplicar backoff exponencial en error.
 ///   5. Detectar conflictos (HTTP 409 del backend) y marcarlos para resolución.
+library;
 
 import 'dart:math';
 import 'package:workmanager/workmanager.dart';
-import 'package:logger/logger.dart';
 
 // Nombre único para identificar la tarea periódica en WorkManager.
 const _taskNameSync = 'cl.ctt.sync.periodico';
@@ -78,14 +78,20 @@ void _callbackDispatcher() {
 Future<void> _ejecutarCicloSync() async {
   // TODO Fase 1.3: implementar ciclo completo:
   //   1. final pendientes = await syncDao.obtenerPendientesOrdenados();
-  //   2. for (final cambio in pendientes) { await _enviarCambio(cambio); }
-  //
-  // El orden FIFO (por timestampDispositivo ASC) es crítico para consistencia.
+  //   2. for (final cambio in pendientes) {
+  //        if (cambio.reintentos >= _maxReintentos) continue;
+  //        final espera = _backoffExponencial(cambio.reintentos);
+  //        await Future<void>.delayed(espera);
+  //        await _enviarCambio(cambio);
+  //      }
 }
 
 /// Calcula espera de backoff exponencial con jitter para evitar thundering herd.
+// ignore: unused_element
 Duration _backoffExponencial(int reintentos) {
-  final base = Duration(seconds: 10 * pow(2, reintentos).toInt());
+  // Acotar reintentos al máximo para evitar esperas astronómicas.
+  final intentos = reintentos.clamp(0, _maxReintentos);
+  final base = Duration(seconds: 10 * pow(2, intentos).toInt());
   final jitter = Duration(milliseconds: Random().nextInt(1000));
   // Máximo 10 minutos para no bloquear sync demasiado tiempo.
   return base + jitter > const Duration(minutes: 10)

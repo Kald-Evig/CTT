@@ -3,6 +3,7 @@
 /// Usa flutter_secure_storage con encryptedSharedPreferences en Android
 /// (cifrado AES a través del Keystore del sistema).
 /// NUNCA almacenar RUT ni datos personales aquí — solo credenciales de sesión.
+library;
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 

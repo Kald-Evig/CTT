@@ -3,6 +3,7 @@
 /// Lee el token desde SecureStorageService y lo adjunta a cada request.
 /// También agrega el header X-Empresa-Id cuando el usuario pertenece a
 /// múltiples empresas (flujo multi-tenant del backend).
+library;
 
 import 'package:dio/dio.dart';
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
