@@ -24,12 +24,7 @@ const _maxReintentos = 5;
 /// Inicializa WorkManager y registra la tarea periódica de sync.
 /// Llamar una sola vez en main.dart después de inicializar Firebase.
 Future<void> inicializarSyncService() async {
-  await Workmanager().initialize(
-    _callbackDispatcher,
-    // isInDebugMode muestra notificaciones de WorkManager en Android —
-    // útil durante desarrollo, desactivar en release.
-    isInDebugMode: false,
-  );
+  await Workmanager().initialize(_callbackDispatcher);
 
   await _registrarTareaSync();
 }
@@ -46,8 +41,8 @@ Future<void> _registrarTareaSync() async {
       networkType: NetworkType.connected,
       requiresBatteryNotLow: true,
     ),
-    // ExistingWorkPolicy.keep: si ya existe una tarea registrada, no duplicar.
-    existingWorkPolicy: ExistingWorkPolicy.keep,
+    // ExistingPeriodicWorkPolicy.keep: si ya existe una tarea registrada, no duplicar.
+    existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
   );
 }
 

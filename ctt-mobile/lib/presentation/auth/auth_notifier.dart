@@ -33,7 +33,7 @@ class AuthNotifier extends _$AuthNotifier {
     required String password,
   }) async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async {
+    try {
       final credential =
           await fb.FirebaseAuth.instance.signInWithEmailAndPassword(
         email: email,
@@ -44,17 +44,20 @@ class AuthNotifier extends _$AuthNotifier {
       // TODO backend: cambiar a user.getIdToken() cuando AUTH_MODE=firebase.
       await storage.guardarToken(user.uid);
       await storage.guardarFirebaseUid(user.uid);
-    });
+      // Invalida el notifier — build() reinicia el estado sin "Future already completed".
+      ref.invalidateSelf();
+    } catch (e, st) {
+      state = AsyncError(e, st);
+    }
   }
 
   /// Cierra sesión en Firebase y limpia todos los datos de sesión locales.
   Future<void> cerrarSesion() async {
-    state = const AsyncLoading();
     final storage = ref.read(secureStorageProvider);
     await Future.wait([
       fb.FirebaseAuth.instance.signOut(),
       storage.limpiarSesion(),
     ]);
-    state = const AsyncData(null);
+    ref.invalidateSelf();
   }
 }

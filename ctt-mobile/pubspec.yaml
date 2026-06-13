@@ -34,10 +34,10 @@ dependencies:
   flutter_secure_storage: ^9.2.2
 
   # Sync en background (WorkManager)
-  workmanager: ^0.5.2
+  workmanager: ^0.9.0
 
   # Conectividad
-  connectivity_plus: ^6.1.0
+  connectivity_plus: ^7.0.0
 
   # Imágenes / evidencias
   flutter_image_compress: ^2.3.0
