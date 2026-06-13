@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
+import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 
 part 'app.g.dart';
 
@@ -70,7 +71,7 @@ GoRouter router(RouterRef ref) {
     routes: [
       GoRoute(
         path: Rutas.login,
-        builder: (_, __) => const _PantallaPlaceholder(titulo: 'Iniciar Sesión'),
+        builder: (_, __) => const LoginScreen(),
       ),
       GoRoute(
         path: Rutas.inicio,
