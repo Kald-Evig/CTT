@@ -17,13 +17,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
+import 'package:ctt_mobile/firebase_options.dart';
 import 'package:ctt_mobile/app.dart';
 
 Future<void> main() async {
   // Garantiza que los bindings estén listos antes de cualquier await.
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   _configurarCrashlytics();
 

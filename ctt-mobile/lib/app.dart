@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 
 part 'app.g.dart';
 
@@ -15,6 +16,8 @@ part 'app.g.dart';
 
 abstract final class Rutas {
   static const login = '/login';
+  /// Pantalla genérica para autenticados sin rol conocido (hasta que /me esté implementado).
+  static const inicio = '/inicio';
   static const trabajador = '/trabajador';
   static const residente = '/residente';
   static const coordinador = '/coordinador';
@@ -29,15 +32,18 @@ enum EstadoAuth { cargando, autenticado, sinSesion }
 
 @riverpod
 EstadoAuth estadoAuth(EstadoAuthRef ref) {
-  // TODO Fase 1.2: observar FirebaseAuth.instance.authStateChanges()
-  // y resolver el rol desde el perfil guardado en Drift.
-  return EstadoAuth.sinSesion;
+  final userAsync = ref.watch(firebaseAuthStreamProvider);
+  return userAsync.when(
+    data: (user) => user != null ? EstadoAuth.autenticado : EstadoAuth.sinSesion,
+    loading: () => EstadoAuth.cargando,
+    error: (_, __) => EstadoAuth.sinSesion,
+  );
 }
 
-/// Rol del usuario autenticado. Null si no hay sesión.
+/// Rol del usuario autenticado. Null hasta que /me esté implementado en el backend.
 @riverpod
 String? rolUsuarioActual(RolUsuarioActualRef ref) {
-  // TODO Fase 1.2: leer de UsuarioActivoTable en Drift.
+  // TODO Fase 1.3: leer de UsuarioActivoTable en Drift tras fetch de /me.
   return null;
 }
 
@@ -67,6 +73,10 @@ GoRouter router(RouterRef ref) {
         builder: (_, __) => const _PantallaPlaceholder(titulo: 'Iniciar Sesión'),
       ),
       GoRoute(
+        path: Rutas.inicio,
+        builder: (_, __) => const _PantallaPlaceholder(titulo: 'Inicio'),
+      ),
+      GoRoute(
         path: Rutas.trabajador,
         builder: (_, __) => const _PantallaPlaceholder(titulo: 'Trabajador'),
       ),
@@ -93,7 +103,8 @@ String _rutaPorRol(String? rol) {
     'residente' => Rutas.residente,
     'coordinador' => Rutas.coordinador,
     'admin' => Rutas.admin,
-    _ => Rutas.login,
+    // Sin rol conocido: pantalla genérica hasta que /me esté implementado.
+    _ => Rutas.inicio,
   };
 }
 
