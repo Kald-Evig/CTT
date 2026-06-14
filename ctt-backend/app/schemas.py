@@ -144,3 +144,26 @@ class NotificacionOut(BaseModel):
     cuerpo: str | None
     leida: bool
     created_at: datetime
+
+
+# ── GET /me ──────────────────────────────────────────────────────────────────
+class MeUsuarioOut(BaseModel):
+    """Datos del usuario autenticado. No incluye RUT (dato sensible, sin consumidor MVP)."""
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    nombre_completo: str
+    email: str
+    es_super_admin: bool
+
+
+class EmpresaMeOut(BaseModel):
+    """Una empresa a la que pertenece el usuario autenticado (solo activas y no suspendidas)."""
+    empresa_id: str
+    empresa_nombre: str
+    rol: Rol
+
+
+class MeOut(BaseModel):
+    """Respuesta completa de GET /me."""
+    usuario: MeUsuarioOut
+    empresas: list[EmpresaMeOut]

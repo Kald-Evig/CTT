@@ -17,7 +17,7 @@ from app.database import Base, engine
 # Importar modelos registra las tablas en la metadata de Base.
 from app import models  # noqa: F401
 from app.routers import (
-    items, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
+    items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
 )
 
 app = FastAPI(
@@ -34,8 +34,8 @@ app = FastAPI(
 Base.metadata.create_all(bind=engine)
 
 # Montaje de routers.
-for r in (plataforma.router, usuarios.router, proyectos.router, items.router,
-          sync.router, reportes.router, notificaciones.router):
+for r in (plataforma.router, me.router, usuarios.router, proyectos.router,
+          items.router, sync.router, reportes.router, notificaciones.router):
     app.include_router(r)
 
 

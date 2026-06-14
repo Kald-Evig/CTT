@@ -119,6 +119,22 @@ def get_current_context(
     )
 
 
+def get_usuario_actual(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    """Dependencia ligera: resuelve el usuario desde el token sin requerir empresa activa.
+
+    Diferencia con get_current_context: no valida membresías — permite que /me
+    devuelva lista vacía de empresas sin rechazar la petición con 403.
+    """
+    uid = _resolver_uid(authorization)
+    usuario = db.query(Usuario).filter(Usuario.firebase_uid == uid).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    return usuario
+
+
 def requiere_empresa(ctx: AuthContext) -> str:
     """Helper: asegura que hay una empresa activa y devuelve su id.
 
