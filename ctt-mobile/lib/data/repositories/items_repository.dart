@@ -132,6 +132,7 @@ class ItemsRepository {
       ItemsCacheTableCompanion.insert(
         id: json['id'] as String,
         proyectoId: json['proyecto_id'] as String,
+        proyectoNombre: Value(json['proyecto_nombre'] as String? ?? ''),
         parentItemId: Value(json['parent_item_id'] as String?),
         nivelProfundidad: Value(json['nivel_profundidad'] as int? ?? 0),
         nombre: json['nombre'] as String,

@@ -53,6 +53,7 @@ class ItemsCacheTable extends Table {
 
   TextColumn get id => text()();
   TextColumn get proyectoId => text()();
+  TextColumn get proyectoNombre => text().withDefault(const Constant(''))();
   TextColumn get parentItemId => text().nullable()();
   IntColumn get nivelProfundidad => integer().withDefault(const Constant(0))();
   TextColumn get nombre => text()();
@@ -112,13 +113,15 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT() : super(_abrirConexion());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
         onUpgrade: (m, desde, hasta) async {
-          // TODO: agregar migraciones incrementales al subir schemaVersion.
+          if (desde < 2) {
+            await m.addColumn(itemsCacheTable, itemsCacheTable.proyectoNombre);
+          }
         },
       );
 }

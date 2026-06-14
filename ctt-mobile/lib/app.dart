@@ -13,6 +13,8 @@ import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
+import 'package:ctt_mobile/presentation/trabajador/detalle_item_screen.dart';
+import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
 part 'app.g.dart';
 
@@ -114,7 +116,14 @@ GoRouter router(RouterRef ref) {
       ),
       GoRoute(
         path: Rutas.trabajador,
-        builder: (_, __) => const _PantallaPlaceholder(titulo: 'Trabajador'),
+        builder: (_, __) => const MisItemsScreen(),
+        routes: [
+          GoRoute(
+            path: ':itemId',
+            builder: (_, state) =>
+                DetalleItemScreen(itemId: state.pathParameters['itemId']!),
+          ),
+        ],
       ),
       GoRoute(
         path: Rutas.residente,
