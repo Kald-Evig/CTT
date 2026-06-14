@@ -11,6 +11,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
+import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
+import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
 
 part 'app.g.dart';
 
@@ -18,7 +20,7 @@ part 'app.g.dart';
 
 abstract final class Rutas {
   static const login = '/login';
-  /// Pantalla genérica para autenticados sin rol conocido (hasta que /me esté implementado).
+  static const seleccionEmpresa = '/seleccion-empresa';
   static const inicio = '/inicio';
   static const trabajador = '/trabajador';
   static const residente = '/residente';
@@ -49,15 +51,16 @@ EstadoAuth estadoAuth(EstadoAuthRef ref) {
   );
 }
 
-/// Rol del usuario en la empresa activa (primera empresa de la lista del perfil).
-/// Null si no hay sesión, si /me aún está cargando o si la lista de empresas está vacía.
+/// Rol en la empresa activa; null mientras no haya empresa seleccionada.
 @riverpod
 String? rolUsuarioActual(RolUsuarioActualRef ref) {
   final perfil = ref.watch(perfilSesionProvider).valueOrNull;
-  if (perfil == null || perfil.empresas.isEmpty) return null;
-  // Auto-selecciona la primera empresa.
-  // TODO Fase 2: pantalla de selección cuando empresas.length > 1.
-  return perfil.empresas.first.rol.valor;
+  final empresaActivaId = ref.watch(empresaActivaProvider);
+  if (perfil == null || empresaActivaId == null) return null;
+  final empresa = perfil.empresas
+      .where((e) => e.empresaId == empresaActivaId)
+      .firstOrNull;
+  return empresa?.rol.valor;
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -66,6 +69,8 @@ String? rolUsuarioActual(RolUsuarioActualRef ref) {
 GoRouter router(RouterRef ref) {
   final auth = ref.watch(estadoAuthProvider);
   final rol = ref.watch(rolUsuarioActualProvider);
+  final perfil = ref.watch(perfilSesionProvider).valueOrNull;
+  final empresaActiva = ref.watch(empresaActivaProvider);
 
   return GoRouter(
     initialLocation: Rutas.login,
@@ -73,10 +78,24 @@ GoRouter router(RouterRef ref) {
       if (auth == EstadoAuth.cargando) return null;
 
       final sinSesion = auth == EstadoAuth.sinSesion;
-      final enLogin = state.matchedLocation == Rutas.login;
+      final ubicacion = state.matchedLocation;
 
-      if (sinSesion && !enLogin) return Rutas.login;
-      if (!sinSesion && enLogin) return _rutaPorRol(rol);
+      // Sin sesión: siempre al login.
+      if (sinSesion) {
+        return ubicacion == Rutas.login ? null : Rutas.login;
+      }
+
+      // Autenticado pero necesita elegir empresa.
+      final multiEmpresa = (perfil?.empresas.length ?? 0) > 1;
+      final necesitaSeleccion = multiEmpresa && empresaActiva == null;
+      if (necesitaSeleccion) {
+        return ubicacion == Rutas.seleccionEmpresa ? null : Rutas.seleccionEmpresa;
+      }
+
+      // Autenticado con empresa activa: salir del login y de la selección.
+      if (ubicacion == Rutas.login || ubicacion == Rutas.seleccionEmpresa) {
+        return _rutaPorRol(rol);
+      }
 
       return null;
     },
@@ -84,6 +103,10 @@ GoRouter router(RouterRef ref) {
       GoRoute(
         path: Rutas.login,
         builder: (_, __) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: Rutas.seleccionEmpresa,
+        builder: (_, __) => const SeleccionEmpresaScreen(),
       ),
       GoRoute(
         path: Rutas.inicio,

@@ -29,9 +29,10 @@ class PerfilSesion extends _$PerfilSesion {
     final dao = ref.read(usuarioActivoDaoProvider);
     final perfil = await repo.obtenerPerfil();
 
-    final empresa = perfil.empresas.isNotEmpty ? perfil.empresas.first : null;
-
-    // Persistir empresa activa para AuthInterceptor (X-Empresa-Id).
+    // Persistir empresa en SecureStorage solo cuando hay una sola.
+    // Con múltiples empresas, el usuario elige en SeleccionEmpresaScreen
+    // y EmpresaActivaNotifier guarda la elección ahí.
+    final empresa = perfil.empresas.length == 1 ? perfil.empresas.first : null;
     if (empresa != null) {
       await storage.guardarEmpresaId(empresa.empresaId);
     }
