@@ -27,7 +27,7 @@ from app.notifications import notificar
 from app.permissions import puede
 from app.schemas import (
     AsignarItemIn, ComentarioIn, EvidenciaIn, HistorialOut, ItemCreate, ItemOut,
-    TransicionIn,
+    MisItemOut, TransicionIn,
 )
 from app.state_machine import (
     TransicionInvalida, cerrar_problema, revertir_terminado, transicionar,
@@ -121,6 +121,44 @@ def listar_items(
     if estado is not None:
         q = q.filter(Item.estado == estado)
     return q.order_by(Item.orden).all()
+
+
+@router.get("/mis-items", response_model=list[MisItemOut])
+def mis_items(
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Ítems asignados al usuario autenticado en la empresa activa.
+
+    Incluye proyecto_nombre para que el cliente pueda agrupar sin consultas
+    adicionales. Devuelve todos los estados (el cliente filtra según vista).
+    """
+    empresa_id = requiere_empresa(ctx)
+    filas = (
+        db.query(Item, Proyecto.nombre)
+        .join(Proyecto, Item.proyecto_id == Proyecto.id)
+        .filter(
+            Proyecto.empresa_id == empresa_id,
+            Item.asignado_a == ctx.usuario.id,
+        )
+        .order_by(Item.orden, Item.created_at)
+        .all()
+    )
+    return [
+        MisItemOut(
+            id=item.id,
+            proyecto_id=item.proyecto_id,
+            proyecto_nombre=nombre,
+            parent_item_id=item.parent_item_id,
+            nivel_profundidad=item.nivel_profundidad,
+            nombre=item.nombre,
+            descripcion=item.descripcion,
+            asignado_a=item.asignado_a,
+            estado=item.estado,
+            fecha_limite=item.fecha_limite,
+        )
+        for item, nombre in filas
+    ]
 
 
 @router.get("/{item_id}", response_model=ItemOut)

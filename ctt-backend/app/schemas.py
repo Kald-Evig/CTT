@@ -146,6 +146,21 @@ class NotificacionOut(BaseModel):
     created_at: datetime
 
 
+# ── GET /items/mis-items ─────────────────────────────────────────────────────
+class MisItemOut(BaseModel):
+    """Ítem asignado al usuario autenticado, con nombre del proyecto incluido."""
+    id: str
+    proyecto_id: str
+    proyecto_nombre: str
+    parent_item_id: str | None
+    nivel_profundidad: int
+    nombre: str
+    descripcion: str | None
+    asignado_a: str | None
+    estado: ItemEstado
+    fecha_limite: date | None
+
+
 # ── GET /me ──────────────────────────────────────────────────────────────────
 class MeUsuarioOut(BaseModel):
     """Datos del usuario autenticado. No incluye RUT (dato sensible, sin consumidor MVP)."""
