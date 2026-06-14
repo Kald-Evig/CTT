@@ -13,6 +13,10 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
+import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
 
 part 'database.g.dart';
 
@@ -88,10 +92,21 @@ class UsuarioActivoTable extends Table {
 
 // ── Base de datos ─────────────────────────────────────────────────────────────
 
+@riverpod
+BaseDatosCTT baseDatosCTT(BaseDatosCTTRef ref) {
+  final db = BaseDatosCTT();
+  ref.onDispose(db.close);
+  return db;
+}
+
 @DriftDatabase(tables: [
   SyncPendientesTable,
   ItemsCacheTable,
   UsuarioActivoTable,
+], daos: [
+  SyncDao,
+  ItemsCacheDao,
+  UsuarioActivoDao,
 ],)
 class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT() : super(_abrirConexion());

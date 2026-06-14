@@ -57,6 +57,9 @@ dependencies:
   # Logging
   logger: ^2.4.0
 
+  # UUIDs (device_id, sync queue IDs)
+  uuid: ^4.5.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

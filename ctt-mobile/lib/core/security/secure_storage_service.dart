@@ -47,6 +47,13 @@ class SecureStorageService {
 
   Future<String?> obtenerFirebaseUid() => _storage.read(key: _claveFirebaseUid);
 
+  // ── Claves genéricas (para DeviceIdService y usos internos) ─────────────────
+
+  Future<String?> leerClave(String clave) => _storage.read(key: clave);
+
+  Future<void> escribirClave(String clave, String valor) =>
+      _storage.write(key: clave, value: valor);
+
   // ── Logout: limpia TODOS los datos del usuario ────────────────────────────
 
   /// Elimina token, empresa, usuario y firebase uid.

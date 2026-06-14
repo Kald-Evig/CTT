@@ -146,6 +146,34 @@ enum EstadoConflicto {
       );
 }
 
+// ── Tipo de entidad en la cola de sync ───────────────────────────────────────
+enum TipoEntidad {
+  item('item'),
+  evidencia('evidencia');
+
+  const TipoEntidad(this.valor);
+  final String valor;
+
+  static TipoEntidad fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('TipoEntidad desconocido: $s'),
+      );
+}
+
+// ── Acción de sync en la cola ─────────────────────────────────────────────────
+enum AccionSync {
+  cambioEstadoItem('cambio_estado_item'),
+  subirFoto('subir_foto');
+
+  const AccionSync(this.valor);
+  final String valor;
+
+  static AccionSync fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('AccionSync desconocido: $s'),
+      );
+}
+
 // ── Estado de sync local (cola de sincronización) ─────────────────────────────
 /// Estado de un registro en la cola local de sync (no existe en backend,
 /// es gestión interna del dispositivo).

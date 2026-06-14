@@ -6,6 +6,7 @@ library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
 import 'package:ctt_mobile/data/repositories/perfil_repository.dart';
 import 'package:ctt_mobile/domain/entities/perfil_usuario.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
@@ -16,21 +17,33 @@ part 'perfil_notifier.g.dart';
 class PerfilSesion extends _$PerfilSesion {
   @override
   Future<PerfilUsuario?> build() async {
-    // Reacciona a cada cambio del stream de Firebase (login / logout / token refresh).
     final usuario = await ref.watch(firebaseAuthStreamProvider.future);
-    if (usuario == null) return null;
+    if (usuario == null) {
+      // Limpiar perfil local al cerrar sesión.
+      await ref.read(usuarioActivoDaoProvider).limpiar();
+      return null;
+    }
 
     final repo = ref.read(perfilRepositoryProvider);
     final storage = ref.read(secureStorageProvider);
+    final dao = ref.read(usuarioActivoDaoProvider);
     final perfil = await repo.obtenerPerfil();
 
-    // Persistir empresa activa para que AuthInterceptor adjunte X-Empresa-Id.
-    // Si el usuario pertenece a múltiples empresas, se usa la primera
-    // (TODO: pantalla de selección de empresa en Fase 2).
-    if (perfil.empresas.isNotEmpty) {
-      await storage.guardarEmpresaId(perfil.empresas.first.empresaId);
+    final empresa = perfil.empresas.isNotEmpty ? perfil.empresas.first : null;
+
+    // Persistir empresa activa para AuthInterceptor (X-Empresa-Id).
+    if (empresa != null) {
+      await storage.guardarEmpresaId(empresa.empresaId);
     }
     await storage.guardarUsuarioId(perfil.id);
+
+    // Persistir sesión en Drift para acceso offline.
+    await dao.guardarPerfil(
+      perfil: perfil,
+      empresaId: empresa?.empresaId ?? '',
+      empresaNombre: empresa?.empresaNombre ?? '',
+      rolActual: empresa?.rol.valor ?? '',
+    );
 
     return perfil;
   }
