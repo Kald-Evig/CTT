@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
+import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
 
 part 'app.g.dart';
 
@@ -35,17 +36,28 @@ enum EstadoAuth { cargando, autenticado, sinSesion }
 EstadoAuth estadoAuth(EstadoAuthRef ref) {
   final userAsync = ref.watch(firebaseAuthStreamProvider);
   return userAsync.when(
-    data: (user) => user != null ? EstadoAuth.autenticado : EstadoAuth.sinSesion,
+    data: (user) {
+      if (user == null) return EstadoAuth.sinSesion;
+      // Esperar a que /me complete antes de redirigir al router.
+      // Evita mostrar /inicio como destino intermedio mientras carga el rol.
+      final perfilAsync = ref.watch(perfilSesionProvider);
+      if (perfilAsync.isLoading) return EstadoAuth.cargando;
+      return EstadoAuth.autenticado;
+    },
     loading: () => EstadoAuth.cargando,
     error: (_, __) => EstadoAuth.sinSesion,
   );
 }
 
-/// Rol del usuario autenticado. Null hasta que /me esté implementado en el backend.
+/// Rol del usuario en la empresa activa (primera empresa de la lista del perfil).
+/// Null si no hay sesión, si /me aún está cargando o si la lista de empresas está vacía.
 @riverpod
 String? rolUsuarioActual(RolUsuarioActualRef ref) {
-  // TODO Fase 1.3: leer de UsuarioActivoTable en Drift tras fetch de /me.
-  return null;
+  final perfil = ref.watch(perfilSesionProvider).valueOrNull;
+  if (perfil == null || perfil.empresas.isEmpty) return null;
+  // Auto-selecciona la primera empresa.
+  // TODO Fase 2: pantalla de selección cuando empresas.length > 1.
+  return perfil.empresas.first.rol.valor;
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
