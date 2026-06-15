@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Configuración de seguridad de red.
+    Solo permite cleartext (HTTP) para el host del emulador Android (10.0.2.2).
+    Todo el tráfico restante queda forzado a HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
