@@ -5,21 +5,36 @@ Separan el contrato de la API del modelo ORM. Los modelos *Out usan
 `from_attributes=True` para construirse directamente desde objetos SQLAlchemy.
 """
 
+import re
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.enums import (
     EmpresaPlan, ItemEstado, ProyectoEstado, Rol,
 )
 
+_PATRON_RUT = re.compile(r"^\d{1,3}(?:\.\d{3})*-[\dkK]$")
+
+
+def _validar_rut_chileno(rut: str) -> str:
+    """Acepta formatos '12.345.678-9' y '12345678-9'; normaliza dígito verificador a mayúscula."""
+    if not _PATRON_RUT.match(rut):
+        raise ValueError("RUT inválido. Use el formato 12.345.678-9 o 12345678-9.")
+    return rut.upper()
+
 
 # ── Empresas ─────────────────────────────────────────────────────────────────
 class EmpresaCreate(BaseModel):
-    nombre: str
-    rut_empresa: str
+    nombre: str = Field(min_length=1, max_length=255)
+    rut_empresa: str = Field(min_length=1, max_length=20)
     email_contacto: EmailStr
-    plan: EmpresaPlan = EmpresaPlan.TRIAL
+    plan: EmpresaPlan = Field(default=EmpresaPlan.TRIAL)
+
+    @field_validator("rut_empresa")
+    @classmethod
+    def validar_rut_empresa(cls, v: str) -> str:
+        return _validar_rut_chileno(v)
 
 
 class EmpresaOut(BaseModel):
@@ -34,11 +49,16 @@ class EmpresaOut(BaseModel):
 
 # ── Usuarios ─────────────────────────────────────────────────────────────────
 class UsuarioCreate(BaseModel):
-    nombre_completo: str
-    rut: str | None = None
+    nombre_completo: str = Field(min_length=1, max_length=255)
+    rut: str | None = Field(default=None, max_length=20)
     email: EmailStr
-    telefono: str | None = None
+    telefono: str | None = Field(default=None, max_length=20)
     rol: Rol  # rol con el que se crea en la empresa activa
+
+    @field_validator("rut")
+    @classmethod
+    def validar_rut_usuario(cls, v: str | None) -> str | None:
+        return _validar_rut_chileno(v) if v is not None else v
 
 
 class UsuarioOut(BaseModel):
@@ -52,11 +72,11 @@ class UsuarioOut(BaseModel):
 
 # ── Proyectos ────────────────────────────────────────────────────────────────
 class ProyectoCreate(BaseModel):
-    nombre: str
-    descripcion: str | None = None
-    ubicacion_nombre: str | None = None
-    latitud: float | None = None
-    longitud: float | None = None
+    nombre: str = Field(min_length=1, max_length=255)
+    descripcion: str | None = Field(default=None, max_length=2000)
+    ubicacion_nombre: str | None = Field(default=None, max_length=500)
+    latitud: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitud: float | None = Field(default=None, ge=-180.0, le=180.0)
     coordinador_principal_id: str | None = None
     fecha_inicio: date | None = None
     fecha_fin_estimada: date | None = None
@@ -78,8 +98,8 @@ class ProyectoOut(BaseModel):
 class ItemCreate(BaseModel):
     proyecto_id: str
     parent_item_id: str | None = None
-    nombre: str
-    descripcion: str | None = None
+    nombre: str = Field(min_length=1, max_length=255)
+    descripcion: str | None = Field(default=None, max_length=2000)
     asignado_a: str | None = None
     fecha_limite: date | None = None
     duracion_estimada_horas: float | None = None
@@ -100,23 +120,23 @@ class ItemOut(BaseModel):
 
 
 class AsignarItemIn(BaseModel):
-    usuario_id: str
+    usuario_id: str = Field(min_length=1)
 
 
 class TransicionIn(BaseModel):
     """Cambio de estado de un ítem (Sección 6)."""
     nuevo_estado: ItemEstado
-    comentario: str | None = None              # obligatorio en rechazo
-    descripcion_problema: str | None = None     # obligatorio al marcar problema
+    comentario: str | None = Field(default=None, max_length=1000)
+    descripcion_problema: str | None = Field(default=None, max_length=2000)
 
 
 class ComentarioIn(BaseModel):
-    texto: str = Field(min_length=1)
+    texto: str = Field(min_length=1, max_length=2000)
 
 
 class EvidenciaIn(BaseModel):
     """Registro de una foto subida (la subida binaria va a S3 vía pre-signed URL)."""
-    s3_key: str | None = None
+    s3_key: str | None = Field(default=None, max_length=500)
     device_timestamp: datetime | None = None
 
 

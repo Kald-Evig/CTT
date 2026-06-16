@@ -9,6 +9,8 @@ main.py — Punto de entrada de la API CTT.
   de este entregable de backend.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
@@ -16,6 +18,7 @@ from app.config import settings
 from app.database import Base, engine
 # Importar modelos registra las tablas en la metadata de Base.
 from app import models  # noqa: F401
+from app.middleware.logging_middleware import LoggingMiddleware, configurar_logging
 from app.routers import (
     items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
 )
@@ -29,6 +32,13 @@ app = FastAPI(
         "Modo de autenticación actual: **%s**." % settings.AUTH_MODE
     ),
 )
+
+# Logging de requests a archivo — solo activo en desarrollo (LOG_REQUESTS=true).
+# En producción: LOG_REQUESTS=false en las variables de entorno.
+if settings.LOG_REQUESTS and settings.AUTH_MODE != "firebase":
+    _ruta_logs = Path(__file__).parent.parent / "logs"
+    _log_req, _log_err = configurar_logging(_ruta_logs)
+    app.add_middleware(LoggingMiddleware, log_requests=_log_req, log_errors=_log_err)
 
 # Crear el esquema en la BD. En producción se reemplaza por migraciones Alembic.
 Base.metadata.create_all(bind=engine)

@@ -14,7 +14,7 @@ from app.enums import ProyectoEstado
 from app.models import Proyecto
 from app.permissions import puede
 from app.schemas import ProyectoCreate, ProyectoOut
-from app.tenancy import get_proyecto_de_empresa
+from app.tenancy import get_proyecto_de_empresa, get_usuario_de_empresa
 
 router = APIRouter(prefix="/proyectos", tags=["Proyectos"])
 
@@ -29,6 +29,10 @@ def crear_proyecto(
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "crear_editar_proyecto"):
         raise HTTPException(403, "Su rol no puede crear proyectos.")
+
+    # Validar que el coordinador pertenece a la misma empresa (Sección 4.2).
+    if body.coordinador_principal_id:
+        get_usuario_de_empresa(db, body.coordinador_principal_id, empresa_id)
 
     proyecto = Proyecto(
         empresa_id=empresa_id,

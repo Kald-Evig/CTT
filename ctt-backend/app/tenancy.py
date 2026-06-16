@@ -10,7 +10,8 @@ Sección 4.2).
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Item, Proyecto
+from app.enums import UsuarioEstado
+from app.models import EmpresaUsuario, Item, Proyecto
 
 
 def get_proyecto_de_empresa(db: Session, proyecto_id: str, empresa_id: str) -> Proyecto:
@@ -26,6 +27,25 @@ def get_proyecto_de_empresa(db: Session, proyecto_id: str, empresa_id: str) -> P
     if proyecto is None:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado.")
     return proyecto
+
+
+def get_usuario_de_empresa(db: Session, usuario_id: str, empresa_id: str) -> None:
+    """Valida que un usuario pertenece a la empresa activa y está ACTIVO.
+
+    Lanza 404 (no 403) para no revelar la existencia de usuarios de otra empresa.
+    Se usa antes de asignar un usuario a un ítem o proyecto.
+    """
+    membresia = (
+        db.query(EmpresaUsuario)
+        .filter(
+            EmpresaUsuario.empresa_id == empresa_id,
+            EmpresaUsuario.usuario_id == usuario_id,
+            EmpresaUsuario.estado == UsuarioEstado.ACTIVO,
+        )
+        .first()
+    )
+    if membresia is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado en la empresa.")
 
 
 def get_item_de_empresa(db: Session, item_id: str, empresa_id: str) -> Item:

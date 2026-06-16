@@ -1,0 +1,30 @@
+# Dependencias
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Base de datos local
+*.db
+*.db-shm
+*.db-wal
+
+# Logs de desarrollo — nunca commitear
+logs/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Herramientas
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/

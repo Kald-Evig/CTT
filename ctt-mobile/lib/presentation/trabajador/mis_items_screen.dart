@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
 class MisItemsScreen extends ConsumerWidget {
@@ -25,6 +26,11 @@ class MisItemsScreen extends ConsumerWidget {
             icon: const Icon(Icons.refresh),
             tooltip: 'Actualizar',
             onPressed: () => ref.invalidate(misItemsProvider),
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+            onPressed: () => _confirmarLogout(context, ref),
           ),
         ],
       ),
@@ -146,6 +152,35 @@ class BadgeEstadoItem extends StatelessWidget {
         'problema' => ('Problema', Colors.red),
         _ => (valor, Colors.grey),
       };
+}
+
+// ── Logout con confirmación ───────────────────────────────────────────────────
+
+/// Muestra un diálogo de confirmación y cierra sesión si el usuario acepta.
+/// El router detecta automáticamente el cambio en el stream de Firebase
+/// y redirige al login — no se necesita navegación manual aquí.
+Future<void> _confirmarLogout(BuildContext context, WidgetRef ref) async {
+  final confirmar = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Cerrar sesión'),
+      content: const Text('¿Estás seguro que deseas cerrar sesión?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancelar'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Cerrar sesión'),
+        ),
+      ],
+    ),
+  );
+  if (confirmar == true) {
+    await ref.read(authNotifierProvider.notifier).cerrarSesion();
+  }
 }
 
 // ── Vista de error con reintento ─────────────────────────────────────────────

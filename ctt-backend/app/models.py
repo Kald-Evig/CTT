@@ -19,8 +19,10 @@ Convenciones:
 import uuid
 from datetime import datetime, timezone
 
+from enum import Enum as PyEnum
+
 from sqlalchemy import (
-    Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Integer,
+    Boolean, Date, DateTime, Enum as _SAEnum, Float, ForeignKey, Integer,
     String, Text, JSON,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,6 +32,16 @@ from app.enums import (
     ConflictoEstado, EmpresaEstado, EmpresaPlan, EvidenciaSyncStatus,
     ItemEstado, ProblemaEstado, ProyectoEstado, Rol, UsuarioEstado,
 )
+
+
+def SAEnum(cls: type[PyEnum], **kw):
+    """Wrapper de SAEnum que almacena los valores del enum (no los nombres).
+
+    Por defecto SQLAlchemy usa el nombre del miembro (p.ej. EN_PROGRESO) pero
+    nuestros enums son str-Enum con valores en snake_case (p.ej. en_progreso).
+    Este wrapper fuerza consistencia entre lo que se guarda y lo que se lee.
+    """
+    return _SAEnum(cls, values_callable=lambda x: [e.value for e in x], **kw)
 
 
 def _uuid() -> str:

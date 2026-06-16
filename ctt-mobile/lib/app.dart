@@ -46,6 +46,8 @@ EstadoAuth estadoAuth(EstadoAuthRef ref) {
       // Evita mostrar /inicio como destino intermedio mientras carga el rol.
       final perfilAsync = ref.watch(perfilSesionProvider);
       if (perfilAsync.isLoading) return EstadoAuth.cargando;
+      // Si /me falla (red caída, 401, etc.) volver al login.
+      if (perfilAsync.hasError) return EstadoAuth.sinSesion;
       return EstadoAuth.autenticado;
     },
     loading: () => EstadoAuth.cargando,

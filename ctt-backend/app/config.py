@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     MAX_NIVEL_PROFUNDIDAD: int = 3          # nivel máximo permitido (0-indexado)
     MAX_HIJOS_DIRECTOS: int = 10            # máx ítems hijos por padre
 
+    # ── Logging de desarrollo ────────────────────────────────────────────────
+    # True  -> activo (default en dev / AUTH_MODE=mock)
+    # False -> desactivar en producción: LOG_REQUESTS=false en las env vars
+    LOG_REQUESTS: bool = True
+
     # ── Metadatos ────────────────────────────────────────────────────────────
     APP_NAME: str = "CTT — Field Service Management"
     APP_VERSION: str = "1.0.0-mvp"
