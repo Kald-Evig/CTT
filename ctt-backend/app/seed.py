@@ -10,8 +10,9 @@ Crea:
   - 1 trabajador ITINERANTE que pertenece a A y a B (Sección 14.3).
   - 1 proyecto (obra de pavimentación MOP) con ítems jerárquicos asignados.
 
-Los firebase_uid son legibles (p.ej. 'uid-coordinador-a') para poder autenticarse
-en la demo con `Authorization: Bearer uid-coordinador-a`.
+Los firebase_uid de los usuarios principales usan los UIDs reales del proyecto
+ctt-mobile-e031d en Firebase Auth (dev/UAT). Los secundarios sin cuenta real
+(residente, trabajador-2, itinerante) conservan placeholders legibles.
 """
 
 from datetime import date, timedelta
@@ -35,7 +36,7 @@ def run():
     try:
         # ── Super Admin ──────────────────────────────────────────────────────
         super_admin = Usuario(
-            firebase_uid="uid-superadmin", nombre_completo="Soporte CTT",
+            firebase_uid="6ypZEPL6GZNRs2SGdgUv7eXb7L63", nombre_completo="Soporte CTT",
             email="soporte@ctt.cl", es_super_admin=True,
         )
         db.add(super_admin)
@@ -51,13 +52,13 @@ def run():
         db.flush()
 
         # ── Usuarios de la Empresa A ─────────────────────────────────────────
-        admin = Usuario(firebase_uid="uid-admin-a", nombre_completo="Patricia Reyes",
+        admin = Usuario(firebase_uid="5ckqCjV7dbMj8oTLZYtJgbYWoRo2", nombre_completo="Patricia Reyes",
                         rut="12.345.678-9", email="patricia@andessur.cl")
-        coord = Usuario(firebase_uid="uid-coordinador-a", nombre_completo="Jorge Muñoz",
+        coord = Usuario(firebase_uid="XvFxadx54MftoMCNUvWotMyDDl12", nombre_completo="Jorge Muñoz",
                         rut="13.456.789-0", email="jorge@andessur.cl")
         resid = Usuario(firebase_uid="uid-residente-a", nombre_completo="Camila Soto",
                         rut="14.567.890-1", email="camila@andessur.cl")
-        trab1 = Usuario(firebase_uid="uid-trabajador-1", nombre_completo="Luis Fuentes",
+        trab1 = Usuario(firebase_uid="pCcukEA7BfP4SiOAZNaeSkxAHY32", nombre_completo="Luis Fuentes",
                         rut="15.678.901-2", email="luis@andessur.cl")
         trab2 = Usuario(firebase_uid="uid-trabajador-2", nombre_completo="Marcos Díaz",
                         rut="16.789.012-3", email="marcos@andessur.cl")
