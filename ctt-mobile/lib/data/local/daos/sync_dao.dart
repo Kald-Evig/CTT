@@ -42,8 +42,17 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         ),
       );
 
-  Future<void> marcarConflicto(String id) =>
-      _actualizarEstado(id, EstadoSyncLocal.conflicto);
+  /// Marca el cambio como conflicto. Si el backend devolvió un conflicto_id
+  /// (concurrencia real), se guarda en ultimoError para diagnóstico.
+  Future<void> marcarConflicto(String id, {String? conflictoId}) =>
+      (update(syncPendientesTable)..where((t) => t.id.equals(id))).write(
+        SyncPendientesTableCompanion(
+          estado: Value(EstadoSyncLocal.conflicto.valor),
+          ultimoError: conflictoId != null
+              ? Value('conflicto_id:$conflictoId')
+              : const Value.absent(),
+        ),
+      );
 
   /// Reactiva entradas en error para que el próximo ciclo las reintente.
   Future<void> reactivarErrores() =>

@@ -74,11 +74,15 @@ class ItemsRepository {
     String? descripcionProblema,
   }) async {
     final deviceId = await deviceIdService.obtener();
+    final ahora = DateTime.now().toUtc();
     final payload = jsonEncode({
       'nuevo_estado': nuevoEstado.valor,
       if (comentario != null) 'comentario': comentario,
       if (descripcionProblema != null)
         'descripcion_problema': descripcionProblema,
+      // Necesarios para detección de conflictos de concurrencia en backend (Sección 8).
+      'device_timestamp': ahora.toIso8601String(),
+      'dispositivo_id': deviceId,
     });
 
     await syncDao.encolar(SyncPendientesTableCompanion.insert(
@@ -87,7 +91,7 @@ class ItemsRepository {
       entidadId: itemId,
       accion: AccionSync.cambioEstadoItem.valor,
       payload: payload,
-      timestampDispositivo: DateTime.now().toUtc(),
+      timestampDispositivo: ahora,
       dispositivoId: deviceId,
     ),);
 

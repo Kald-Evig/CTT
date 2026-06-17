@@ -124,10 +124,17 @@ class AsignarItemIn(BaseModel):
 
 
 class TransicionIn(BaseModel):
-    """Cambio de estado de un ítem (Sección 6)."""
+    """Cambio de estado de un ítem (Sección 6 y 8).
+
+    device_timestamp y dispositivo_id son opcionales: los envía el SyncService
+    cuando aplica cambios encolados offline. Su presencia habilita la detección
+    de conflictos de concurrencia en el backend (Sección 8).
+    """
     nuevo_estado: ItemEstado
     comentario: str | None = Field(default=None, max_length=1000)
     descripcion_problema: str | None = Field(default=None, max_length=2000)
+    device_timestamp: datetime | None = None
+    dispositivo_id: str | None = Field(default=None, max_length=255)
 
 
 class ComentarioIn(BaseModel):

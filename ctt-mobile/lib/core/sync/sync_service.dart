@@ -137,8 +137,12 @@ Future<void> _ejecutarCicloSync() async {
         await db.syncDao.marcarSincronizado(cambio.id);
       } on DioException catch (e) {
         if (e.response?.statusCode == 409) {
-          // Conflicto detectado — requiere resolución manual.
-          await db.syncDao.marcarConflicto(cambio.id);
+          // 409 puede ser conflicto de concurrencia (con conflicto_id) o regla
+          // de negocio. En ambos casos se marca para revisión manual.
+          final body = e.response?.data;
+          final conflictoId =
+              body is Map ? body['conflicto_id'] as String? : null;
+          await db.syncDao.marcarConflicto(cambio.id, conflictoId: conflictoId);
         } else {
           await db.syncDao.marcarError(
             cambio.id,

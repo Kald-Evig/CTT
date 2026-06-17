@@ -21,7 +21,7 @@ from app.database import get_db
 from app.enums import EvidenciaSyncStatus, ItemEstado, Rol
 from app.models import (
     Item, ItemComentario, ItemEvidencia, ItemHistorial, Proyecto, ProyectoUsuario,
-    Usuario,
+    SyncConflicto, Usuario,
 )
 from app.notifications import notificar
 from app.permissions import puede
@@ -216,6 +216,32 @@ def transicion_item(
     empresa_id = requiere_empresa(ctx)
     item = get_item_de_empresa(db, item_id, empresa_id)
     proyecto = db.query(Proyecto).filter(Proyecto.id == item.proyecto_id).first()
+
+    # ── Detección de conflicto de concurrencia (Sección 8) ───────────────────
+    # Si el cliente envía device_timestamp y el ítem fue modificado en el
+    # servidor después de que el dispositivo tomó su snapshot, hay un conflicto.
+    if body.device_timestamp and item.updated_at > body.device_timestamp.replace(tzinfo=None):
+        conflicto = SyncConflicto(
+            item_id=item.id,
+            cambio_local={
+                "estado": body.nuevo_estado.value,
+                "comentario": body.comentario,
+            },
+            cambio_servidor={"estado": item.estado.value},
+            dispositivo_id=body.dispositivo_id or "desconocido",
+            usuario_id=ctx.usuario.id,
+        )
+        db.add(conflicto)
+        db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "tipo": "conflicto_concurrencia",
+                "conflicto_id": conflicto.id,
+                "mensaje": "El ítem fue modificado en el servidor mientras el dispositivo estaba offline.",
+                "estado_servidor": item.estado.value,
+            },
+        )
 
     try:
         transicionar(
