@@ -24,8 +24,15 @@ class PerfilSesion extends _$PerfilSesion {
       return null;
     }
 
-    final repo = ref.read(perfilRepositoryProvider);
     final storage = ref.read(secureStorageProvider);
+    // Race condition: Firebase dispara authStateChanges() antes de que
+    // iniciarSesion() complete el await de guardarToken(). Garantizamos el
+    // token aquí antes de cualquier request a /me.
+    if (await storage.obtenerToken() == null) {
+      await storage.guardarToken(usuario.uid);
+    }
+
+    final repo = ref.read(perfilRepositoryProvider);
     final dao = ref.read(usuarioActivoDaoProvider);
     final perfil = await repo.obtenerPerfil();
 
