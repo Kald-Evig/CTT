@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.database import get_db
-from app.enums import ConflictoEstado, ItemEstado
-from app.models import Item, Proyecto, SyncConflicto
+from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
+from app.models import Item, ItemComentario, ItemProblema, Proyecto, SyncConflicto
 from app.permissions import puede
 from app.schemas import ConflictoResolverIn
 
@@ -28,19 +28,36 @@ router = APIRouter(prefix="/sync", tags=["Sincronización"])
 
 @router.get("/conflictos")
 def listar_conflictos(
+    estado: str | None = None,
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    """Lista los conflictos PENDIENTES de la empresa activa (Coordinador/Admin)."""
+    """Lista conflictos de la empresa activa, filtrables por estado (Coordinador/Admin).
+
+    Si no se especifica ?estado=, devuelve solo los PENDIENTES (comportamiento
+    original, para no romper clientes existentes).
+    """
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "resolver_conflictos_sync"):
         raise HTTPException(403, "Su rol no puede ver/resolver conflictos.")
+
+    if estado is not None:
+        try:
+            filtro_estado = ConflictoEstado(estado)
+        except ValueError:
+            valores = [e.value for e in ConflictoEstado]
+            raise HTTPException(422, f"Estado inválido: '{estado}'. Valores válidos: {valores}")
+    else:
+        filtro_estado = ConflictoEstado.PENDIENTE
+
     conflictos = (
         db.query(SyncConflicto)
         .join(Item, SyncConflicto.item_id == Item.id)
         .join(Proyecto, Item.proyecto_id == Proyecto.id)
-        .filter(Proyecto.empresa_id == empresa_id,
-                SyncConflicto.estado == ConflictoEstado.PENDIENTE)
+        .filter(
+            Proyecto.empresa_id == empresa_id,
+            SyncConflicto.estado == filtro_estado,
+        )
         .all()
     )
     return [
@@ -50,6 +67,9 @@ def listar_conflictos(
             "cambio_local": c.cambio_local,
             "cambio_servidor": c.cambio_servidor,
             "dispositivo_id": c.dispositivo_id,
+            "estado": c.estado.value,
+            "resuelto_por": c.resuelto_por,
+            "resuelto_at": c.resuelto_at,
             "created_at": c.created_at,
         }
         for c in conflictos
@@ -65,9 +85,9 @@ def resolver_conflicto(
 ):
     """Resuelve un conflicto eligiendo la versión local o la del servidor.
 
-    Si gana 'local', se aplica el estado del cambio local al ítem; si gana
-    'servidor', se descarta el cambio local. En ambos casos el conflicto queda
-    marcado como resuelto.
+    Si gana 'local', se aplica el estado de cambio_local al ítem y se preserva
+    el comentario (Fix A). Si gana 'servidor', el ítem no se modifica. En ambos
+    casos se cierran problemas huérfanos (Fix B) y el conflicto queda resuelto.
     """
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "resolver_conflictos_sync"):
@@ -85,17 +105,69 @@ def resolver_conflicto(
     if conflicto.estado == ConflictoEstado.RESUELTO:
         raise HTTPException(409, "El conflicto ya fue resuelto.")
 
+    item = db.query(Item).filter(Item.id == conflicto.item_id).first()
+
     if body.version_ganadora == "local":
-        item = db.query(Item).filter(Item.id == conflicto.item_id).first()
-        nuevo_estado = (conflicto.cambio_local or {}).get("estado")
-        if item and nuevo_estado:
-            # Aplicación directa de la decisión humana (omite la máquina de
-            # estados a propósito: es una resolución administrativa de conflicto).
-            item.estado = ItemEstado(nuevo_estado)
+        # Fix C — antes de aplicar la versión local, verificar que el estado del
+        # servidor no cambió desde que se registró el conflicto. Si cambió, el
+        # Coordinador estaría decidiendo sobre información desactualizada y puede
+        # pisar un cambio posterior legítimo.
+        estado_servidor_capturado = (conflicto.cambio_servidor or {}).get("estado")
+        if estado_servidor_capturado and item.estado.value != estado_servidor_capturado:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"El ítem cambió de estado desde que se registró este conflicto "
+                    f"(capturado: '{estado_servidor_capturado}', actual: '{item.estado.value}'). "
+                    "Refresca la cola de conflictos antes de reintentar."
+                ),
+            )
+
+        nuevo_estado_str = (conflicto.cambio_local or {}).get("estado")
+        if nuevo_estado_str:
+            item.estado = ItemEstado(nuevo_estado_str)
+
+        # Fix A — preservar comentario del cambio local en item_comentarios con
+        # prefijo que lo identifique como proveniente de una resolución de conflicto.
+        comentario_local = (conflicto.cambio_local or {}).get("comentario")
+        if comentario_local:
+            db.add(ItemComentario(
+                item_id=conflicto.item_id,
+                usuario_id=ctx.usuario.id,
+                texto=f"[Resolución de conflicto de sync] {comentario_local}",
+            ))
+
+    # Fix B — cerrar problemas abiertos si el estado final del item no es PROBLEMA.
+    # Si version_ganadora == "servidor", item.estado ya es el estado definitivo
+    # (no se modificó). Si fue "local", item.estado ya refleja el nuevo estado.
+    if item.estado != ItemEstado.PROBLEMA:
+        ahora = datetime.now(timezone.utc)
+        problemas_abiertos = (
+            db.query(ItemProblema)
+            .filter(
+                ItemProblema.item_id == conflicto.item_id,
+                ItemProblema.estado == ProblemaEstado.ABIERTO,
+            )
+            .all()
+        )
+        for problema in problemas_abiertos:
+            problema.estado = ProblemaEstado.CERRADO
+            problema.cerrado_por = ctx.usuario.id
+            problema.cerrado_at = ahora
 
     conflicto.estado = ConflictoEstado.RESUELTO
     conflicto.resuelto_por = ctx.usuario.id
     conflicto.resuelto_at = datetime.now(timezone.utc)
     db.commit()
-    return {"id": conflicto.id, "estado": conflicto.estado.value,
-            "version_ganadora": body.version_ganadora}
+
+    return {
+        "id": conflicto.id,
+        "item_id": conflicto.item_id,
+        "estado": conflicto.estado.value,
+        "version_ganadora": body.version_ganadora,
+        "cambio_local": conflicto.cambio_local,
+        "cambio_servidor": conflicto.cambio_servidor,
+        "dispositivo_id": conflicto.dispositivo_id,
+        "resuelto_por": conflicto.resuelto_por,
+        "resuelto_at": conflicto.resuelto_at,
+    }
