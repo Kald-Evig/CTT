@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.enums import (
-    EmpresaPlan, ItemEstado, ProyectoEstado, Rol,
+    EmpresaPlan, EvidenciaSyncStatus, ItemEstado, ProyectoEstado, Rol,
 )
 
 _PATRON_RUT = re.compile(r"^\d{1,3}(?:\.\d{3})*-[\dkK]$")
@@ -115,6 +115,7 @@ class ItemOut(BaseModel):
     nombre: str
     descripcion: str | None
     asignado_a: str | None
+    asignado_nombre: str | None = None
     estado: ItemEstado
     fecha_limite: date | None
 
@@ -141,10 +142,29 @@ class ComentarioIn(BaseModel):
     texto: str = Field(min_length=1, max_length=2000)
 
 
+class ComentarioOut(BaseModel):
+    id: str
+    usuario_id: str
+    nombre_usuario: str | None
+    texto: str
+    created_at: datetime
+
+
 class EvidenciaIn(BaseModel):
     """Registro de una foto subida (la subida binaria va a S3 vía pre-signed URL)."""
     s3_key: str | None = Field(default=None, max_length=500)
     device_timestamp: datetime | None = None
+
+
+class EvidenciaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    usuario_id: str
+    s3_url: str | None
+    thumbnail_url: str | None
+    sync_status: EvidenciaSyncStatus
+    device_timestamp: datetime
+    created_at: datetime
 
 
 class HistorialOut(BaseModel):
@@ -153,6 +173,8 @@ class HistorialOut(BaseModel):
     estado_anterior: str | None
     estado_nuevo: str | None
     detalle: str | None
+    usuario_id: str | None = None
+    nombre_usuario: str | None = None
     created_at: datetime
 
 

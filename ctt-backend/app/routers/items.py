@@ -26,8 +26,8 @@ from app.models import (
 from app.notifications import notificar
 from app.permissions import puede
 from app.schemas import (
-    AsignarItemIn, ComentarioIn, EvidenciaIn, HistorialOut, ItemCreate, ItemOut,
-    MisItemOut, TransicionIn,
+    AsignarItemIn, ComentarioIn, ComentarioOut, EvidenciaIn, EvidenciaOut,
+    HistorialOut, ItemCreate, ItemOut, MisItemOut, TransicionIn,
 )
 from app.state_machine import (
     TransicionInvalida, cerrar_problema, revertir_terminado, transicionar,
@@ -121,10 +121,29 @@ def listar_items(
     """Lista los ítems de un proyecto, opcionalmente filtrados por estado."""
     empresa_id = requiere_empresa(ctx)
     get_proyecto_de_empresa(db, proyecto_id, empresa_id)  # valida pertenencia
-    q = db.query(Item).filter(Item.proyecto_id == proyecto_id)
+    q = (
+        db.query(Item, Usuario.nombre_completo)
+        .outerjoin(Usuario, Item.asignado_a == Usuario.id)
+        .filter(Item.proyecto_id == proyecto_id)
+    )
     if estado is not None:
         q = q.filter(Item.estado == estado)
-    return q.order_by(Item.orden).all()
+    rows = q.order_by(Item.orden).all()
+    return [
+        {
+            "id": item.id,
+            "proyecto_id": item.proyecto_id,
+            "parent_item_id": item.parent_item_id,
+            "nivel_profundidad": item.nivel_profundidad,
+            "nombre": item.nombre,
+            "descripcion": item.descripcion,
+            "asignado_a": item.asignado_a,
+            "asignado_nombre": nombre_completo,
+            "estado": item.estado,
+            "fecha_limite": item.fecha_limite,
+        }
+        for item, nombre_completo in rows
+    ]
 
 
 @router.get("/mis-items", response_model=list[MisItemOut])
@@ -346,6 +365,34 @@ def agregar_comentario(
     return {"id": c.id, "texto": c.texto}
 
 
+@router.get("/{item_id}/comentarios", response_model=list[ComentarioOut])
+def listar_comentarios(
+    item_id: str,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Lista comentarios del ítem ordenados cronológicamente (todos los roles)."""
+    empresa_id = requiere_empresa(ctx)
+    item = get_item_de_empresa(db, item_id, empresa_id)
+    rows = (
+        db.query(ItemComentario, Usuario.nombre_completo)
+        .outerjoin(Usuario, ItemComentario.usuario_id == Usuario.id)
+        .filter(ItemComentario.item_id == item.id)
+        .order_by(ItemComentario.created_at)
+        .all()
+    )
+    return [
+        {
+            "id": c.id,
+            "usuario_id": c.usuario_id,
+            "nombre_usuario": nombre,
+            "texto": c.texto,
+            "created_at": c.created_at,
+        }
+        for c, nombre in rows
+    ]
+
+
 # ── Evidencias (registro de foto) ────────────────────────────────────────────
 @router.post("/{item_id}/evidencias", status_code=201)
 def registrar_evidencia(
@@ -376,6 +423,23 @@ def registrar_evidencia(
     return {"id": ev.id, "sync_status": ev.sync_status.value}
 
 
+@router.get("/{item_id}/evidencias", response_model=list[EvidenciaOut])
+def listar_evidencias(
+    item_id: str,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Lista evidencias fotográficas del ítem ordenadas cronológicamente."""
+    empresa_id = requiere_empresa(ctx)
+    item = get_item_de_empresa(db, item_id, empresa_id)
+    return (
+        db.query(ItemEvidencia)
+        .filter(ItemEvidencia.item_id == item.id)
+        .order_by(ItemEvidencia.created_at)
+        .all()
+    )
+
+
 # ── Historial (log de cambios) ───────────────────────────────────────────────
 @router.get("/{item_id}/historial", response_model=list[HistorialOut])
 def historial_item(
@@ -388,9 +452,22 @@ def historial_item(
     if not puede(ctx.rol, "ver_log_cambios"):
         raise HTTPException(403, "Su rol no puede ver el log de cambios.")
     item = get_item_de_empresa(db, item_id, empresa_id)
-    return (
-        db.query(ItemHistorial)
+    rows = (
+        db.query(ItemHistorial, Usuario.nombre_completo)
+        .outerjoin(Usuario, ItemHistorial.usuario_id == Usuario.id)
         .filter(ItemHistorial.item_id == item.id)
         .order_by(ItemHistorial.created_at)
         .all()
     )
+    return [
+        {
+            "accion": h.accion,
+            "estado_anterior": h.estado_anterior,
+            "estado_nuevo": h.estado_nuevo,
+            "detalle": h.detalle,
+            "usuario_id": h.usuario_id,
+            "nombre_usuario": nombre,
+            "created_at": h.created_at,
+        }
+        for h, nombre in rows
+    ]
