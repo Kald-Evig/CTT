@@ -1,0 +1,20 @@
+# Bases de datos locales — nunca commitear
+*.db
+*.db-shm
+*.db-wal
+
+# Caché de Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Entorno virtual Python
+.venv/
+
+# Logs de build y desarrollo
+*.log
+ctt-mobile/android/.kotlin/
+
+# Artefactos sueltos de pruebas manuales
+body.json
