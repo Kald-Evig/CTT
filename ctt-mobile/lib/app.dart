@@ -13,6 +13,9 @@ import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
+import 'package:ctt_mobile/presentation/residente/detalle_item_residente_screen.dart';
+import 'package:ctt_mobile/presentation/residente/lista_items_residente_screen.dart';
+import 'package:ctt_mobile/presentation/residente/notificaciones_screen.dart';
 import 'package:ctt_mobile/presentation/trabajador/detalle_item_screen.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
@@ -129,7 +132,20 @@ GoRouter router(RouterRef ref) {
       ),
       GoRoute(
         path: Rutas.residente,
-        builder: (_, __) => const _PantallaPlaceholder(titulo: 'Residente'),
+        builder: (_, __) => const ListaItemsResidenteScreen(),
+        routes: [
+          // 'notificaciones' ANTES que ':itemId' para que GoRouter no lo capture como parámetro.
+          GoRoute(
+            path: 'notificaciones',
+            builder: (_, __) => const NotificacionesResidenteScreen(),
+          ),
+          GoRoute(
+            path: ':itemId',
+            builder: (_, state) => DetalleItemResidenteScreen(
+              itemId: state.pathParameters['itemId']!,
+            ),
+          ),
+        ],
       ),
       GoRoute(
         path: Rutas.coordinador,
