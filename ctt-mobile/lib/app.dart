@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
@@ -178,6 +179,8 @@ class AppCTT extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Activa el listener de conectividad para flush inmediato al recuperar señal.
+    ref.watch(conectividadListenerProvider);
     final goRouter = ref.watch(routerProvider);
 
     return MaterialApp.router(
