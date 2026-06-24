@@ -14,6 +14,7 @@ import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
@@ -126,12 +127,19 @@ class BaseDatosCTT extends _$BaseDatosCTT {
       );
 }
 
+/// Top-level para que sea enviable al isolate de background de createInBackground.
+/// Drift la ejecuta en ese isolate antes de correr migraciones.
+void _configurarPragmas(Database db) {
+  db.execute('PRAGMA journal_mode=WAL;');
+  db.execute('PRAGMA busy_timeout=5000;');
+}
+
 /// LazyDatabase: abre el archivo en el primer acceso, no en el constructor.
 /// Necesario porque path_provider es async y no puede llamarse en constructor.
 LazyDatabase _abrirConexion() {
   return LazyDatabase(() async {
     final dir = await getApplicationDocumentsDirectory();
     final archivo = File(p.join(dir.path, 'ctt_local.db'));
-    return NativeDatabase.createInBackground(archivo);
+    return NativeDatabase.createInBackground(archivo, setup: _configurarPragmas);
   });
 }

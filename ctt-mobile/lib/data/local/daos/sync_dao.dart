@@ -27,14 +27,47 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
             ..orderBy([(t) => OrderingTerm.asc(t.timestampDispositivo)]))
           .get();
 
-  Future<void> marcarEnviando(String id) =>
-      _actualizarEstado(id, EstadoSyncLocal.enviando);
+  /// Intenta transicionar de 'pendiente' → 'enviando'.
+  /// Devuelve true si esta llamada ganó la entrada (1 fila afectada),
+  /// false si otro ciclo ya la tomó primero (0 filas afectadas).
+  Future<bool> marcarEnviando(String id) async {
+    final count = await (update(syncPendientesTable)
+          ..where(
+            (t) =>
+                t.id.equals(id) &
+                t.estado.equals(EstadoSyncLocal.pendiente.valor),
+          ))
+        .write(
+      SyncPendientesTableCompanion(
+        estado: Value(EstadoSyncLocal.enviando.valor),
+      ),
+    );
+    return count > 0;
+  }
 
+  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
   Future<void> marcarSincronizado(String id) =>
-      _actualizarEstado(id, EstadoSyncLocal.sincronizado);
+      (update(syncPendientesTable)
+            ..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.estado.equals(EstadoSyncLocal.enviando.valor),
+            ))
+          .write(
+        SyncPendientesTableCompanion(
+          estado: Value(EstadoSyncLocal.sincronizado.valor),
+        ),
+      );
 
+  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
   Future<void> marcarError(String id, String mensaje, int reintentos) =>
-      (update(syncPendientesTable)..where((t) => t.id.equals(id))).write(
+      (update(syncPendientesTable)
+            ..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.estado.equals(EstadoSyncLocal.enviando.valor),
+            ))
+          .write(
         SyncPendientesTableCompanion(
           estado: Value(EstadoSyncLocal.error.valor),
           ultimoError: Value(mensaje),
@@ -42,10 +75,16 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         ),
       );
 
-  /// Marca el cambio como conflicto. Si el backend devolvió un conflicto_id
-  /// (concurrencia real), se guarda en ultimoError para diagnóstico.
+  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
+  /// Si el backend devolvió un conflicto_id, se guarda en ultimoError para diagnóstico.
   Future<void> marcarConflicto(String id, {String? conflictoId}) =>
-      (update(syncPendientesTable)..where((t) => t.id.equals(id))).write(
+      (update(syncPendientesTable)
+            ..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.estado.equals(EstadoSyncLocal.enviando.valor),
+            ))
+          .write(
         SyncPendientesTableCompanion(
           estado: Value(EstadoSyncLocal.conflicto.valor),
           ultimoError: conflictoId != null
@@ -80,8 +119,4 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     return row.read(count) ?? 0;
   }
 
-  Future<void> _actualizarEstado(String id, EstadoSyncLocal estado) =>
-      (update(syncPendientesTable)..where((t) => t.id.equals(id))).write(
-        SyncPendientesTableCompanion(estado: Value(estado.valor)),
-      );
 }

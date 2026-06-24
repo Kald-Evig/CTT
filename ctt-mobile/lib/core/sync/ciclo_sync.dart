@@ -44,7 +44,9 @@ class CicloSync {
     for (final cambio in pendientes) {
       if (cambio.reintentos >= _maxReintentos) continue;
 
-      await syncDao.marcarEnviando(cambio.id);
+      // "Claim" atómico: si otro ciclo ya tomó esta entrada, retorna false → saltar.
+      final tomado = await syncDao.marcarEnviando(cambio.id);
+      if (!tomado) continue;
 
       try {
         await _enviarCambio(
