@@ -1,17 +1,24 @@
-/// items_repository.dart — Acceso a ítems: API primero, caché como fallback.
+/// items_repository.dart — Acceso a ítems del Trabajador: online-first con fallback offline.
 ///
-/// Estrategia offline-first:
-///   Lecturas: intenta la API; si falla, devuelve la caché local.
-///   Escrituras: encola en SyncPendientes y actualiza la caché optimistamente.
+/// Estrategia de escritura (CTT-36):
+///   Intenta el servidor primero (timeout 4s vía TransicionService).
+///   Solo si hay error de red se encola en SyncPendientes (Drift).
+///   Actualización optimista en caché antes del intento; revert si el servidor rechaza.
+///
+/// Lecturas: intenta la API; si falla, devuelve la caché local.
 library;
 
 import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
+
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
+import 'package:ctt_mobile/core/sync/transicion_service.dart';
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -25,6 +32,7 @@ ItemsRepository itemsRepository(ItemsRepositoryRef ref) => ItemsRepository(
       cacheDao: ref.watch(itemsCacheDaoProvider),
       syncDao: ref.watch(syncDaoProvider),
       deviceIdService: ref.watch(deviceIdServiceProvider),
+      transicionService: ref.watch(transicionServiceProvider),
     );
 
 class ItemsRepository {
@@ -33,12 +41,14 @@ class ItemsRepository {
     required this.cacheDao,
     required this.syncDao,
     required this.deviceIdService,
+    required this.transicionService,
   });
 
   final Dio dio;
   final ItemsCacheDao cacheDao;
   final SyncDao syncDao;
   final DeviceIdService deviceIdService;
+  final TransicionService transicionService;
 
   // ── Lecturas ────────────────────────────────────────────────────────────────
 
@@ -50,7 +60,6 @@ class ItemsRepository {
           .cast<Map<String, dynamic>>()
           .map(_jsonACompanion)
           .toList();
-      // Actualiza la caché de todos los ítems descargados.
       for (final item in items) {
         await cacheDao.guardarItem(item);
       }
@@ -60,47 +69,49 @@ class ItemsRepository {
     return cacheDao.obtenerAsignadosA(usuarioId);
   }
 
-  /// Detalle de un ítem — busca en caché primero (ya poblada por obtenerMisItems).
+  /// Detalle de un ítem — busca en caché (ya poblada por obtenerMisItems).
   Future<ItemsCacheTableData?> obtenerDetalle(String itemId) =>
       cacheDao.obtenerPorId(itemId);
 
-  // ── Escrituras (offline-first: cola → caché optimista) ──────────────────────
+  // ── Escrituras (online-first con fallback offline) ───────────────────────────
 
-  /// Encola una transición de estado y actualiza la caché localmente.
-  Future<void> cambiarEstado({
+  /// Transiciona el estado de un ítem.
+  ///
+  /// 1. Aplica el nuevo estado en la caché local de forma optimista.
+  /// 2. Intenta el servidor con timeout corto via TransicionService.
+  /// 3. Si el servidor rechaza o hay conflicto: revierte la caché.
+  /// 4. Si hay error de red: el TransicionService encola; la caché queda con el estado optimista.
+  Future<ResultadoTransicion> cambiarEstado({
     required String itemId,
     required EstadoItem nuevoEstado,
     String? comentario,
     String? descripcionProblema,
   }) async {
-    final deviceId = await deviceIdService.obtener();
-    final ahora = DateTime.now().toUtc();
-    final payload = jsonEncode({
-      'nuevo_estado': nuevoEstado.valor,
-      if (comentario != null) 'comentario': comentario,
-      if (descripcionProblema != null)
-        'descripcion_problema': descripcionProblema,
-      // Necesarios para detección de conflictos de concurrencia en backend (Sección 8).
-      'device_timestamp': ahora.toIso8601String(),
-      'dispositivo_id': deviceId,
-    });
-
-    await syncDao.encolar(SyncPendientesTableCompanion.insert(
-      id: const Uuid().v4(),
-      tipoEntidad: TipoEntidad.item.valor,
-      entidadId: itemId,
-      accion: AccionSync.cambioEstadoItem.valor,
-      payload: payload,
-      timestampDispositivo: ahora,
-      dispositivoId: deviceId,
-    ),);
-
-    // Actualización optimista: el estado cambia en UI aunque no haya conexión.
+    // Actualización optimista: el estado cambia en UI de inmediato.
     await cacheDao.actualizarEstado(itemId, nuevoEstado.valor);
+
+    try {
+      final resultado = await transicionService.ejecutar(
+        itemId: itemId,
+        nuevoEstado: nuevoEstado.valor,
+        comentario: comentario,
+        descripcionProblema: descripcionProblema,
+      );
+
+      if (resultado is TransicionRechazada || resultado is TransicionConConflicto) {
+        await cacheDao.revertirEstado(itemId);
+      }
+
+      return resultado;
+    } catch (e) {
+      // Error inesperado (401, 403, 5xx): revertir la caché.
+      await cacheDao.revertirEstado(itemId);
+      rethrow;
+    }
   }
 
-  /// Encola el reporte de un problema en un ítem.
-  Future<void> reportarProblema({
+  /// Reporta un problema en un ítem (alias de cambiarEstado con estado problema).
+  Future<ResultadoTransicion> reportarProblema({
     required String itemId,
     required String descripcion,
   }) =>

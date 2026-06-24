@@ -64,6 +64,15 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         ),
       );
 
+  /// IDs de entidades con sincronización pendiente (no sincronizadas todavía).
+  /// Usado para el indicador visual en la lista de ítems.
+  Future<Set<String>> obtenerIdsPendienteSet() async {
+    final rows = await (select(syncPendientesTable)
+          ..where((t) => t.estado.isNotIn([EstadoSyncLocal.sincronizado.valor])))
+        .get();
+    return {for (final r in rows) r.entidadId};
+  }
+
   Future<int> contarPendientes() async {
     final count = syncPendientesTable.id.count();
     final q = selectOnly(syncPendientesTable)..addColumns([count]);

@@ -7,9 +7,11 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
+import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
 class ListaItemsResidenteScreen extends ConsumerStatefulWidget {
@@ -62,7 +64,6 @@ class _ListaItemsResidenteScreenState
           if (proyectos.isEmpty) {
             return const Center(child: Text('No hay proyectos disponibles.'));
           }
-          // Usar el primer proyecto si el usuario no ha seleccionado ninguno.
           final proyectoId = _proyectoSeleccionado ?? proyectos.first.id;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -70,8 +71,7 @@ class _ListaItemsResidenteScreenState
               _SelectorProyecto(
                 proyectos: proyectos,
                 seleccionado: proyectoId,
-                onChange: (id) =>
-                    setState(() => _proyectoSeleccionado = id),
+                onChange: (id) => setState(() => _proyectoSeleccionado = id),
               ),
               _ChipsFiltro(
                 seleccionado: _estadoFiltro,
@@ -179,8 +179,7 @@ class _ListaItems extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final itemsAsync =
-        ref.watch(itemsProyectoProvider(proyectoId, estadoFiltro));
+    final itemsAsync = ref.watch(itemsProyectoProvider(proyectoId, estadoFiltro));
     return itemsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => _ErrorVista(
@@ -190,9 +189,7 @@ class _ListaItems extends ConsumerWidget {
       ),
       data: (items) {
         if (items.isEmpty) {
-          return const Center(
-            child: Text('No hay ítems con este filtro.'),
-          );
+          return const Center(child: Text('No hay ítems con este filtro.'));
         }
         return RefreshIndicator(
           onRefresh: () async =>
@@ -207,28 +204,47 @@ class _ListaItems extends ConsumerWidget {
   }
 }
 
-class _TarjetaItem extends StatelessWidget {
+class _TarjetaItem extends ConsumerWidget {
   const _TarjetaItem({required this.item});
   final ItemResidente item;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        title: Text(item.nombre),
-        subtitle: Text(
-          item.asignadoNombre != null
-              ? 'Asignado: ${item.asignadoNombre}'
-              : 'Sin asignar',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: item.asignadoNombre != null
-                    ? null
-                    : Colors.grey.shade500,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pendientesAsync = ref.watch(itemsConSyncPendienteProvider);
+    final tienePendiente = pendientesAsync.whenOrNull(
+          data: (ids) => ids.contains(item.id),
+        ) ??
+        false;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Text(item.nombre),
+      subtitle: Text(
+        item.asignadoNombre != null
+            ? 'Asignado: ${item.asignadoNombre}'
+            : 'Sin asignar',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: item.asignadoNombre != null ? null : Colors.grey.shade500,
+            ),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (tienePendiente)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(
+                Icons.cloud_upload_outlined,
+                size: 14,
+                color: Colors.orange.shade700,
               ),
-        ),
-        trailing: BadgeEstadoItem(estado: item.estado),
-        onTap: () => context.push('/residente/${item.id}'),
-      );
+            ),
+          BadgeEstadoItem(estado: item.estado),
+        ],
+      ),
+      onTap: () => context.push('/residente/${item.id}'),
+    );
+  }
 }
 
 // ── Badge de notificaciones ──────────────────────────────────────────────────

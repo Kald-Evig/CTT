@@ -48,9 +48,30 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
     await batch((b) => b.insertAll(itemsCacheTable, items));
   }
 
-  /// Actualiza solo el estado de un ítem cacheado (tras acción offline).
-  Future<void> actualizarEstado(String itemId, String nuevoEstado) =>
-      (update(itemsCacheTable)..where((t) => t.id.equals(itemId))).write(
-        ItemsCacheTableCompanion(estado: Value(nuevoEstado)),
-      );
+  /// Actualiza el estado de un ítem cacheado y guarda el estado anterior en estadoPrevio.
+  /// Permite revertir el cambio si el servidor rechaza la transición.
+  Future<void> actualizarEstado(String itemId, String nuevoEstado) async {
+    final actual = await obtenerPorId(itemId);
+    await (update(itemsCacheTable)..where((t) => t.id.equals(itemId))).write(
+      ItemsCacheTableCompanion(
+        estado: Value(nuevoEstado),
+        estadoPrevio: Value(actual?.estado),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
+  }
+
+  /// Revierte al estado anterior guardado en estadoPrevio.
+  /// No-op si no hay estado previo registrado.
+  Future<void> revertirEstado(String itemId) async {
+    final actual = await obtenerPorId(itemId);
+    if (actual?.estadoPrevio == null) return;
+    await (update(itemsCacheTable)..where((t) => t.id.equals(itemId))).write(
+      ItemsCacheTableCompanion(
+        estado: Value(actual!.estadoPrevio!),
+        estadoPrevio: const Value(null),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
+  }
 }

@@ -1,10 +1,16 @@
 /// residente_providers.dart — Providers de datos para el rol Residente.
 ///
-/// Todos son FutureProviders directos al backend (sin caché local).
-/// Los providers parametrizados crean una instancia por combinación de args.
+/// itemResidenteDetalleProvider es un AsyncNotifier (CTT-36):
+///   - build() carga el ítem desde el servidor.
+///   - transicionar() aplica optimistic UI + llama ResidenteRepository.
+///   - Si el servidor acepta: actualiza con datos del servidor.
+///   - Si no hay red: mantiene el estado optimista (queda en cola offline).
+///   - Si el servidor rechaza: revierte al estado anterior.
 library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/repositories/residente_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
@@ -29,12 +35,72 @@ Future<List<ItemResidente>> itemsProyecto(
           estadoFiltro: estadoFiltro,
         );
 
+/// Detalle de ítem con optimistic UI y fallback offline (CTT-36).
+/// Usar [ItemResidenteDetalleNotifier.transicionar] en vez de llamar al repo directamente.
 @riverpod
-Future<ItemResidente> itemResidente(
-  ItemResidenteRef ref,
-  String itemId,
-) =>
-    ref.watch(residenteRepositoryProvider).obtenerItem(itemId);
+class ItemResidenteDetalle extends _$ItemResidenteDetalle {
+  @override
+  Future<ItemResidente> build(String itemId) =>
+      ref.watch(residenteRepositoryProvider).obtenerItem(itemId);
+
+  /// Ejecuta una transición de estado con optimistic UI.
+  Future<ResultadoTransicion> transicionar({
+    required String nuevoEstado,
+    String? comentario,
+    String? descripcionProblema,
+  }) async {
+    final estadoAnterior = state.valueOrNull;
+    if (estadoAnterior == null) {
+      return const TransicionRechazada('Estado del ítem no disponible.');
+    }
+
+    // Actualización optimista: la UI refleja el cambio al instante.
+    state = AsyncData(_conNuevoEstado(estadoAnterior, nuevoEstado));
+
+    try {
+      final resultado = await ref.read(residenteRepositoryProvider).transicionarItem(
+            estadoAnterior.id,
+            nuevoEstado,
+            comentario: comentario,
+            descripcionProblema: descripcionProblema,
+          );
+
+      switch (resultado) {
+        case TransicionAplicadaOnline(:final itemActualizado):
+          // Confirmar con los datos reales del servidor.
+          state = AsyncData(ItemResidente.fromJson(itemActualizado));
+          // Refrescar la lista para que refleje el nuevo estado.
+          ref.invalidate(itemsProyectoProvider);
+        case TransicionEncoladaOffline():
+          // Mantener el estado optimista hasta que el WorkManager sincronice.
+          break;
+        case TransicionRechazada() || TransicionConConflicto():
+          // Revertir: el servidor no aceptó el cambio.
+          state = AsyncData(estadoAnterior);
+      }
+
+      return resultado;
+    } catch (e) {
+      // Excepción inesperada (401, 403, 5xx): revertir.
+      state = AsyncData(estadoAnterior);
+      rethrow;
+    }
+  }
+
+  ItemResidente _conNuevoEstado(ItemResidente item, String nuevoEstado) =>
+      ItemResidente(
+        id: item.id,
+        proyectoId: item.proyectoId,
+        parentItemId: item.parentItemId,
+        nivelProfundidad: item.nivelProfundidad,
+        nombre: item.nombre,
+        descripcion: item.descripcion,
+        asignadoA: item.asignadoA,
+        asignadoNombre: item.asignadoNombre,
+        estado: nuevoEstado,
+        fechaLimite: item.fechaLimite,
+      );
+}
 
 @riverpod
 Future<List<ComentarioItem>> comentariosItem(

@@ -11,6 +11,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/repositories/residente_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -23,7 +25,7 @@ class DetalleItemResidenteScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final itemAsync = ref.watch(itemResidenteProvider(itemId));
+    final itemAsync = ref.watch(itemResidenteDetalleProvider(itemId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Detalle del ítem')),
@@ -38,7 +40,8 @@ class DetalleItemResidenteScreen extends ConsumerWidget {
                 Text('No se pudo cargar el ítem: $e'),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: () => ref.invalidate(itemResidenteProvider(itemId)),
+                  onPressed: () =>
+                      ref.invalidate(itemResidenteDetalleProvider(itemId)),
                   icon: const Icon(Icons.refresh),
                   label: const Text('Reintentar'),
                 ),
@@ -64,7 +67,6 @@ class _CuerpoDetalle extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Cabecera
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -107,28 +109,27 @@ class _CuerpoDetalle extends StatelessWidget {
             const Divider(),
             const SizedBox(height: 8),
 
-            // Acciones
             _AccionesResidente(item: item),
 
             const SizedBox(height: 24),
             const Divider(),
 
-            // Historial
             const _EncabezadoSeccion(titulo: 'Historial de cambios', icono: Icons.history),
             _SeccionHistorial(itemId: item.id),
 
             const SizedBox(height: 16),
             const Divider(),
 
-            // Comentarios
             const _EncabezadoSeccion(titulo: 'Comentarios', icono: Icons.comment_outlined),
             _SeccionComentarios(itemId: item.id),
 
             const SizedBox(height: 16),
             const Divider(),
 
-            // Evidencias
-            const _EncabezadoSeccion(titulo: 'Evidencias fotográficas', icono: Icons.photo_library_outlined),
+            const _EncabezadoSeccion(
+              titulo: 'Evidencias fotográficas',
+              icono: Icons.photo_library_outlined,
+            ),
             _SeccionEvidencias(itemId: item.id),
 
             const SizedBox(height: 32),
@@ -180,7 +181,6 @@ class _AccionesResidente extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Aprobar / Rechazar (pendiente_revision)
         if (estado == EstadoItem.pendienteRevision) ...[
           _BotonAccion(
             label: 'Aprobar',
@@ -199,7 +199,6 @@ class _AccionesResidente extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
         ],
-        // Cerrar problema (estado = problema)
         if (estado == EstadoItem.problema) ...[
           _BotonAccion(
             label: 'Cerrar problema',
@@ -210,7 +209,6 @@ class _AccionesResidente extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
         ],
-        // Marcar problema (todos los estados editables excepto problema)
         if (estado != EstadoItem.problema) ...[
           _BotonAccion(
             label: 'Marcar problema',
@@ -221,7 +219,6 @@ class _AccionesResidente extends ConsumerWidget {
           ),
           const SizedBox(height: 12),
         ],
-        // Asignar (todos los estados editables)
         _BotonAccion(
           label: 'Asignar a trabajador',
           icono: Icons.person_add_outlined,
@@ -235,22 +232,19 @@ class _AccionesResidente extends ConsumerWidget {
 
   Future<void> _aprobar(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(residenteRepositoryProvider).transicionarItem(
-            item.id,
-            EstadoItem.terminado.valor,
-          );
-      ref.invalidate(itemResidenteProvider(item.id));
-      ref.invalidate(itemsProyectoProvider);
+      final resultado = await ref
+          .read(itemResidenteDetalleProvider(item.id).notifier)
+          .transicionar(nuevoEstado: EstadoItem.terminado.valor);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ítem aprobado y marcado como terminado.')),
+        _mostrarResultado(
+          context,
+          resultado,
+          mensajeExito: 'Ítem aprobado y marcado como terminado.',
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_mensajeError(e))),
-        );
+        _mostrarError(context, e);
       }
     }
   }
@@ -258,18 +252,16 @@ class _AccionesResidente extends ConsumerWidget {
   Future<void> _cerrarProblema(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(residenteRepositoryProvider).cerrarProblema(item.id);
-      ref.invalidate(itemResidenteProvider(item.id));
+      ref.invalidate(itemResidenteDetalleProvider(item.id));
       ref.invalidate(itemsProyectoProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Problema cerrado.')),
-        );
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(content: Text('Problema cerrado.')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_mensajeError(e))),
-        );
+        _mostrarError(context, e);
       }
     }
   }
@@ -316,23 +308,18 @@ class _AccionesResidente extends ConsumerWidget {
     );
     if (comentario == null || !context.mounted) return;
     try {
-      await ref.read(residenteRepositoryProvider).transicionarItem(
-            item.id,
-            EstadoItem.enProgreso.valor,
+      final resultado = await ref
+          .read(itemResidenteDetalleProvider(item.id).notifier)
+          .transicionar(
+            nuevoEstado: EstadoItem.enProgreso.valor,
             comentario: comentario,
           );
-      ref.invalidate(itemResidenteProvider(item.id));
-      ref.invalidate(itemsProyectoProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ítem rechazado.')),
-        );
+        _mostrarResultado(context, resultado, mensajeExito: 'Ítem rechazado.');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_mensajeError(e))),
-        );
+        _mostrarError(context, e);
       }
     }
   }
@@ -380,23 +367,18 @@ class _AccionesResidente extends ConsumerWidget {
     );
     if (descripcion == null || !context.mounted) return;
     try {
-      await ref.read(residenteRepositoryProvider).transicionarItem(
-            item.id,
-            EstadoItem.problema.valor,
+      final resultado = await ref
+          .read(itemResidenteDetalleProvider(item.id).notifier)
+          .transicionar(
+            nuevoEstado: EstadoItem.problema.valor,
             descripcionProblema: descripcion,
           );
-      ref.invalidate(itemResidenteProvider(item.id));
-      ref.invalidate(itemsProyectoProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Problema reportado.')),
-        );
+        _mostrarResultado(context, resultado, mensajeExito: 'Problema reportado.');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_mensajeError(e))),
-        );
+        _mostrarError(context, e);
       }
     }
   }
@@ -407,7 +389,6 @@ class _AccionesResidente extends ConsumerWidget {
   ) async {
     final usuarioId = await showDialog<String>(
       context: context,
-      // Consumer permite usar Riverpod dentro del diálogo.
       builder: (ctx) => Consumer(
         builder: (ctx, dialogRef, _) {
           final usuariosAsync = dialogRef.watch(usuariosEmpresaProvider);
@@ -456,20 +437,42 @@ class _AccionesResidente extends ConsumerWidget {
     if (usuarioId == null || !context.mounted) return;
     try {
       await ref.read(residenteRepositoryProvider).asignarItem(item.id, usuarioId);
-      ref.invalidate(itemResidenteProvider(item.id));
+      ref.invalidate(itemResidenteDetalleProvider(item.id));
       ref.invalidate(itemsProyectoProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ítem asignado.')),
-        );
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(const SnackBar(content: Text('Ítem asignado.')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_mensajeError(e))),
-        );
+        _mostrarError(context, e);
       }
     }
+  }
+
+  void _mostrarResultado(
+    BuildContext context,
+    ResultadoTransicion resultado, {
+    String mensajeExito = 'Cambio aplicado.',
+  }) {
+    final msg = switch (resultado) {
+      TransicionAplicadaOnline() => mensajeExito,
+      TransicionEncoladaOffline() =>
+        'Sin conexión. Se sincronizará cuando vuelva la señal.',
+      TransicionRechazada(:final detalle) => detalle,
+      TransicionConConflicto() =>
+        'Hay un conflicto que un coordinador debe resolver.',
+    };
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _mostrarError(BuildContext context, Object e) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(_mensajeError(e))));
   }
 }
 
@@ -488,10 +491,7 @@ class _SeccionHistorial extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'Error: $e',
-                style: const TextStyle(color: Colors.red),
-              ),
+              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
             ),
             data: (entradas) {
               if (entradas.isEmpty) {
@@ -531,7 +531,10 @@ class _EntradaHistorialTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(radius: 16, child: Text(inicial, style: const TextStyle(fontSize: 12))),
+          CircleAvatar(
+            radius: 16,
+            child: Text(inicial, style: const TextStyle(fontSize: 12)),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -586,25 +589,17 @@ class _SeccionComentarios extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'Error: $e',
-                style: const TextStyle(color: Colors.red),
-              ),
+              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
             ),
             data: (comentarios) {
               if (comentarios.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'Sin comentarios.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                  child: Text('Sin comentarios.', style: TextStyle(color: Colors.grey)),
                 );
               }
               return Column(
-                children: comentarios
-                    .map((c) => _ComentarioTile(comentario: c))
-                    .toList(),
+                children: comentarios.map((c) => _ComentarioTile(comentario: c)).toList(),
               );
             },
           );
@@ -624,7 +619,10 @@ class _ComentarioTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(radius: 16, child: Text(inicial, style: const TextStyle(fontSize: 12))),
+          CircleAvatar(
+            radius: 16,
+            child: Text(inicial, style: const TextStyle(fontSize: 12)),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -668,19 +666,13 @@ class _SeccionEvidencias extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'Error: $e',
-                style: const TextStyle(color: Colors.red),
-              ),
+              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
             ),
             data: (evidencias) {
               if (evidencias.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'Sin evidencias.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
+                  child: Text('Sin evidencias.', style: TextStyle(color: Colors.grey)),
                 );
               }
               return GridView.builder(
@@ -692,8 +684,7 @@ class _SeccionEvidencias extends ConsumerWidget {
                   mainAxisSpacing: 8,
                 ),
                 itemCount: evidencias.length,
-                itemBuilder: (_, i) =>
-                    _MiniaturaEvidencia(evidencia: evidencias[i]),
+                itemBuilder: (_, i) => _MiniaturaEvidencia(evidencia: evidencias[i]),
               );
             },
           );
@@ -725,9 +716,7 @@ class _MiniaturaEvidencia extends StatelessWidget {
         fit: BoxFit.cover,
         placeholder: (_, __) => Container(
           color: Colors.grey.shade200,
-          child: const Center(
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
+          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
         ),
         errorWidget: (_, __, ___) => Container(
           color: Colors.grey.shade200,
@@ -805,14 +794,12 @@ class _MensajeEstado extends StatelessWidget {
 
 // ── Helper de error ──────────────────────────────────────────────────────────
 
-/// Extrae el mensaje legible de un error Dio (incluyendo detail del backend).
 String _mensajeError(Object e) {
   if (e is DioException) {
     final data = e.response?.data;
     if (data is Map<String, dynamic>) {
       final detail = data['detail'];
       if (detail is String) return detail;
-      // 409 de conflicto de concurrencia: detail es un Map con 'mensaje'.
       if (detail is Map<String, dynamic>) {
         final msg = detail['mensaje'];
         if (msg is String) return msg;

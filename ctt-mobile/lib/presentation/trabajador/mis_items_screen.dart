@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
@@ -61,7 +62,6 @@ class _ListaAgrupada extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Agrupar por proyectoId manteniendo orden de aparición.
     final grupos = <String, List<ItemsCacheTableData>>{};
     for (final item in items) {
       grupos.putIfAbsent(item.proyectoId, () => []).add(item);
@@ -97,24 +97,46 @@ class _CabeceraProyecto extends StatelessWidget {
       );
 }
 
-class _TarjetaItem extends StatelessWidget {
+class _TarjetaItem extends ConsumerWidget {
   const _TarjetaItem({required this.item});
   final ItemsCacheTableData item;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        title: Text(item.nombre),
-        subtitle: item.descripcion != null
-            ? Text(
-                item.descripcion!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              )
-            : null,
-        trailing: BadgeEstadoItem(estado: item.estado),
-        onTap: () => context.push('/trabajador/${item.id}'),
-      );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pendientesAsync = ref.watch(itemsConSyncPendienteProvider);
+    final tienePendiente = pendientesAsync.whenOrNull(
+          data: (ids) => ids.contains(item.id),
+        ) ??
+        false;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Text(item.nombre),
+      subtitle: item.descripcion != null
+          ? Text(
+              item.descripcion!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            )
+          : null,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (tienePendiente)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(
+                Icons.cloud_upload_outlined,
+                size: 14,
+                color: Colors.orange.shade700,
+              ),
+            ),
+          BadgeEstadoItem(estado: item.estado),
+        ],
+      ),
+      onTap: () => context.push('/trabajador/${item.id}'),
+    );
+  }
 }
 
 // ── Badge de estado (público para reutilizar en DetalleItemScreen) ───────────
@@ -156,9 +178,6 @@ class BadgeEstadoItem extends StatelessWidget {
 
 // ── Logout con confirmación ───────────────────────────────────────────────────
 
-/// Muestra un diálogo de confirmación y cierra sesión si el usuario acepta.
-/// El router detecta automáticamente el cambio en el stream de Firebase
-/// y redirige al login — no se necesita navegación manual aquí.
 Future<void> _confirmarLogout(BuildContext context, WidgetRef ref) async {
   final confirmar = await showDialog<bool>(
     context: context,
@@ -215,4 +234,3 @@ class _ErrorVista extends StatelessWidget {
         ),
       );
 }
-

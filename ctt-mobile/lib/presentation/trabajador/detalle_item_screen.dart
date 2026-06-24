@@ -10,6 +10,8 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -56,7 +58,6 @@ class _CuerpoDetalle extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Cabecera con nombre y estado
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -94,7 +95,6 @@ class _CuerpoDetalle extends ConsumerWidget {
           const Divider(),
           const SizedBox(height: 16),
 
-          // Acciones según el estado actual
           _AccionesEstado(item: item, estado: estado),
         ],
       ),
@@ -116,11 +116,7 @@ class _AccionesEstado extends ConsumerWidget {
           label: 'Iniciar trabajo',
           icono: Icons.play_arrow_rounded,
           color: Theme.of(context).colorScheme.primary,
-          onTap: () => _ejecutarCambio(
-            context,
-            ref,
-            EstadoItem.enProgreso,
-          ),
+          onTap: () => _ejecutarCambio(context, ref, EstadoItem.enProgreso),
         ),
       EstadoItem.enProgreso => Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -130,9 +126,7 @@ class _AccionesEstado extends ConsumerWidget {
               icono: Icons.check_circle_outline,
               color: Colors.green.shade700,
               onTap: () => _ejecutarCambio(
-                context,
-                ref,
-                EstadoItem.pendienteRevision,
+                context, ref, EstadoItem.pendienteRevision,
               ),
             ),
             const SizedBox(height: 12),
@@ -151,11 +145,7 @@ class _AccionesEstado extends ConsumerWidget {
           label: 'Reanudar trabajo',
           icono: Icons.replay_rounded,
           color: Colors.orange.shade700,
-          onTap: () => _ejecutarCambio(
-            context,
-            ref,
-            EstadoItem.enProgreso,
-          ),
+          onTap: () => _ejecutarCambio(context, ref, EstadoItem.enProgreso),
         ),
       EstadoItem.pendienteRevision => const _MensajeInformativo(
           icono: Icons.hourglass_top_rounded,
@@ -174,22 +164,22 @@ class _AccionesEstado extends ConsumerWidget {
     EstadoItem nuevoEstado,
   ) async {
     try {
-      await ref.read(itemsRepositoryProvider).cambiarEstado(
+      final resultado = await ref.read(itemsRepositoryProvider).cambiarEstado(
             itemId: item.id,
             nuevoEstado: nuevoEstado,
           );
       ref.invalidate(itemDetalleProvider(item.id));
       ref.invalidate(misItemsProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cambio guardado. Se sincronizará pronto.')),
-        );
+        _mostrarResultado(context, resultado);
       }
     } catch (e) {
+      // El repositorio ya revirtió la caché; solo refrescar la UI.
+      ref.invalidate(itemDetalleProvider(item.id));
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar: $e')),
-        );
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
       }
     }
   }
@@ -230,24 +220,37 @@ class _AccionesEstado extends ConsumerWidget {
 
     if (!context.mounted) return;
     try {
-      await ref.read(itemsRepositoryProvider).reportarProblema(
+      final resultado = await ref.read(itemsRepositoryProvider).reportarProblema(
             itemId: item.id,
             descripcion: descripcion,
           );
       ref.invalidate(itemDetalleProvider(item.id));
       ref.invalidate(misItemsProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Problema reportado. Se sincronizará pronto.')),
-        );
+        _mostrarResultado(context, resultado);
       }
     } catch (e) {
+      ref.invalidate(itemDetalleProvider(item.id));
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al reportar: $e')),
-        );
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(SnackBar(content: Text('Error al reportar: $e')));
       }
     }
+  }
+
+  void _mostrarResultado(BuildContext context, ResultadoTransicion resultado) {
+    final msg = switch (resultado) {
+      TransicionAplicadaOnline() => 'Cambio aplicado.',
+      TransicionEncoladaOffline() =>
+        'Sin conexión. Se sincronizará cuando vuelva la señal.',
+      TransicionRechazada(:final detalle) => detalle,
+      TransicionConConflicto() =>
+        'Hay un conflicto que un coordinador debe resolver.',
+    };
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 }
 
