@@ -54,7 +54,7 @@ def run():
         # ── Usuarios de la Empresa A ─────────────────────────────────────────
         admin = Usuario(firebase_uid="5ckqCjV7dbMj8oTLZYtJgbYWoRo2", nombre_completo="Patricia Reyes",
                         rut="12.345.678-9", email="patricia@andessur.cl")
-        coord = Usuario(firebase_uid="XvFxadx54MftoMCNUvWotMyDDl12", nombre_completo="Jorge Muñoz",
+        coord = Usuario(firebase_uid="on1QBkdHBSZikDjR47io0M3mAVD3", nombre_completo="Jorge Muñoz",
                         rut="13.456.789-0", email="jorge@andessur.cl")
         resid = Usuario(firebase_uid="uid-residente-a", nombre_completo="Camila Soto",
                         rut="14.567.890-1", email="camila@andessur.cl")
