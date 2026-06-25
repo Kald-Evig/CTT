@@ -39,6 +39,11 @@ class _CoordinadorItemsScreenState
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ítems')),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/coordinador/${widget.proyectoId}/items/nuevo'),
+        tooltip: 'Nuevo ítem',
+        child: const Icon(Icons.add),
+      ),
       body: Column(
         children: [
           _ChipsFiltro(

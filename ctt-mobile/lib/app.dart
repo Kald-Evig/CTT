@@ -12,8 +12,11 @@ import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
+import 'package:ctt_mobile/presentation/coordinador/conflictos_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_items_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_proyectos_screen.dart';
+import 'package:ctt_mobile/presentation/coordinador/crear_item_screen.dart';
+import 'package:ctt_mobile/presentation/coordinador/crear_proyecto_screen.dart';
 import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
 import 'package:ctt_mobile/presentation/residente/detalle_item_residente_screen.dart';
@@ -154,10 +157,19 @@ GoRouter router(RouterRef ref) {
         path: Rutas.coordinador,
         builder: (_, __) => const CoordinadorProyectosScreen(),
         routes: [
-          // 'notificaciones' ANTES que ':proyectoId/items' — literal path primero.
+          // Rutas literales ANTES que ':proyectoId/items' para evitar que GoRouter
+          // capture 'notificaciones', 'crear-proyecto' o 'conflictos' como parámetro.
           GoRoute(
             path: 'notificaciones',
             builder: (_, __) => const NotificacionesResidenteScreen(),
+          ),
+          GoRoute(
+            path: 'crear-proyecto',
+            builder: (_, __) => const CrearProyectoScreen(),
+          ),
+          GoRoute(
+            path: 'conflictos',
+            builder: (_, __) => const ConflictosScreen(),
           ),
           GoRoute(
             path: ':proyectoId/items',
@@ -165,6 +177,13 @@ GoRouter router(RouterRef ref) {
               proyectoId: state.pathParameters['proyectoId']!,
             ),
             routes: [
+              // 'nuevo' ANTES que ':itemId' — literal path primero.
+              GoRoute(
+                path: 'nuevo',
+                builder: (_, state) => CrearItemScreen(
+                  proyectoId: state.pathParameters['proyectoId']!,
+                ),
+              ),
               GoRoute(
                 path: ':itemId',
                 builder: (_, state) => DetalleItemResidenteScreen(

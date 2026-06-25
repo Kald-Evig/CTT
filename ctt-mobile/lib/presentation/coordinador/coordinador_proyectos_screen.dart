@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
+import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 
@@ -20,6 +21,9 @@ class CoordinadorProyectosScreen extends ConsumerWidget {
         leading: const Icon(Icons.business_center),
         title: const Text('Proyectos'),
         actions: [
+          _BadgeConflictos(
+            onTap: () => context.push('/coordinador/conflictos'),
+          ),
           _BadgeNotificaciones(
             onTap: () => context.push('/coordinador/notificaciones'),
           ),
@@ -29,6 +33,11 @@ class CoordinadorProyectosScreen extends ConsumerWidget {
             onPressed: () => confirmarLogout(context, ref),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/coordinador/crear-proyecto'),
+        tooltip: 'Nuevo proyecto',
+        child: const Icon(Icons.add),
       ),
       body: proyectosAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -96,6 +105,26 @@ class _TarjetaProyecto extends StatelessWidget {
         'cerrado' => ('Cerrado', Colors.grey),
         _ => (valor, Colors.blue),
       };
+}
+
+class _BadgeConflictos extends ConsumerWidget {
+  const _BadgeConflictos({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pendientes =
+        ref.watch(conflictosPendientesProvider).whenOrNull(data: (cs) => cs.length) ?? 0;
+    return IconButton(
+      tooltip: 'Conflictos',
+      onPressed: onTap,
+      icon: Badge(
+        isLabelVisible: pendientes > 0,
+        label: Text(pendientes > 9 ? '9+' : '$pendientes'),
+        child: const Icon(Icons.merge_type_outlined),
+      ),
+    );
+  }
 }
 
 class _BadgeNotificaciones extends ConsumerWidget {
