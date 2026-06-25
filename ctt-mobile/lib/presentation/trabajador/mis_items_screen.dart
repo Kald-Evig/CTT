@@ -9,7 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/data/local/database.dart';
-import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
+import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
 class MisItemsScreen extends ConsumerWidget {
@@ -21,6 +22,7 @@ class MisItemsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const Icon(Icons.engineering),
         title: const Text('Mis ítems'),
         actions: [
           IconButton(
@@ -31,7 +33,7 @@ class MisItemsScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar sesión',
-            onPressed: () => _confirmarLogout(context, ref),
+            onPressed: () => confirmarLogout(context, ref),
           ),
         ],
       ),
@@ -136,69 +138,6 @@ class _TarjetaItem extends ConsumerWidget {
       ),
       onTap: () => context.push('/trabajador/${item.id}'),
     );
-  }
-}
-
-// ── Badge de estado (público para reutilizar en DetalleItemScreen) ───────────
-
-class BadgeEstadoItem extends StatelessWidget {
-  const BadgeEstadoItem({super.key, required this.estado});
-  final String estado;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = _infoEstado(estado);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        border: Border.all(color: color),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
-    );
-  }
-
-  (String, Color) _infoEstado(String valor) => switch (valor) {
-        'abierto' => ('Abierto', Colors.blue),
-        'en_progreso' => ('En progreso', Colors.orange),
-        'pendiente_revision' => ('En revisión', Colors.purple),
-        'terminado' => ('Terminado', Colors.green),
-        'problema' => ('Problema', Colors.red),
-        _ => (valor, Colors.grey),
-      };
-}
-
-// ── Logout con confirmación ───────────────────────────────────────────────────
-
-Future<void> _confirmarLogout(BuildContext context, WidgetRef ref) async {
-  final confirmar = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Cerrar sesión'),
-      content: const Text('¿Estás seguro que deseas cerrar sesión?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancelar'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          child: const Text('Cerrar sesión'),
-        ),
-      ],
-    ),
-  );
-  if (confirmar == true) {
-    await ref.read(authNotifierProvider.notifier).cerrarSesion();
   }
 }
 

@@ -15,8 +15,8 @@ import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
+import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
-import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
 class DetalleItemScreen extends ConsumerWidget {
   const DetalleItemScreen({super.key, required this.itemId});

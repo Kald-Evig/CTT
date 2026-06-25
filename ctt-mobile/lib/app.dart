@@ -12,6 +12,8 @@ import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
+import 'package:ctt_mobile/presentation/coordinador/coordinador_items_screen.dart';
+import 'package:ctt_mobile/presentation/coordinador/coordinador_proyectos_screen.dart';
 import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
 import 'package:ctt_mobile/presentation/residente/detalle_item_residente_screen.dart';
@@ -150,11 +152,35 @@ GoRouter router(RouterRef ref) {
       ),
       GoRoute(
         path: Rutas.coordinador,
-        builder: (_, __) => const _PantallaPlaceholder(titulo: 'Coordinador'),
+        builder: (_, __) => const CoordinadorProyectosScreen(),
+        routes: [
+          // 'notificaciones' ANTES que ':proyectoId/items' — literal path primero.
+          GoRoute(
+            path: 'notificaciones',
+            builder: (_, __) => const NotificacionesResidenteScreen(),
+          ),
+          GoRoute(
+            path: ':proyectoId/items',
+            builder: (_, state) => CoordinadorItemsScreen(
+              proyectoId: state.pathParameters['proyectoId']!,
+            ),
+            routes: [
+              GoRoute(
+                path: ':itemId',
+                builder: (_, state) => DetalleItemResidenteScreen(
+                  itemId: state.pathParameters['itemId']!,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: Rutas.admin,
-        builder: (_, __) => const _PantallaPlaceholder(titulo: 'Admin'),
+        builder: (_, __) => const _PantallaPlaceholder(
+          titulo: 'Admin',
+          icono: Icons.admin_panel_settings,
+        ),
       ),
     ],
   );
@@ -202,12 +228,16 @@ ThemeData _temaCTT() => ThemeData(
 // ── Placeholder hasta que se construyan las pantallas reales ──────────────────
 
 class _PantallaPlaceholder extends StatelessWidget {
-  const _PantallaPlaceholder({required this.titulo});
+  const _PantallaPlaceholder({required this.titulo, this.icono});
   final String titulo;
+  final IconData? icono;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(titulo)),
+        appBar: AppBar(
+          leading: icono != null ? Icon(icono) : null,
+          title: Text(titulo),
+        ),
         body: Center(
           child: Text(
             'Pantalla $titulo — Fase 1.x',

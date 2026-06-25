@@ -9,10 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
-import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
+import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
-import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
 class ListaItemsResidenteScreen extends ConsumerStatefulWidget {
   const ListaItemsResidenteScreen({super.key});
@@ -42,6 +42,7 @@ class _ListaItemsResidenteScreenState
 
     return Scaffold(
       appBar: AppBar(
+        leading: const Icon(Icons.fact_check),
         title: const Text('Ítems'),
         actions: [
           _BadgeNotificaciones(
@@ -50,7 +51,7 @@ class _ListaItemsResidenteScreenState
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar sesión',
-            onPressed: () => _confirmarLogout(context, ref),
+            onPressed: () => confirmarLogout(context, ref),
           ),
         ],
       ),
@@ -268,32 +269,6 @@ class _BadgeNotificaciones extends ConsumerWidget {
         child: const Icon(Icons.notifications_outlined),
       ),
     );
-  }
-}
-
-// ── Logout ───────────────────────────────────────────────────────────────────
-
-Future<void> _confirmarLogout(BuildContext context, WidgetRef ref) async {
-  final confirmar = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Cerrar sesión'),
-      content: const Text('¿Estás seguro que deseas cerrar sesión?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancelar'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          child: const Text('Cerrar sesión'),
-        ),
-      ],
-    ),
-  );
-  if (confirmar == true) {
-    await ref.read(authNotifierProvider.notifier).cerrarSesion();
   }
 }
 

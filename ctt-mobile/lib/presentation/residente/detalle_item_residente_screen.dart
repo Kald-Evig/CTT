@@ -17,7 +17,7 @@ import 'package:ctt_mobile/data/repositories/residente_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
-import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
+import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 
 class DetalleItemResidenteScreen extends ConsumerWidget {
   const DetalleItemResidenteScreen({super.key, required this.itemId});
