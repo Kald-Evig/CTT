@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
+import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 
 class CrearProyectoScreen extends ConsumerStatefulWidget {
@@ -75,6 +76,7 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
           );
       if (!mounted) return;
       ref.invalidate(proyectosResidenteProvider);
+      ref.invalidate(dashboardProyectosProvider);
       context.pop();
     } catch (e) {
       if (!mounted) return;

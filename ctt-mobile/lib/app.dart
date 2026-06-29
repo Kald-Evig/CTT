@@ -17,6 +17,7 @@ import 'package:ctt_mobile/presentation/coordinador/coordinador_items_screen.dar
 import 'package:ctt_mobile/presentation/coordinador/coordinador_proyectos_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/crear_item_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/crear_proyecto_screen.dart';
+import 'package:ctt_mobile/presentation/coordinador/historial_proyecto_screen.dart';
 import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
 import 'package:ctt_mobile/presentation/residente/detalle_item_residente_screen.dart';
@@ -170,6 +171,15 @@ GoRouter router(RouterRef ref) {
           GoRoute(
             path: 'conflictos',
             builder: (_, __) => const ConflictosScreen(),
+          ),
+          // ':proyectoId/historial' y ':proyectoId/items' — literales distintos,
+          // pero historial primero por convención de rutas literales antes que
+          // variantes con subrutas anidadas.
+          GoRoute(
+            path: ':proyectoId/historial',
+            builder: (_, state) => HistorialProyectoScreen(
+              proyectoId: state.pathParameters['proyectoId']!,
+            ),
           ),
           GoRoute(
             path: ':proyectoId/items',

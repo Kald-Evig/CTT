@@ -9,6 +9,23 @@ import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
 part 'coordinador_providers.g.dart';
 
+// ── Dashboard (CTT-42) ───────────────────────────────────────────────────────
+
+@riverpod
+Future<List<DashboardProyecto>> dashboardProyectos(
+  DashboardProyectosRef ref,
+) =>
+    ref.watch(coordinadorRepositoryProvider).listarDashboard();
+
+@riverpod
+Future<List<HistorialProyectoEntrada>> historialProyecto(
+  HistorialProyectoRef ref,
+  String proyectoId,
+) =>
+    ref.watch(coordinadorRepositoryProvider).listarHistorialProyecto(proyectoId);
+
+// ── Conflictos ────────────────────────────────────────────────────────────────
+
 @riverpod
 Future<List<ConflictoSync>> conflictosPendientes(ConflictosPendientesRef ref) =>
     ref.watch(coordinadorRepositoryProvider).listarConflictos(estado: 'pendiente');

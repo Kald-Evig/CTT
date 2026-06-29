@@ -4,17 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:ctt_mobile/domain/entities/residente_models.dart';
+import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 
-class CoordinadorProyectosScreen extends ConsumerWidget {
+class CoordinadorProyectosScreen extends ConsumerStatefulWidget {
   const CoordinadorProyectosScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final proyectosAsync = ref.watch(proyectosResidenteProvider);
+  ConsumerState<CoordinadorProyectosScreen> createState() =>
+      _CoordinadorProyectosScreenState();
+}
+
+class _CoordinadorProyectosScreenState
+    extends ConsumerState<CoordinadorProyectosScreen> {
+  bool _mostrarReal = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final dashboardAsync = ref.watch(dashboardProyectosProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -39,23 +48,53 @@ class CoordinadorProyectosScreen extends ConsumerWidget {
         tooltip: 'Nuevo proyecto',
         child: const Icon(Icons.add),
       ),
-      body: proyectosAsync.when(
+      body: dashboardAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => _ErrorVista(
           mensaje: e.toString(),
-          onReintento: () => ref.invalidate(proyectosResidenteProvider),
+          onReintento: () => ref.invalidate(dashboardProyectosProvider),
         ),
         data: (proyectos) {
           if (proyectos.isEmpty) {
             return const Center(child: Text('No hay proyectos disponibles.'));
           }
-          return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(proyectosResidenteProvider),
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: proyectos.length,
-              itemBuilder: (_, i) => _TarjetaProyecto(proyecto: proyectos[i]),
-            ),
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: false,
+                      label: Text('% Completo'),
+                      icon: Icon(Icons.bar_chart_outlined),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      label: Text('% Real (hojas)'),
+                      icon: Icon(Icons.account_tree_outlined),
+                    ),
+                  ],
+                  selected: {_mostrarReal},
+                  onSelectionChanged: (s) =>
+                      setState(() => _mostrarReal = s.first),
+                ),
+              ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async =>
+                      ref.invalidate(dashboardProyectosProvider),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: proyectos.length,
+                    itemBuilder: (_, i) => _TarjetaProyecto(
+                      proyecto: proyectos[i],
+                      mostrarReal: _mostrarReal,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -63,38 +102,68 @@ class CoordinadorProyectosScreen extends ConsumerWidget {
   }
 }
 
+// ── Tarjeta de proyecto con avance ────────────────────────────────────────────
+
 class _TarjetaProyecto extends StatelessWidget {
-  const _TarjetaProyecto({required this.proyecto});
-  final ProyectoResidente proyecto;
+  const _TarjetaProyecto({
+    required this.proyecto,
+    required this.mostrarReal,
+  });
+
+  final DashboardProyecto proyecto;
+  final bool mostrarReal;
 
   @override
   Widget build(BuildContext context) {
     final (label, color) = _infoEstado(proyecto.estado);
+    final pct = mostrarReal ? proyecto.pctReal : proyecto.pctCompleto;
+    final sufijo = mostrarReal ? 'real' : 'completo';
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        title: Text(
-          proyecto.nombre,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            border: Border.all(color: color),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
         onTap: () => context.push('/coordinador/${proyecto.id}/items'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      proyecto.nombre,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _ChipEstado(label: label, color: color),
+                  IconButton(
+                    icon: const Icon(Icons.history_outlined, size: 20),
+                    tooltip: 'Ver historial',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () =>
+                        context.push('/coordinador/${proyecto.id}/historial'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: pct / 100,
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(3),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${pct.toStringAsFixed(1)}% $sufijo',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -106,6 +175,33 @@ class _TarjetaProyecto extends StatelessWidget {
         _ => (valor, Colors.blue),
       };
 }
+
+class _ChipEstado extends StatelessWidget {
+  const _ChipEstado({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          border: Border.all(color: color),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      );
+}
+
+// ── AppBar: badges ────────────────────────────────────────────────────────────
 
 class _BadgeConflictos extends ConsumerWidget {
   const _BadgeConflictos({required this.onTap});
@@ -149,6 +245,8 @@ class _BadgeNotificaciones extends ConsumerWidget {
     );
   }
 }
+
+// ── Error ─────────────────────────────────────────────────────────────────────
 
 class _ErrorVista extends StatelessWidget {
   const _ErrorVista({required this.mensaje, required this.onReintento});

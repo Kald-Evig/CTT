@@ -87,6 +87,27 @@ class CoordinadorRepository {
     }
   }
 
+  // ── Dashboard (CTT-42) ───────────────────────────────────────────────────────
+
+  Future<List<DashboardProyecto>> listarDashboard() async {
+    final resp = await _dio.get<List<dynamic>>('/proyectos/dashboard');
+    return (resp.data ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(DashboardProyecto.fromJson)
+        .toList();
+  }
+
+  Future<List<HistorialProyectoEntrada>> listarHistorialProyecto(
+    String proyectoId,
+  ) async {
+    final resp =
+        await _dio.get<List<dynamic>>('/proyectos/$proyectoId/historial');
+    return (resp.data ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(HistorialProyectoEntrada.fromJson)
+        .toList();
+  }
+
   // ── Conflictos ───────────────────────────────────────────────────────────────
 
   Future<List<ConflictoSync>> listarConflictos({String? estado}) async {

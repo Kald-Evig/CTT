@@ -231,3 +231,30 @@ class MeOut(BaseModel):
     """Respuesta completa de GET /me."""
     usuario: MeUsuarioOut
     empresas: list[EmpresaMeOut]
+
+
+# ── Dashboard / Historial de proyecto (Coordinador — CTT-42) ─────────────────
+class DashboardProyectoOut(BaseModel):
+    id: str
+    nombre: str
+    estado: ProyectoEstado
+    fecha_inicio: date | None
+    fecha_fin_estimada: date | None
+    total_items: int
+    items_terminados: int
+    pct_completo: float
+    total_hojas: int
+    hojas_terminadas: int
+    pct_real: float
+
+
+class ProyectoHistorialEntradaOut(BaseModel):
+    item_id: str
+    item_nombre: str
+    accion: str
+    estado_anterior: str | None
+    estado_nuevo: str | None
+    detalle: str | None
+    usuario_id: str | None
+    nombre_usuario: str | None
+    created_at: datetime
