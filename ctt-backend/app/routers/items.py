@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.audit import record_audit
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
@@ -262,6 +263,7 @@ def transicion_item(
             },
         )
 
+    estado_anterior = item.estado.value  # capturar ANTES de que transicionar() mute item.estado
     try:
         transicionar(
             db, item, body.nuevo_estado,
@@ -300,6 +302,24 @@ def transicion_item(
                       titulo=f"Problema: {item.nombre}",
                       cuerpo=body.descripcion_problema, email_destino=sup.email)
 
+    # ── Audit log (CTT-48) — misma transacción que ItemHistorial y el cambio ──
+    # device_timestamp presente → cambio vino de la cola offline del SyncService.
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        actor_id=ctx.usuario.id,
+        actor_nombre=ctx.usuario.nombre_completo,
+        actor_rol=ctx.rol.value,
+        accion="cambio_estado",
+        entidad_tipo="item",
+        entidad_id=item.id,
+        proyecto_id=item.proyecto_id,
+        diff={"estado": [estado_anterior, body.nuevo_estado.value]},
+        detalle=body.comentario or body.descripcion_problema,
+        device_ts=body.device_timestamp,
+        synced_offline=body.device_timestamp is not None,
+    )
+
     db.commit()
     db.refresh(item)
     return item
@@ -317,10 +337,25 @@ def cerrar_problema_item(
     if not puede(ctx.rol, "cerrar_problema"):
         raise HTTPException(403, "Su rol no puede cerrar problemas.")
     item = get_item_de_empresa(db, item_id, empresa_id)
+    # Capturar estado_previo ANTES de cerrar_problema() — la función lo borra (→ None).
+    estado_restaurado = (item.estado_previo or ItemEstado.EN_PROGRESO).value
     try:
         cerrar_problema(db, item, rol=ctx.rol, usuario_id=ctx.usuario.id)
     except TransicionInvalida as e:
         raise HTTPException(status_code=409, detail=str(e))
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        actor_id=ctx.usuario.id,
+        actor_nombre=ctx.usuario.nombre_completo,
+        actor_rol=ctx.rol.value,
+        accion="cierre_problema",
+        entidad_tipo="item",
+        entidad_id=item.id,
+        proyecto_id=item.proyecto_id,
+        diff={"estado": [ItemEstado.PROBLEMA.value, estado_restaurado]},
+        detalle="Problema cerrado; estado restaurado.",
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -341,6 +376,19 @@ def revertir_terminado_item(
         revertir_terminado(db, item, rol=ctx.rol, usuario_id=ctx.usuario.id, motivo=motivo)
     except TransicionInvalida as e:
         raise HTTPException(status_code=409, detail=str(e))
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        actor_id=ctx.usuario.id,
+        actor_nombre=ctx.usuario.nombre_completo,
+        actor_rol=ctx.rol.value,
+        accion="reversion_terminado",
+        entidad_tipo="item",
+        entidad_id=item.id,
+        proyecto_id=item.proyecto_id,
+        diff={"estado": [ItemEstado.TERMINADO.value, ItemEstado.PENDIENTE_REVISION.value]},
+        detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
+    )
     db.commit()
     db.refresh(item)
     return item

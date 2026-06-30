@@ -36,6 +36,9 @@ MATRIZ_PERMISOS: dict[str, set[Rol]] = {
     "acceso_reportes":       {Rol.RESIDENTE, Rol.COORDINADOR, Rol.ADMIN},
     "resolver_conflictos_sync": {Rol.COORDINADOR, Rol.ADMIN},
     "ver_log_cambios":       {Rol.RESIDENTE, Rol.COORDINADOR, Rol.ADMIN},
+    # Audit log operativo: solo Coordinador y Admin — el log de empresa es sensible.
+    # (Residente tiene ver_log_cambios por ítem, pero NO el log global de empresa.)
+    "ver_audit_log":         {Rol.COORDINADOR, Rol.ADMIN},
 }
 
 # Acciones exclusivas de plataforma (Super Admin).

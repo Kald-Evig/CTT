@@ -258,3 +258,22 @@ class ProyectoHistorialEntradaOut(BaseModel):
     usuario_id: str | None
     nombre_usuario: str | None
     created_at: datetime
+
+
+# ── Audit log operativo (CTT-48) ──────────────────────────────────────────────
+class AuditLogOut(BaseModel):
+    id: str
+    folio: int
+    empresa_id: str
+    actor_id: str | None
+    actor_nombre: str
+    actor_rol: str
+    accion: str
+    entidad_tipo: str
+    entidad_id: str
+    proyecto_id: str | None
+    diff: dict | None
+    detalle: str | None
+    device_ts: datetime | None
+    synced_offline: bool
+    created_at: datetime

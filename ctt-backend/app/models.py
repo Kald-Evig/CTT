@@ -23,7 +23,7 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Enum as _SAEnum, Float, ForeignKey, Integer,
-    String, Text, JSON,
+    String, Text, JSON, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -301,3 +301,33 @@ class Notificacion(Base):
     leida: Mapped[bool] = mapped_column(Boolean, default=False)
     email_enviado: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUDIT_LOG  [CTT-48 — Registro operativo general]
+# ─────────────────────────────────────────────────────────────────────────────
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        # Red de seguridad ante colisión de folio en Postgres (ver audit.py:_next_folio).
+        UniqueConstraint("empresa_id", "folio", name="uq_audit_log_empresa_folio"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    empresa_id: Mapped[str] = mapped_column(ForeignKey("empresas.id"))
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    actor_nombre: Mapped[str] = mapped_column(String(255))   # denorm — snapshot al momento de actuar
+    actor_rol: Mapped[str] = mapped_column(String(50))       # denorm — rol en la empresa al actuar
+    accion: Mapped[str] = mapped_column(String(100))         # "cambio_estado", "edicion_datos", …
+    entidad_tipo: Mapped[str] = mapped_column(String(50))    # "item", "proyecto", …
+    entidad_id: Mapped[str] = mapped_column(String(36))
+    proyecto_id: Mapped[str | None] = mapped_column(String(36), nullable=True)  # scope para filtrado
+    diff: Mapped[dict | None] = mapped_column(JSON, nullable=True)     # {campo: [anterior, nuevo]}
+    detalle: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "metadata" es atributo reservado de DeclarativeBase; se expone como `meta`
+    # en Python con nombre de columna "metadata" en la BD.
+    meta: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    folio: Mapped[int] = mapped_column(Integer)              # correlativo ≥1 por empresa
+    device_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    synced_offline: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)  # server ts autoritativo

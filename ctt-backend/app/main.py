@@ -20,7 +20,7 @@ from app.database import Base, engine
 from app import models  # noqa: F401
 from app.middleware.logging_middleware import LoggingMiddleware, configurar_logging
 from app.routers import (
-    items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
+    audit, items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
 )
 
 app = FastAPI(
@@ -45,7 +45,8 @@ Base.metadata.create_all(bind=engine)
 
 # Montaje de routers.
 for r in (plataforma.router, me.router, usuarios.router, proyectos.router,
-          items.router, sync.router, reportes.router, notificaciones.router):
+          items.router, sync.router, reportes.router, notificaciones.router,
+          audit.router):
     app.include_router(r)
 
 
