@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.audit import record_audit
+from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
@@ -28,7 +28,7 @@ from app.notifications import notificar
 from app.permissions import puede
 from app.schemas import (
     AsignarItemIn, ComentarioIn, ComentarioOut, EvidenciaIn, EvidenciaOut,
-    HistorialOut, ItemCreate, ItemOut, MisItemOut, TransicionIn,
+    HistorialOut, ItemCreate, ItemOut, ItemUpdate, MisItemOut, TransicionIn,
 )
 from app.state_machine import (
     TransicionInvalida, cerrar_problema, revertir_terminado, transicionar,
@@ -142,6 +142,8 @@ def listar_items(
             "asignado_nombre": nombre_completo,
             "estado": item.estado,
             "fecha_limite": item.fecha_limite,
+            "duracion_estimada_horas": item.duracion_estimada_horas,
+            "orden": item.orden,
         }
         for item, nombre_completo in rows
     ]
@@ -193,6 +195,57 @@ def detalle_item(
 ):
     empresa_id = requiere_empresa(ctx)
     return get_item_de_empresa(db, item_id, empresa_id)
+
+
+# ── Editar ítem ──────────────────────────────────────────────────────────────
+@router.put("/{item_id}", response_model=ItemOut)
+def editar_item(
+    item_id: str,
+    body: ItemUpdate,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Edita datos de un ítem (Coordinador/Admin). Bloquea con 409 si está terminado."""
+    empresa_id = requiere_empresa(ctx)
+    if not puede(ctx.rol, "crear_editar_item"):
+        raise HTTPException(403, "Su rol no puede editar ítems.")
+
+    item = get_item_de_empresa(db, item_id, empresa_id)
+
+    # Bloqueo ANTES de cualquier mutación.
+    if item.estado == ItemEstado.TERMINADO:
+        raise HTTPException(409, "No se puede editar un ítem terminado.")
+
+    cambios = body.model_dump(exclude_unset=True)
+    if not cambios:
+        return item
+
+    # Diff de solo los campos que realmente cambian de valor.
+    diff: dict = {}
+    for campo, valor_nuevo in cambios.items():
+        valor_actual = getattr(item, campo)
+        if valor_actual != valor_nuevo:
+            diff[campo] = [a_serializable(valor_actual), a_serializable(valor_nuevo)]
+            setattr(item, campo, valor_nuevo)
+
+    if not diff:
+        return item
+
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        actor_id=ctx.usuario.id,
+        actor_nombre=ctx.usuario.nombre_completo,
+        actor_rol=ctx.rol.value,
+        accion="edicion_datos",
+        entidad_tipo="item",
+        entidad_id=item.id,
+        proyecto_id=item.proyecto_id,
+        diff=diff,
+    )
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 # ── Asignar ──────────────────────────────────────────────────────────────────

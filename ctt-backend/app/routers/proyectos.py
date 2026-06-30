@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.database import get_db
 from app.enums import ProyectoEstado
@@ -16,6 +17,7 @@ from app.models import Item, ItemHistorial, Proyecto, Usuario
 from app.permissions import puede
 from app.schemas import (
     DashboardProyectoOut, ProyectoCreate, ProyectoHistorialEntradaOut, ProyectoOut,
+    ProyectoUpdate,
 )
 from app.tenancy import get_proyecto_de_empresa, get_usuario_de_empresa
 
@@ -188,6 +190,56 @@ def historial_proyecto(
         }
         for h, item_nombre, nombre_usuario in rows
     ]
+
+
+@router.put("/{proyecto_id}", response_model=ProyectoOut)
+def editar_proyecto(
+    proyecto_id: str,
+    body: ProyectoUpdate,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Edita datos de un proyecto (Coordinador/Admin). No modifica el estado."""
+    empresa_id = requiere_empresa(ctx)
+    if not puede(ctx.rol, "crear_editar_proyecto"):
+        raise HTTPException(403, "Su rol no puede editar proyectos.")
+
+    proyecto = get_proyecto_de_empresa(db, proyecto_id, empresa_id)
+
+    cambios = body.model_dump(exclude_unset=True)
+    if not cambios:
+        return proyecto
+
+    # Validar coordinador si se está asignando a alguien (null = quitar coordinador, es válido).
+    if cambios.get("coordinador_principal_id") is not None:
+        get_usuario_de_empresa(db, cambios["coordinador_principal_id"], empresa_id)
+
+    # Diff de solo los campos que realmente cambian de valor.
+    diff: dict = {}
+    for campo, valor_nuevo in cambios.items():
+        valor_actual = getattr(proyecto, campo)
+        if valor_actual != valor_nuevo:
+            diff[campo] = [a_serializable(valor_actual), a_serializable(valor_nuevo)]
+            setattr(proyecto, campo, valor_nuevo)
+
+    if not diff:
+        return proyecto
+
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        actor_id=ctx.usuario.id,
+        actor_nombre=ctx.usuario.nombre_completo,
+        actor_rol=ctx.rol.value,
+        accion="edicion_datos",
+        entidad_tipo="proyecto",
+        entidad_id=proyecto.id,
+        proyecto_id=proyecto.id,
+        diff=diff,
+    )
+    db.commit()
+    db.refresh(proyecto)
+    return proyecto
 
 
 @router.post("/{proyecto_id}/cerrar", response_model=ProyectoOut)

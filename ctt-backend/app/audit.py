@@ -12,12 +12,19 @@ Uso típico (en un endpoint):
     db.commit()          # ← una sola transacción
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog
+
+
+def a_serializable(v: object) -> object:
+    """Convierte date a str ISO para el diff de auditoría (JSON no serializa date nativamente)."""
+    if isinstance(v, date):
+        return v.isoformat()
+    return v
 
 
 def record_audit(

@@ -89,9 +89,31 @@ class ProyectoOut(BaseModel):
     nombre: str
     descripcion: str | None
     ubicacion_nombre: str | None
+    latitud: float | None
+    longitud: float | None
+    coordinador_principal_id: str | None
     estado: ProyectoEstado
     fecha_inicio: date | None
     fecha_fin_estimada: date | None
+
+
+class ProyectoUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    nombre: str | None = Field(default=None, min_length=1, max_length=255)
+    descripcion: str | None = Field(default=None, max_length=2000)
+    ubicacion_nombre: str | None = Field(default=None, max_length=500)
+    latitud: float | None = Field(default=None, ge=-90.0, le=90.0)
+    longitud: float | None = Field(default=None, ge=-180.0, le=180.0)
+    coordinador_principal_id: str | None = None
+    fecha_inicio: date | None = None
+    fecha_fin_estimada: date | None = None
+
+    @field_validator('nombre', mode='before')
+    @classmethod
+    def nombre_no_puede_ser_null(cls, v: object) -> object:
+        if v is None:
+            raise ValueError("nombre es NOT NULL; omití el campo para no modificarlo.")
+        return v
 
 
 # ── Ítems ────────────────────────────────────────────────────────────────────
@@ -118,6 +140,26 @@ class ItemOut(BaseModel):
     asignado_nombre: str | None = None
     estado: ItemEstado
     fecha_limite: date | None
+    duracion_estimada_horas: float | None = None
+    orden: int = 0
+
+
+class ItemUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    nombre: str | None = Field(default=None, min_length=1, max_length=255)
+    descripcion: str | None = Field(default=None, max_length=2000)
+    fecha_limite: date | None = None
+    orden: int | None = None
+    duracion_estimada_horas: float | None = None
+
+    @field_validator('nombre', 'orden', mode='before')
+    @classmethod
+    def campos_not_null_no_aceptan_null(cls, v: object, info) -> object:
+        if v is None:
+            raise ValueError(
+                f"{info.field_name} es NOT NULL; omití el campo para no modificarlo."
+            )
+        return v
 
 
 class AsignarItemIn(BaseModel):
