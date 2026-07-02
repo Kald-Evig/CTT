@@ -13,7 +13,8 @@ Incluye:
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, aliased
 
 from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, get_current_context, requiere_empresa
@@ -21,8 +22,8 @@ from app.config import settings
 from app.database import get_db
 from app.enums import EvidenciaSyncStatus, ItemEstado, Rol
 from app.models import (
-    Item, ItemComentario, ItemEvidencia, ItemHistorial, Proyecto, ProyectoUsuario,
-    SyncConflicto, Usuario,
+    AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial, Proyecto,
+    ProyectoUsuario, SyncConflicto, Usuario,
 )
 from app.notifications import notificar
 from app.permissions import puede
@@ -111,6 +112,65 @@ def crear_item(
     return item
 
 
+# ── Helper: subquery ID de la última edicion_datos en audit_log ───────────────
+
+def _ult_edit_id_correlado() -> object:
+    """Subquery correlado a Item.id: devuelve el id de la fila más reciente de
+    edicion_datos en audit_log para cada ítem del query externo.
+
+    Se usa en LEFT JOIN ... ON audit_log.id = <este_subquery>.
+    Al unir por id de fila (no por MAX+GROUP), actor_nombre y created_at
+    siempre provienen de la MISMA fila — no hay mezcla de actores.
+    """
+    al_sq = aliased(AuditLog, name="al_sq")
+    return (
+        select(al_sq.id)
+        .where(
+            al_sq.entidad_id == Item.id,   # correlación al items externo
+            al_sq.accion == "edicion_datos",
+            al_sq.entidad_tipo == "item",
+        )
+        .order_by(al_sq.created_at.desc(), al_sq.id.desc())
+        .limit(1)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+
+
+def _ult_edit_id_fijo(item_id: str) -> object:
+    """Subquery no correlado para un item_id concreto (GET /{item_id})."""
+    return (
+        select(AuditLog.id)
+        .where(
+            AuditLog.entidad_id == item_id,
+            AuditLog.accion == "edicion_datos",
+            AuditLog.entidad_tipo == "item",
+        )
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _item_dict(item: Item, asignado_nombre, ult_actor, ult_fecha) -> dict:
+    return {
+        "id": item.id,
+        "proyecto_id": item.proyecto_id,
+        "parent_item_id": item.parent_item_id,
+        "nivel_profundidad": item.nivel_profundidad,
+        "nombre": item.nombre,
+        "descripcion": item.descripcion,
+        "asignado_a": item.asignado_a,
+        "asignado_nombre": asignado_nombre,
+        "estado": item.estado,
+        "fecha_limite": item.fecha_limite,
+        "duracion_estimada_horas": item.duracion_estimada_horas,
+        "orden": item.orden,
+        "ultima_edicion_por": ult_actor,
+        "ultima_edicion_en": ult_fecha,
+    }
+
+
 # ── Listar / detalle ─────────────────────────────────────────────────────────
 @router.get("", response_model=list[ItemOut])
 def listar_items(
@@ -122,30 +182,20 @@ def listar_items(
     """Lista los ítems de un proyecto, opcionalmente filtrados por estado."""
     empresa_id = requiere_empresa(ctx)
     get_proyecto_de_empresa(db, proyecto_id, empresa_id)  # valida pertenencia
+
+    al_ult = aliased(AuditLog, name="al_ult")
     q = (
-        db.query(Item, Usuario.nombre_completo)
+        db.query(Item, Usuario.nombre_completo, al_ult.actor_nombre, al_ult.created_at)
         .outerjoin(Usuario, Item.asignado_a == Usuario.id)
+        .outerjoin(al_ult, al_ult.id == _ult_edit_id_correlado())
         .filter(Item.proyecto_id == proyecto_id)
     )
     if estado is not None:
         q = q.filter(Item.estado == estado)
     rows = q.order_by(Item.orden).all()
     return [
-        {
-            "id": item.id,
-            "proyecto_id": item.proyecto_id,
-            "parent_item_id": item.parent_item_id,
-            "nivel_profundidad": item.nivel_profundidad,
-            "nombre": item.nombre,
-            "descripcion": item.descripcion,
-            "asignado_a": item.asignado_a,
-            "asignado_nombre": nombre_completo,
-            "estado": item.estado,
-            "fecha_limite": item.fecha_limite,
-            "duracion_estimada_horas": item.duracion_estimada_horas,
-            "orden": item.orden,
-        }
-        for item, nombre_completo in rows
+        _item_dict(item, asignado_nombre, ult_actor, ult_fecha)
+        for item, asignado_nombre, ult_actor, ult_fecha in rows
     ]
 
 
@@ -194,7 +244,19 @@ def detalle_item(
     db: Session = Depends(get_db),
 ):
     empresa_id = requiere_empresa(ctx)
-    return get_item_de_empresa(db, item_id, empresa_id)
+    al_ult = aliased(AuditLog, name="al_ult")
+    row = (
+        db.query(Item, Usuario.nombre_completo, al_ult.actor_nombre, al_ult.created_at)
+        .join(Proyecto, Item.proyecto_id == Proyecto.id)
+        .outerjoin(Usuario, Item.asignado_a == Usuario.id)
+        .outerjoin(al_ult, al_ult.id == _ult_edit_id_fijo(item_id))
+        .filter(Item.id == item_id, Proyecto.empresa_id == empresa_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(404, "Ítem no encontrado.")
+    item, asignado_nombre, ult_actor, ult_fecha = row
+    return _item_dict(item, asignado_nombre, ult_actor, ult_fecha)
 
 
 # ── Editar ítem ──────────────────────────────────────────────────────────────

@@ -5,12 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
+import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 
 class CrearProyectoScreen extends ConsumerStatefulWidget {
-  const CrearProyectoScreen({super.key});
+  const CrearProyectoScreen({super.key, this.proyectoParaEditar});
+
+  /// null → modo crear · non-null → modo editar (precarga los campos).
+  final ProyectoCoordinador? proyectoParaEditar;
 
   @override
   ConsumerState<CrearProyectoScreen> createState() => _CrearProyectoScreenState();
@@ -26,6 +30,25 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
   DateTime? _fechaFin;
   String? _coordinadorId;
   bool _guardando = false;
+
+  bool get _editando => widget.proyectoParaEditar != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.proyectoParaEditar;
+    if (p != null) {
+      _nombreCtrl.text = p.nombre;
+      _descripcionCtrl.text = p.descripcion ?? '';
+      _ubicacionCtrl.text = p.ubicacionNombre ?? '';
+      _coordinadorId = p.coordinadorPrincipalId;
+      _fechaInicio =
+          p.fechaInicio != null ? DateTime.parse(p.fechaInicio!) : null;
+      _fechaFin = p.fechaFinEstimada != null
+          ? DateTime.parse(p.fechaFinEstimada!)
+          : null;
+    }
+  }
 
   @override
   void dispose() {
@@ -61,19 +84,39 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
   Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _guardando = true);
+    final repo = ref.read(coordinadorRepositoryProvider);
+    final nombre = _nombreCtrl.text.trim();
+    final descripcion = _descripcionCtrl.text.trim().isEmpty
+        ? null
+        : _descripcionCtrl.text.trim();
+    final ubicacion = _ubicacionCtrl.text.trim().isEmpty
+        ? null
+        : _ubicacionCtrl.text.trim();
+    final fechaInicio =
+        _fechaInicio != null ? _formatFecha(_fechaInicio!) : null;
+    final fechaFin = _fechaFin != null ? _formatFecha(_fechaFin!) : null;
+
     try {
-      await ref.read(coordinadorRepositoryProvider).crearProyecto(
-            nombre: _nombreCtrl.text.trim(),
-            descripcion: _descripcionCtrl.text.trim().isEmpty
-                ? null
-                : _descripcionCtrl.text.trim(),
-            ubicacionNombre: _ubicacionCtrl.text.trim().isEmpty
-                ? null
-                : _ubicacionCtrl.text.trim(),
-            coordinadorPrincipalId: _coordinadorId,
-            fechaInicio: _fechaInicio != null ? _formatFecha(_fechaInicio!) : null,
-            fechaFinEstimada: _fechaFin != null ? _formatFecha(_fechaFin!) : null,
-          );
+      if (_editando) {
+        await repo.editarProyecto(
+          id: widget.proyectoParaEditar!.id,
+          nombre: nombre,
+          descripcion: descripcion,
+          ubicacionNombre: ubicacion,
+          coordinadorPrincipalId: _coordinadorId,
+          fechaInicio: fechaInicio,
+          fechaFinEstimada: fechaFin,
+        );
+      } else {
+        await repo.crearProyecto(
+          nombre: nombre,
+          descripcion: descripcion,
+          ubicacionNombre: ubicacion,
+          coordinadorPrincipalId: _coordinadorId,
+          fechaInicio: fechaInicio,
+          fechaFinEstimada: fechaFin,
+        );
+      }
       if (!mounted) return;
       ref.invalidate(proyectosResidenteProvider);
       ref.invalidate(dashboardProyectosProvider);
@@ -94,12 +137,21 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
         const <UsuarioEmpresa>[];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Nuevo proyecto')),
+      appBar: AppBar(
+        title: Text(_editando ? 'Editar proyecto' : 'Nuevo proyecto'),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (_editando) ...[
+              const _AdvertenciaEdicion(
+                mensaje:
+                    'Un cambio radical debería ser una tarea nueva, no una edición.',
+              ),
+              const SizedBox(height: 16),
+            ],
             TextFormField(
               controller: _nombreCtrl,
               decoration: const InputDecoration(
@@ -167,12 +219,49 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
                   ? const SizedBox(
                       height: 20,
                       width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
-                  : const Text('Crear proyecto'),
+                  : Text(_editando ? 'Guardar cambios' : 'Crear proyecto'),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AdvertenciaEdicion extends StatelessWidget {
+  const _AdvertenciaEdicion({required this.mensaje});
+  final String mensaje;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: cs.secondaryContainer.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: cs.outline.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: cs.onSecondaryContainer),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              mensaje,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: cs.onSecondaryContainer),
+            ),
+          ),
+        ],
       ),
     );
   }

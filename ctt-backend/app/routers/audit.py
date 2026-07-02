@@ -8,6 +8,7 @@ Filtros opcionales:
   ?proyecto_id=  — entradas de ese proyecto
   ?entidad_tipo= — "item", "proyecto", etc.
   ?entidad_id=   — historial de una entidad puntual (combinable con entidad_tipo)
+  ?accion=       — tipo de acción ("edicion_datos", "cambio_estado", etc.)
 
 Paginación:
   ?limit=50      — máx 200 por llamada (default 50)
@@ -31,6 +32,7 @@ def listar_audit_log(
     proyecto_id: str | None = Query(default=None),
     entidad_tipo: str | None = Query(default=None),
     entidad_id: str | None = Query(default=None),
+    accion: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     ctx: AuthContext = Depends(get_current_context),
@@ -52,6 +54,8 @@ def listar_audit_log(
         q = q.filter(AuditLog.entidad_tipo == entidad_tipo)
     if entidad_id is not None:
         q = q.filter(AuditLog.entidad_id == entidad_id)
+    if accion is not None:
+        q = q.filter(AuditLog.accion == accion)
 
     entradas = (
         q.order_by(AuditLog.created_at.desc())

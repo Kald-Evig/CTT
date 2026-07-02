@@ -135,6 +135,34 @@ class DashboardProyecto {
       );
 }
 
+// ── Audit log (CTT-43) ───────────────────────────────────────────────────────
+
+class AuditLogEntry {
+  const AuditLogEntry({
+    required this.actorNombre,
+    required this.actorRol,
+    required this.accion,
+    this.diff,
+    required this.createdAt,
+  });
+
+  final String actorNombre;
+  final String actorRol;
+  final String accion;
+  final Map<String, dynamic>? diff;
+  final DateTime createdAt;
+
+  factory AuditLogEntry.fromJson(Map<String, dynamic> json) => AuditLogEntry(
+        actorNombre: json['actor_nombre'] as String? ?? 'Sistema',
+        actorRol: json['actor_rol'] as String? ?? 'sistema',
+        accion: json['accion'] as String,
+        diff: json['diff'] != null
+            ? Map<String, dynamic>.from(json['diff'] as Map)
+            : null,
+        createdAt: DateTime.parse(json['created_at'] as String),
+      );
+}
+
 class HistorialProyectoEntrada {
   const HistorialProyectoEntrada({
     required this.itemId,

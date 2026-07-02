@@ -87,6 +87,59 @@ class CoordinadorRepository {
     }
   }
 
+  Future<ProyectoCoordinador> editarProyecto({
+    required String id,
+    String? nombre,
+    String? descripcion,
+    String? ubicacionNombre,
+    double? latitud,
+    double? longitud,
+    String? coordinadorPrincipalId,
+    String? fechaInicio,
+    String? fechaFinEstimada,
+  }) async {
+    final body = <String, dynamic>{};
+    if (nombre != null) body['nombre'] = nombre;
+    if (descripcion != null) body['descripcion'] = descripcion;
+    if (ubicacionNombre != null) body['ubicacion_nombre'] = ubicacionNombre;
+    if (latitud != null) body['latitud'] = latitud;
+    if (longitud != null) body['longitud'] = longitud;
+    if (coordinadorPrincipalId != null) {
+      body['coordinador_principal_id'] = coordinadorPrincipalId;
+    }
+    if (fechaInicio != null) body['fecha_inicio'] = fechaInicio;
+    if (fechaFinEstimada != null) body['fecha_fin_estimada'] = fechaFinEstimada;
+
+    final resp =
+        await _dio.put<Map<String, dynamic>>('/proyectos/$id', data: body);
+    return ProyectoCoordinador.fromJson(resp.data!);
+  }
+
+  Future<ItemResidente> editarItem({
+    required String id,
+    String? nombre,
+    String? descripcion,
+    String? fechaLimite,
+    double? duracionEstimadaHoras,
+  }) async {
+    final body = <String, dynamic>{};
+    if (nombre != null) body['nombre'] = nombre;
+    if (descripcion != null) body['descripcion'] = descripcion;
+    if (fechaLimite != null) body['fecha_limite'] = fechaLimite;
+    if (duracionEstimadaHoras != null) {
+      body['duracion_estimada_horas'] = duracionEstimadaHoras;
+    }
+
+    try {
+      final resp =
+          await _dio.put<Map<String, dynamic>>('/items/$id', data: body);
+      return ItemResidente.fromJson(resp.data!);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) throw ErrorCoordinador(_extraerDetalle(e));
+      rethrow;
+    }
+  }
+
   // ── Dashboard (CTT-42) ───────────────────────────────────────────────────────
 
   Future<List<DashboardProyecto>> listarDashboard() async {
@@ -105,6 +158,28 @@ class CoordinadorRepository {
     return (resp.data ?? [])
         .cast<Map<String, dynamic>>()
         .map(HistorialProyectoEntrada.fromJson)
+        .toList();
+  }
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+
+  Future<List<AuditLogEntry>> listarEdicionesItem(
+    String itemId, {
+    int limit = 10,
+    int offset = 0,
+  }) async {
+    final resp = await _dio.get<List<dynamic>>(
+      '/audit-log',
+      queryParameters: <String, dynamic>{
+        'entidad_id': itemId,
+        'accion': 'edicion_datos',
+        'limit': limit,
+        'offset': offset,
+      },
+    );
+    return (resp.data ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(AuditLogEntry.fromJson)
         .toList();
   }
 

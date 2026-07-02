@@ -35,6 +35,10 @@ class ItemResidente {
     this.asignadoNombre,
     required this.estado,
     this.fechaLimite,
+    this.duracionEstimadaHoras,
+    this.orden = 0,
+    this.ultimaEdicionPor,
+    this.ultimaEdicionEn,
   });
 
   final String id;
@@ -47,6 +51,10 @@ class ItemResidente {
   final String? asignadoNombre;
   final String estado;
   final String? fechaLimite;
+  final double? duracionEstimadaHoras;
+  final int orden;
+  final String? ultimaEdicionPor;
+  final DateTime? ultimaEdicionEn;
 
   factory ItemResidente.fromJson(Map<String, dynamic> json) => ItemResidente(
         id: json['id'] as String,
@@ -59,6 +67,13 @@ class ItemResidente {
         asignadoNombre: json['asignado_nombre'] as String?,
         estado: json['estado'] as String,
         fechaLimite: json['fecha_limite'] as String?,
+        duracionEstimadaHoras:
+            (json['duracion_estimada_horas'] as num?)?.toDouble(),
+        orden: json['orden'] as int? ?? 0,
+        ultimaEdicionPor: json['ultima_edicion_por'] as String?,
+        ultimaEdicionEn: json['ultima_edicion_en'] == null
+            ? null
+            : DateTime.parse(json['ultima_edicion_en'] as String),
       );
 }
 

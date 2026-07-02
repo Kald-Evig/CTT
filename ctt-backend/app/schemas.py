@@ -142,6 +142,8 @@ class ItemOut(BaseModel):
     fecha_limite: date | None
     duracion_estimada_horas: float | None = None
     orden: int = 0
+    ultima_edicion_por: str | None = None
+    ultima_edicion_en: datetime | None = None
 
 
 class ItemUpdate(BaseModel):

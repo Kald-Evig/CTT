@@ -350,3 +350,37 @@ def test_actor_rol_coordinador(client, seeded, db):
     assert audit is not None
     assert audit.actor_rol == "coordinador"
     assert audit.actor_nombre == "Coord"
+
+
+# ── 8. Filtro por accion ──────────────────────────────────────────────────────
+
+def test_filtro_accion_edicion_datos(client, seeded):
+    """?entidad_id=X&accion=edicion_datos devuelve solo ediciones, no cambios de estado."""
+    # Genera un cambio_estado
+    _transicion(client, seeded, seeded.item, "en_progreso")
+    # Genera un edicion_datos
+    client.put(
+        f"/items/{seeded.item}",
+        json={"nombre": "Tarea Editada"},
+        headers=_h(seeded, seeded.coord),
+    )
+
+    r = _get_log(client, seeded,
+                 entidad_id=seeded.item, accion="edicion_datos")
+    assert r.status_code == 200, r.text
+    datos = r.json()
+
+    assert len(datos) == 1
+    assert datos[0]["accion"] == "edicion_datos"
+    assert datos[0]["entidad_id"] == seeded.item
+
+
+def test_filtro_accion_excluye_otras(client, seeded):
+    """?accion=edicion_datos no devuelve cambio_estado aunque existan para el mismo ítem."""
+    # Solo una transición, sin edición
+    _transicion(client, seeded, seeded.item, "en_progreso")
+
+    r = _get_log(client, seeded,
+                 entidad_id=seeded.item, accion="edicion_datos")
+    assert r.status_code == 200, r.text
+    assert r.json() == []

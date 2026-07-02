@@ -12,7 +12,9 @@ import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
+import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/conflictos_screen.dart';
+import 'package:ctt_mobile/presentation/coordinador/coordinador_detalle_item_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_items_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_proyectos_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/crear_item_screen.dart';
@@ -196,9 +198,19 @@ GoRouter router(RouterRef ref) {
               ),
               GoRoute(
                 path: ':itemId',
-                builder: (_, state) => DetalleItemResidenteScreen(
+                builder: (_, state) => CoordinadorDetalleItemScreen(
                   itemId: state.pathParameters['itemId']!,
+                  proyectoId: state.pathParameters['proyectoId']!,
                 ),
+                routes: [
+                  GoRoute(
+                    path: 'editar',
+                    builder: (_, state) => CrearItemScreen(
+                      proyectoId: state.pathParameters['proyectoId']!,
+                      itemParaEditar: state.extra as ItemResidente?,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
