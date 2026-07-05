@@ -6,6 +6,27 @@ Este documento describe lo que se construyó, lo que deliberadamente **no** se c
 
 ---
 
+## Marco normativo
+
+Los documentos de referencia viven en `docs/` en la raíz del repo:
+
+- [`docs/NORMATIVA_LGUC_Y_CARGOS_OBRA.md`](../docs/NORMATIVA_LGUC_Y_CARGOS_OBRA.md) — LGUC/OGUC, Libro de Obras, jerarquía real de cargos en obra chilena. **Leer antes de tocar el modelo de roles, la Bitácora de Obra (Fase 2) o el posicionamiento comercial.**
+- [`docs/NORMATIVA_MOP_LABORAL_SERVIU.md`](../docs/NORMATIVA_MOP_LABORAL_SERVIU.md) — RCOP/MOP, Registro de Contratistas, Res. Ex. N°38/2024 DT (riesgo laboral), SERVIU. **Leer antes de diseñar cualquier feature que toque presencia, GPS o RRHH.**
+
+### Regla permanente — roles de app vs. cargos laborales
+
+Los **4 roles de CTT** (`admin`, `coordinador`, `residente`, `trabajador` — definidos en `app/enums.py:Rol`) son **roles de permisos de la app**, no cargos laborales. El flag `es_super_admin` es un atributo booleano en `usuarios`, no un rol adicional. El cargo laboral de un usuario en obra (capataz, maestro de primera, jornal, prevencionista…) es un **atributo** del usuario — no un rol nuevo. No crear roles nuevos sin decisión explícita: cada rol multiplica la matriz de permisos y los tests.
+
+### Regla permanente — el Residente no ejecuta partidas
+
+El Residente es el **responsable técnico** in-situ (profesional: ingeniero, constructor civil, arquitecto). En contratos MOP su permanencia en faena es obligatoria; en obra privada su presencia puede ser periódica (~cada 2-3 días), delegando el día a día a jefes de obra y capataces. **El Residente no ejecuta partidas ni es asignatario de ítems.** Los ítems se asignan exclusivamente a usuarios con rol `trabajador`.
+
+### Regla permanente — CTT no es sistema de control de asistencia
+
+CTT registra estados de tareas, no entrada/salida de jornada. No implementar, prometer ni describir funciones de asistencia, horas trabajadas o geolocalización de personas sin una decisión formal documentada en el ticket correspondiente y revisión previa de la Res. Ex. N°38/2024 DT. Referencia: `docs/NORMATIVA_MOP_LABORAL_SERVIU.md §3.2`.
+
+---
+
 ## 1. Resumen honesto del alcance
 
 El MVP completo descrito originalmente abarca cuatro frentes: backend, app móvil Flutter, sincronización offline con resolución de conflictos, e infraestructura en nube (Firebase + AWS). **Esos cuatro frentes no se pueden construir sin errores en una sola sesión, y menos verificar.** El más riesgoso —la sincronización offline con resolución de conflictos— no es comprobable sin dispositivos reales y pruebas de campo.

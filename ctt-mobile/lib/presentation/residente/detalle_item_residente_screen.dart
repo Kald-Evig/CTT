@@ -290,7 +290,7 @@ class _AccionesResidente extends ConsumerWidget {
       context: context,
       builder: (ctx) => Consumer(
         builder: (ctx, dialogRef, _) {
-          final usuariosAsync = dialogRef.watch(usuariosEmpresaProvider);
+          final usuariosAsync = dialogRef.watch(usuariosEmpresaPorRolesProvider(const ['trabajador']));
           return AlertDialog(
             title: const Text('Asignar a trabajador'),
             content: SizedBox(

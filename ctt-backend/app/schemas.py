@@ -68,6 +68,7 @@ class UsuarioOut(BaseModel):
     rut: str | None
     email: str
     estado: str
+    rol: str
 
 
 # ── Proyectos ────────────────────────────────────────────────────────────────

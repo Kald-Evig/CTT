@@ -137,7 +137,7 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
         ref.watch(itemsProyectoProvider(widget.proyectoId, null)).whenOrNull(data: (is_) => is_) ??
             const <ItemResidente>[];
     final usuarios =
-        ref.watch(usuariosEmpresaProvider).whenOrNull(data: (us) => us) ??
+        ref.watch(usuariosEmpresaPorRolesProvider(const ['trabajador'])).whenOrNull(data: (us) => us) ??
             const <UsuarioEmpresa>[];
 
     // Ítems que pueden ser padre: nivelProfundidad < 4 (un hijo quedaría en nivel 4, el máximo).

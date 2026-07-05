@@ -133,7 +133,7 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final usuarios = ref.watch(usuariosEmpresaProvider).whenOrNull(data: (u) => u) ??
+    final usuarios = ref.watch(usuariosEmpresaPorRolesProvider(const ['coordinador', 'admin'])).whenOrNull(data: (u) => u) ??
         const <UsuarioEmpresa>[];
 
     return Scaffold(

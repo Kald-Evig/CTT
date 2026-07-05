@@ -132,8 +132,13 @@ class ResidenteRepository {
 
   // ── Usuarios ─────────────────────────────────────────────────────────────────
 
-  Future<List<UsuarioEmpresa>> listarUsuarios() async {
-    final resp = await _dio.get<List<dynamic>>('/usuarios');
+  Future<List<UsuarioEmpresa>> listarUsuarios({List<String>? roles}) async {
+    final resp = await _dio.get<List<dynamic>>(
+      '/usuarios',
+      queryParameters: (roles != null && roles.isNotEmpty)
+          ? <String, dynamic>{'rol': roles}
+          : null,
+    );
     return (resp.data ?? [])
         .cast<Map<String, dynamic>>()
         .map(UsuarioEmpresa.fromJson)

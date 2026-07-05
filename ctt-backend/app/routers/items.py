@@ -20,10 +20,10 @@ from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
-from app.enums import EvidenciaSyncStatus, ItemEstado, Rol
+from app.enums import EvidenciaSyncStatus, ItemEstado, Rol, UsuarioEstado
 from app.models import (
-    AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial, Proyecto,
-    ProyectoUsuario, SyncConflicto, Usuario,
+    AuditLog, EmpresaUsuario, Item, ItemComentario, ItemEvidencia, ItemHistorial,
+    Proyecto, ProyectoUsuario, SyncConflicto, Usuario,
 )
 from app.notifications import notificar
 from app.permissions import puede
@@ -55,6 +55,32 @@ def _supervisores_del_proyecto(db: Session, proyecto: Proyecto) -> list[Usuario]
     if not ids:
         return []
     return db.query(Usuario).filter(Usuario.id.in_(ids)).all()
+
+
+# ── Validación de asignatario ────────────────────────────────────────────────
+def _validar_asignatario_trabajador(db: Session, usuario_id: str, empresa_id: str) -> None:
+    """Verifica que el asignatario existe en la empresa y tiene rol trabajador.
+
+    El Residente es responsable técnico y no ejecuta partidas ni es asignatario
+    de ítems (NORMATIVA_LGUC_Y_CARGOS_OBRA.md §1 y §3).
+    """
+    eu = (
+        db.query(EmpresaUsuario)
+        .filter(
+            EmpresaUsuario.empresa_id == empresa_id,
+            EmpresaUsuario.usuario_id == usuario_id,
+            EmpresaUsuario.estado == UsuarioEstado.ACTIVO,
+        )
+        .first()
+    )
+    if eu is None:
+        raise HTTPException(404, "Usuario no encontrado en la empresa.")
+    if eu.rol != Rol.TRABAJADOR:
+        raise HTTPException(
+            422,
+            "El asignatario debe tener rol trabajador. El Residente es responsable "
+            "técnico y no ejecuta partidas (NORMATIVA_LGUC_Y_CARGOS_OBRA.md §1 y §3).",
+        )
 
 
 # ── Crear ítem ───────────────────────────────────────────────────────────────
@@ -90,9 +116,9 @@ def crear_item(
             raise HTTPException(
                 400, f"Máximo {settings.MAX_HIJOS_DIRECTOS} sub-ítems por ítem padre.")
 
-    # Validar que el trabajador asignado pertenece a la misma empresa (Sección 4.2).
+    # Validar que el asignatario pertenece a la empresa y tiene rol trabajador.
     if body.asignado_a:
-        get_usuario_de_empresa(db, body.asignado_a, empresa_id)
+        _validar_asignatario_trabajador(db, body.asignado_a, empresa_id)
 
     item = Item(
         proyecto_id=proyecto.id,
@@ -323,8 +349,8 @@ def asignar_item(
     if not puede(ctx.rol, "asignar_item"):
         raise HTTPException(403, "Su rol no puede asignar ítems.")
     item = get_item_de_empresa(db, item_id, empresa_id)
-    # Validar que el destino pertenece a la misma empresa (Sección 4.2).
-    get_usuario_de_empresa(db, body.usuario_id, empresa_id)
+    # Validar que el asignatario pertenece a la empresa y tiene rol trabajador.
+    _validar_asignatario_trabajador(db, body.usuario_id, empresa_id)
     item.asignado_a = body.usuario_id
 
     # Notificación: ítem asignado a trabajador (Sección 9.2).

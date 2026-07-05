@@ -134,3 +134,10 @@ Future<List<UsuarioEmpresa>> usuariosEmpresa(
   UsuariosEmpresaRef ref,
 ) =>
     ref.watch(residenteRepositoryProvider).listarUsuarios();
+
+@riverpod
+Future<List<UsuarioEmpresa>> usuariosEmpresaPorRoles(
+  UsuariosEmpresaPorRolesRef ref,
+  List<String> roles,
+) =>
+    ref.watch(residenteRepositoryProvider).listarUsuarios(roles: roles);

@@ -7,14 +7,15 @@ para poder "iniciar sesión" en la demo (en producción lo provee Firebase Auth)
 """
 
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
-from app.enums import UsuarioEstado
+from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
 from app.permissions import puede
 from app.schemas import UsuarioCreate, UsuarioOut
@@ -63,7 +64,15 @@ def crear_usuario(
     db.commit()
     db.refresh(usuario)
 
-    resp = UsuarioOut.model_validate(usuario).model_dump()
+    # Construimos manualmente para incluir rol (viene de EmpresaUsuario, no de Usuario).
+    resp: dict = {
+        "id": usuario.id,
+        "nombre_completo": usuario.nombre_completo,
+        "rut": usuario.rut,
+        "email": usuario.email,
+        "estado": usuario.estado,
+        "rol": body.rol,
+    }
     # Solo en modo mock devolvemos el uid para facilitar el login de demo.
     if settings.AUTH_MODE == "mock" and firebase_uid:
         resp["firebase_uid_demo"] = firebase_uid
@@ -72,15 +81,34 @@ def crear_usuario(
 
 @router.get("", response_model=list[UsuarioOut])
 def listar_usuarios(
+    roles: Annotated[list[Rol] | None, Query(alias="rol")] = None,
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    """Lista los usuarios que pertenecen a la empresa activa."""
+    """Lista los usuarios que pertenecen a la empresa activa.
+
+    Sin ?rol= → devuelve todos. Con uno o más ?rol=x&rol=y → filtra por esos roles.
+    El rol devuelto en cada usuario es el de la empresa activa del contexto.
+    """
     empresa_id = requiere_empresa(ctx)
-    return (
-        db.query(Usuario)
+    q = (
+        db.query(Usuario, EmpresaUsuario.rol)
         .join(EmpresaUsuario, EmpresaUsuario.usuario_id == Usuario.id)
-        .filter(EmpresaUsuario.empresa_id == empresa_id,
-                EmpresaUsuario.estado == UsuarioEstado.ACTIVO)
-        .all()
+        .filter(
+            EmpresaUsuario.empresa_id == empresa_id,
+            EmpresaUsuario.estado == UsuarioEstado.ACTIVO,
+        )
     )
+    if roles:
+        q = q.filter(EmpresaUsuario.rol.in_(roles))
+    return [
+        {
+            "id": u.id,
+            "nombre_completo": u.nombre_completo,
+            "rut": u.rut,
+            "email": u.email,
+            "estado": u.estado,
+            "rol": rol,
+        }
+        for u, rol in q.all()
+    ]
