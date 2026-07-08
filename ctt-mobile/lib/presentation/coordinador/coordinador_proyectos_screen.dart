@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
@@ -104,7 +105,7 @@ class _CoordinadorProyectosScreenState
 
 // ── Tarjeta de proyecto con avance ────────────────────────────────────────────
 
-class _TarjetaProyecto extends StatelessWidget {
+class _TarjetaProyecto extends ConsumerStatefulWidget {
   const _TarjetaProyecto({
     required this.proyecto,
     required this.mostrarReal,
@@ -114,16 +115,51 @@ class _TarjetaProyecto extends StatelessWidget {
   final bool mostrarReal;
 
   @override
+  ConsumerState<_TarjetaProyecto> createState() => _TarjetaProyectoState();
+}
+
+class _TarjetaProyectoState extends ConsumerState<_TarjetaProyecto> {
+  bool _loadingEditar = false;
+
+  Future<void> _abrirEditar() async {
+    setState(() => _loadingEditar = true);
+    try {
+      final proyecto = await ref
+          .read(coordinadorRepositoryProvider)
+          .getProyecto(widget.proyecto.id);
+      if (mounted) {
+        context.push(
+          '/coordinador/${widget.proyecto.id}/editar',
+          extra: proyecto,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo cargar el proyecto. Intenta de nuevo.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingEditar = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final (label, color) = _infoEstado(proyecto.estado);
-    final pct = mostrarReal ? proyecto.pctReal : proyecto.pctCompleto;
-    final sufijo = mostrarReal ? 'real' : 'completo';
+    final (label, color) = _infoEstado(widget.proyecto.estado);
+    final pct = widget.mostrarReal
+        ? widget.proyecto.pctReal
+        : widget.proyecto.pctCompleto;
+    final sufijo = widget.mostrarReal ? 'real' : 'completo';
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => context.push('/coordinador/${proyecto.id}/items'),
+        onTap: () =>
+            context.push('/coordinador/${widget.proyecto.id}/items'),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
           child: Column(
@@ -133,18 +169,37 @@ class _TarjetaProyecto extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      proyecto.nombre,
+                      widget.proyecto.nombre,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
                   const SizedBox(width: 8),
                   _ChipEstado(label: label, color: color),
+                  if (_loadingEditar)
+                    const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 20),
+                      tooltip: 'Editar proyecto',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _abrirEditar,
+                    ),
                   IconButton(
                     icon: const Icon(Icons.history_outlined, size: 20),
                     tooltip: 'Ver historial',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () =>
-                        context.push('/coordinador/${proyecto.id}/historial'),
+                    onPressed: () => context
+                        .push('/coordinador/${widget.proyecto.id}/historial'),
                   ),
                 ],
               ),

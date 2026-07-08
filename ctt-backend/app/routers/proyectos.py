@@ -192,6 +192,17 @@ def historial_proyecto(
     ]
 
 
+@router.get("/{proyecto_id}", response_model=ProyectoOut)
+def obtener_proyecto(
+    proyecto_id: str,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Devuelve un proyecto por id (multi-tenant; 404 si no pertenece a la empresa activa)."""
+    empresa_id = requiere_empresa(ctx)
+    return get_proyecto_de_empresa(db, proyecto_id, empresa_id)
+
+
 @router.put("/{proyecto_id}", response_model=ProyectoOut)
 def editar_proyecto(
     proyecto_id: str,

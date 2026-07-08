@@ -12,6 +12,7 @@ import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
+import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/conflictos_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_detalle_item_screen.dart';
@@ -181,6 +182,12 @@ GoRouter router(RouterRef ref) {
             path: ':proyectoId/historial',
             builder: (_, state) => HistorialProyectoScreen(
               proyectoId: state.pathParameters['proyectoId']!,
+            ),
+          ),
+          GoRoute(
+            path: ':proyectoId/editar',
+            builder: (_, state) => CrearProyectoScreen(
+              proyectoParaEditar: state.extra as ProyectoCoordinador?,
             ),
           ),
           GoRoute(

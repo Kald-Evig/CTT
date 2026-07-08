@@ -53,6 +53,11 @@ class CoordinadorRepository {
     return ProyectoCoordinador.fromJson(resp.data!);
   }
 
+  Future<ProyectoCoordinador> getProyecto(String id) async {
+    final resp = await _dio.get<Map<String, dynamic>>('/proyectos/$id');
+    return ProyectoCoordinador.fromJson(resp.data!);
+  }
+
   // ── Ítems ────────────────────────────────────────────────────────────────────
 
   Future<ItemResidente> crearItem({
