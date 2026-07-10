@@ -95,7 +95,6 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
     final fechaInicio =
         _fechaInicio != null ? _formatFecha(_fechaInicio!) : null;
     final fechaFin = _fechaFin != null ? _formatFecha(_fechaFin!) : null;
-
     try {
       if (_editando) {
         await repo.editarProyecto(
@@ -133,8 +132,14 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final usuarios = ref.watch(usuariosEmpresaPorRolesProvider(const ['coordinador', 'admin'])).whenOrNull(data: (u) => u) ??
-        const <UsuarioEmpresa>[];
+    final usuariosAsync = ref.watch(
+      usuariosEmpresaPorRolesProvider(const ['coordinador', 'admin']),
+    );
+    final usuarios = usuariosAsync.valueOrNull ?? const <UsuarioEmpresa>[];
+    final permiteSinAsignar =
+        widget.proyectoParaEditar?.coordinadorPrincipalId == null;
+    final coordinadorHuerfano = _coordinadorId != null &&
+        !usuarios.any((u) => u.id == _coordinadorId);
 
     return Scaffold(
       appBar: AppBar(
@@ -199,19 +204,43 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
               onClear: _fechaFin != null ? () => setState(() => _fechaFin = null) : null,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String?>(
-              initialValue: _coordinadorId,
-              decoration: const InputDecoration(
-                labelText: 'Coordinador principal',
-                border: OutlineInputBorder(),
+            if (!usuariosAsync.hasValue)
+              const InputDecorator(
+                decoration: InputDecoration(
+                  labelText: 'Coordinador principal',
+                  border: OutlineInputBorder(),
+                ),
+                child: SizedBox(
+                  height: 20,
+                  child: LinearProgressIndicator(),
+                ),
+              )
+            else
+              DropdownButtonFormField<String?>(
+                initialValue: _coordinadorId,
+                decoration: const InputDecoration(
+                  labelText: 'Coordinador principal',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  if (permiteSinAsignar)
+                    const DropdownMenuItem(
+                      value: null,
+                      child: Text('Sin asignar'),
+                    ),
+                  if (coordinadorHuerfano)
+                    DropdownMenuItem(
+                      value: _coordinadorId,
+                      child: const Text('Coordinador actual'),
+                    ),
+                  for (final u in usuarios)
+                    DropdownMenuItem(
+                      value: u.id,
+                      child: Text(u.nombreCompleto),
+                    ),
+                ],
+                onChanged: (v) => setState(() => _coordinadorId = v),
               ),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Sin asignar')),
-                for (final u in usuarios)
-                  DropdownMenuItem(value: u.id, child: Text(u.nombreCompleto)),
-              ],
-              onChanged: (v) => setState(() => _coordinadorId = v),
-            ),
             const SizedBox(height: 28),
             FilledButton(
               onPressed: _guardando ? null : _guardar,
