@@ -16,6 +16,7 @@ import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
 class DetalleItemScreen extends ConsumerWidget {
@@ -147,11 +148,11 @@ class _AccionesEstado extends ConsumerWidget {
           color: Colors.orange.shade700,
           onTap: () => _ejecutarCambio(context, ref, EstadoItem.enProgreso),
         ),
-      EstadoItem.pendienteRevision => const _MensajeInformativo(
+      EstadoItem.pendienteRevision => const ItemDetalleMensajeEstado(
           icono: Icons.hourglass_top_rounded,
           texto: 'Ítem enviado a revisión. Aguarda la confirmación del coordinador.',
         ),
-      EstadoItem.terminado => const _MensajeInformativo(
+      EstadoItem.terminado => const ItemDetalleMensajeEstado(
           icono: Icons.verified_outlined,
           texto: 'Este ítem fue marcado como terminado.',
         ),
@@ -277,28 +278,5 @@ class _BotonPrimario extends StatelessWidget {
           minimumSize: const Size.fromHeight(48),
         ),
         onPressed: onTap,
-      );
-}
-
-class _MensajeInformativo extends StatelessWidget {
-  const _MensajeInformativo({required this.icono, required this.texto});
-  final IconData icono;
-  final String texto;
-
-  @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Icon(icono, color: Colors.grey.shade600),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              texto,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Colors.grey.shade700),
-            ),
-          ),
-        ],
       );
 }

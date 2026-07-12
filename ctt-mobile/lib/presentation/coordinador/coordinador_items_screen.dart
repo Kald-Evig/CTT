@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
 class CoordinadorItemsScreen extends ConsumerStatefulWidget {
@@ -54,7 +55,7 @@ class _CoordinadorItemsScreenState
           Expanded(
             child: itemsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => _ErrorVista(
+              error: (e, _) => ErrorVista(
                 mensaje: e.toString(),
                 onReintento: () => ref.invalidate(
                   itemsProyectoProvider(widget.proyectoId, _estadoFiltro),
@@ -157,37 +158,6 @@ class _ChipsFiltro extends StatelessWidget {
                 ),
               ),
           ],
-        ),
-      );
-}
-
-class _ErrorVista extends StatelessWidget {
-  const _ErrorVista({required this.mensaje, required this.onReintento});
-  final String mensaje;
-  final VoidCallback onReintento;
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.cloud_off_outlined, size: 48, color: Colors.grey),
-              const SizedBox(height: 16),
-              Text(
-                mensaje,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: onReintento,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Reintentar'),
-              ),
-            ],
-          ),
         ),
       );
 }
