@@ -23,6 +23,17 @@ from app.schemas import UsuarioCreate, UsuarioOut
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
 
+def _usuario_a_dict(u: Usuario, rol: Rol) -> dict:
+    return {
+        "id": u.id,
+        "nombre_completo": u.nombre_completo,
+        "rut": u.rut,
+        "email": u.email,
+        "estado": u.estado,
+        "rol": rol,
+    }
+
+
 @router.post("", status_code=201)
 def crear_usuario(
     body: UsuarioCreate,
@@ -65,14 +76,7 @@ def crear_usuario(
     db.refresh(usuario)
 
     # Construimos manualmente para incluir rol (viene de EmpresaUsuario, no de Usuario).
-    resp: dict = {
-        "id": usuario.id,
-        "nombre_completo": usuario.nombre_completo,
-        "rut": usuario.rut,
-        "email": usuario.email,
-        "estado": usuario.estado,
-        "rol": body.rol,
-    }
+    resp: dict = _usuario_a_dict(usuario, body.rol)
     # Solo en modo mock devolvemos el uid para facilitar el login de demo.
     if settings.AUTH_MODE == "mock" and firebase_uid:
         resp["firebase_uid_demo"] = firebase_uid
@@ -101,14 +105,4 @@ def listar_usuarios(
     )
     if roles:
         q = q.filter(EmpresaUsuario.rol.in_(roles))
-    return [
-        {
-            "id": u.id,
-            "nombre_completo": u.nombre_completo,
-            "rut": u.rut,
-            "email": u.email,
-            "estado": u.estado,
-            "rol": rol,
-        }
-        for u, rol in q.all()
-    ]
+    return [_usuario_a_dict(u, rol) for u, rol in q.all()]
