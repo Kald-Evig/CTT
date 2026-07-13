@@ -20,9 +20,9 @@ from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
-from app.enums import EvidenciaSyncStatus, ItemEstado, Rol, UsuarioEstado
+from app.enums import EvidenciaSyncStatus, ItemEstado, Rol
 from app.models import (
-    AuditLog, EmpresaUsuario, Item, ItemComentario, ItemEvidencia, ItemHistorial,
+    AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial,
     Proyecto, ProyectoUsuario, SyncConflicto, Usuario,
 )
 from app.notifications import notificar
@@ -64,17 +64,7 @@ def _validar_asignatario_trabajador(db: Session, usuario_id: str, empresa_id: st
     El Residente es responsable técnico y no ejecuta partidas ni es asignatario
     de ítems (NORMATIVA_LGUC_Y_CARGOS_OBRA.md §1 y §3).
     """
-    eu = (
-        db.query(EmpresaUsuario)
-        .filter(
-            EmpresaUsuario.empresa_id == empresa_id,
-            EmpresaUsuario.usuario_id == usuario_id,
-            EmpresaUsuario.estado == UsuarioEstado.ACTIVO,
-        )
-        .first()
-    )
-    if eu is None:
-        raise HTTPException(404, "Usuario no encontrado en la empresa.")
+    eu = get_usuario_de_empresa(db, usuario_id, empresa_id)
     if eu.rol != Rol.TRABAJADOR:
         raise HTTPException(
             422,

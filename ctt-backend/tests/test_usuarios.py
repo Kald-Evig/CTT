@@ -144,6 +144,7 @@ def test_crear_item_asignatario_residente_422(client, seeded):
         headers=_h(seeded),
     )
     assert r.status_code == 422, r.text
+    assert "NORMATIVA_LGUC" in r.text
 
 
 def test_crear_item_asignatario_coordinador_422(client, seeded):

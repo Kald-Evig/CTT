@@ -29,11 +29,13 @@ def get_proyecto_de_empresa(db: Session, proyecto_id: str, empresa_id: str) -> P
     return proyecto
 
 
-def get_usuario_de_empresa(db: Session, usuario_id: str, empresa_id: str) -> None:
+def get_usuario_de_empresa(
+    db: Session, usuario_id: str, empresa_id: str
+) -> EmpresaUsuario:
     """Valida que un usuario pertenece a la empresa activa y está ACTIVO.
 
     Lanza 404 (no 403) para no revelar la existencia de usuarios de otra empresa.
-    Se usa antes de asignar un usuario a un ítem o proyecto.
+    Devuelve la membresía para que el caller pueda inspeccionar el rol si lo necesita.
     """
     membresia = (
         db.query(EmpresaUsuario)
@@ -46,6 +48,7 @@ def get_usuario_de_empresa(db: Session, usuario_id: str, empresa_id: str) -> Non
     )
     if membresia is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado en la empresa.")
+    return membresia
 
 
 def get_item_de_empresa(db: Session, item_id: str, empresa_id: str) -> Item:
