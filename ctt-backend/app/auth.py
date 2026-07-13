@@ -144,3 +144,19 @@ def requiere_empresa(ctx: AuthContext) -> str:
         raise HTTPException(status_code=400,
                             detail="Se requiere una empresa activa para esta acción.")
     return ctx.empresa_id
+
+
+def actor_de(ctx: AuthContext) -> dict:
+    """Empaqueta los campos de actor para record_audit().
+
+    Requiere empresa activa (ctx.rol != None); todos los call-sites lo
+    garantizan via requiere_empresa(). Falla rápido si se llama fuera de
+    ese contexto en vez de silenciar el error con actor_rol=None.
+    """
+    if ctx.rol is None:
+        raise ValueError("actor_de() requiere empresa activa (ctx.rol es None)")
+    return {
+        "actor_id": ctx.usuario.id,
+        "actor_nombre": ctx.usuario.nombre_completo,
+        "actor_rol": ctx.rol.value,
+    }

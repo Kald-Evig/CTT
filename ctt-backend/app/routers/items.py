@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
 from app.audit import a_serializable, record_audit
-from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
 from app.enums import EvidenciaSyncStatus, ItemEstado, Rol
@@ -312,9 +312,7 @@ def editar_item(
     record_audit(
         db,
         empresa_id=empresa_id,
-        actor_id=ctx.usuario.id,
-        actor_nombre=ctx.usuario.nombre_completo,
-        actor_rol=ctx.rol.value,
+        **actor_de(ctx),
         accion="edicion_datos",
         entidad_tipo="item",
         entidad_id=item.id,
@@ -438,9 +436,7 @@ def transicion_item(
     record_audit(
         db,
         empresa_id=empresa_id,
-        actor_id=ctx.usuario.id,
-        actor_nombre=ctx.usuario.nombre_completo,
-        actor_rol=ctx.rol.value,
+        **actor_de(ctx),
         accion="cambio_estado",
         entidad_tipo="item",
         entidad_id=item.id,
@@ -477,9 +473,7 @@ def cerrar_problema_item(
     record_audit(
         db,
         empresa_id=empresa_id,
-        actor_id=ctx.usuario.id,
-        actor_nombre=ctx.usuario.nombre_completo,
-        actor_rol=ctx.rol.value,
+        **actor_de(ctx),
         accion="cierre_problema",
         entidad_tipo="item",
         entidad_id=item.id,
@@ -510,9 +504,7 @@ def revertir_terminado_item(
     record_audit(
         db,
         empresa_id=empresa_id,
-        actor_id=ctx.usuario.id,
-        actor_nombre=ctx.usuario.nombre_completo,
-        actor_rol=ctx.rol.value,
+        **actor_de(ctx),
         accion="reversion_terminado",
         entidad_tipo="item",
         entidad_id=item.id,

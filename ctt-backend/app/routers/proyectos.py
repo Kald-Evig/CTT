@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.audit import a_serializable, record_audit
-from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
 from app.database import get_db
 from app.enums import ProyectoEstado
 from app.models import Item, ItemHistorial, Proyecto, Usuario
@@ -239,9 +239,7 @@ def editar_proyecto(
     record_audit(
         db,
         empresa_id=empresa_id,
-        actor_id=ctx.usuario.id,
-        actor_nombre=ctx.usuario.nombre_completo,
-        actor_rol=ctx.rol.value,
+        **actor_de(ctx),
         accion="edicion_datos",
         entidad_tipo="proyecto",
         entidad_id=proyecto.id,
