@@ -31,30 +31,18 @@ class ResidenteRepository {
 
   // ── Proyectos ────────────────────────────────────────────────────────────────
 
-  Future<List<ProyectoResidente>> listarProyectos() async {
-    final resp = await _dio.get<List<dynamic>>('/proyectos');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(ProyectoResidente.fromJson)
-        .toList();
-  }
+  Future<List<ProyectoResidente>> listarProyectos() =>
+      _fetchList('/proyectos', ProyectoResidente.fromJson);
 
   // ── Ítems ────────────────────────────────────────────────────────────────────
 
   Future<List<ItemResidente>> listarItemsProyecto(
     String proyectoId, {
     String? estadoFiltro,
-  }) async {
+  }) {
     final params = <String, dynamic>{'proyecto_id': proyectoId};
     if (estadoFiltro != null) params['estado'] = estadoFiltro;
-    final resp = await _dio.get<List<dynamic>>(
-      '/items',
-      queryParameters: params,
-    );
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(ItemResidente.fromJson)
-        .toList();
+    return _fetchList('/items', ItemResidente.fromJson, queryParameters: params);
   }
 
   Future<ItemResidente> obtenerItem(String itemId) async {
@@ -62,29 +50,14 @@ class ResidenteRepository {
     return ItemResidente.fromJson(resp.data!);
   }
 
-  Future<List<ComentarioItem>> listarComentarios(String itemId) async {
-    final resp = await _dio.get<List<dynamic>>('/items/$itemId/comentarios');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(ComentarioItem.fromJson)
-        .toList();
-  }
+  Future<List<ComentarioItem>> listarComentarios(String itemId) =>
+      _fetchList('/items/$itemId/comentarios', ComentarioItem.fromJson);
 
-  Future<List<EvidenciaItem>> listarEvidencias(String itemId) async {
-    final resp = await _dio.get<List<dynamic>>('/items/$itemId/evidencias');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(EvidenciaItem.fromJson)
-        .toList();
-  }
+  Future<List<EvidenciaItem>> listarEvidencias(String itemId) =>
+      _fetchList('/items/$itemId/evidencias', EvidenciaItem.fromJson);
 
-  Future<List<EntradaHistorial>> listarHistorial(String itemId) async {
-    final resp = await _dio.get<List<dynamic>>('/items/$itemId/historial');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(EntradaHistorial.fromJson)
-        .toList();
-  }
+  Future<List<EntradaHistorial>> listarHistorial(String itemId) =>
+      _fetchList('/items/$itemId/historial', EntradaHistorial.fromJson);
 
   // ── Acciones ─────────────────────────────────────────────────────────────────
 
@@ -118,13 +91,8 @@ class ResidenteRepository {
 
   // ── Notificaciones ───────────────────────────────────────────────────────────
 
-  Future<List<NotificacionResidente>> listarNotificaciones() async {
-    final resp = await _dio.get<List<dynamic>>('/notificaciones');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(NotificacionResidente.fromJson)
-        .toList();
-  }
+  Future<List<NotificacionResidente>> listarNotificaciones() =>
+      _fetchList('/notificaciones', NotificacionResidente.fromJson);
 
   Future<void> marcarNotificacionLeida(String notifId) async {
     await _dio.post<void>('/notificaciones/$notifId/leer');
@@ -132,16 +100,23 @@ class ResidenteRepository {
 
   // ── Usuarios ─────────────────────────────────────────────────────────────────
 
-  Future<List<UsuarioEmpresa>> listarUsuarios({List<String>? roles}) async {
-    final resp = await _dio.get<List<dynamic>>(
-      '/usuarios',
-      queryParameters: (roles != null && roles.isNotEmpty)
-          ? <String, dynamic>{'rol': roles}
-          : null,
-    );
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(UsuarioEmpresa.fromJson)
-        .toList();
+  Future<List<UsuarioEmpresa>> listarUsuarios({List<String>? roles}) =>
+      _fetchList(
+        '/usuarios',
+        UsuarioEmpresa.fromJson,
+        queryParameters: (roles != null && roles.isNotEmpty)
+            ? <String, dynamic>{'rol': roles}
+            : null,
+      );
+
+  // ── Utilidades ───────────────────────────────────────────────────────────────
+
+  Future<List<T>> _fetchList<T>(
+    String url,
+    T Function(Map<String, dynamic>) fromJson, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final resp = await _dio.get<List<dynamic>>(url, queryParameters: queryParameters);
+    return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
   }
 }
