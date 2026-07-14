@@ -147,24 +147,16 @@ class CoordinadorRepository {
 
   // ── Dashboard (CTT-42) ───────────────────────────────────────────────────────
 
-  Future<List<DashboardProyecto>> listarDashboard() async {
-    final resp = await _dio.get<List<dynamic>>('/proyectos/dashboard');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(DashboardProyecto.fromJson)
-        .toList();
-  }
+  Future<List<DashboardProyecto>> listarDashboard() =>
+      _fetchList('/proyectos/dashboard', DashboardProyecto.fromJson);
 
   Future<List<HistorialProyectoEntrada>> listarHistorialProyecto(
     String proyectoId,
-  ) async {
-    final resp =
-        await _dio.get<List<dynamic>>('/proyectos/$proyectoId/historial');
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(HistorialProyectoEntrada.fromJson)
-        .toList();
-  }
+  ) =>
+      _fetchList(
+        '/proyectos/$proyectoId/historial',
+        HistorialProyectoEntrada.fromJson,
+      );
 
   // ── Audit log ─────────────────────────────────────────────────────────────
 
@@ -172,35 +164,26 @@ class CoordinadorRepository {
     String itemId, {
     int limit = 10,
     int offset = 0,
-  }) async {
-    final resp = await _dio.get<List<dynamic>>(
-      '/audit-log',
-      queryParameters: <String, dynamic>{
-        'entidad_id': itemId,
-        'accion': 'edicion_datos',
-        'limit': limit,
-        'offset': offset,
-      },
-    );
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(AuditLogEntry.fromJson)
-        .toList();
-  }
+  }) =>
+      _fetchList(
+        '/audit-log',
+        AuditLogEntry.fromJson,
+        queryParameters: <String, dynamic>{
+          'entidad_id': itemId,
+          'accion': 'edicion_datos',
+          'limit': limit,
+          'offset': offset,
+        },
+      );
 
   // ── Conflictos ───────────────────────────────────────────────────────────────
 
-  Future<List<ConflictoSync>> listarConflictos({String? estado}) async {
-    final params = estado != null ? <String, dynamic>{'estado': estado} : null;
-    final resp = await _dio.get<List<dynamic>>(
-      '/sync/conflictos',
-      queryParameters: params,
-    );
-    return (resp.data ?? [])
-        .cast<Map<String, dynamic>>()
-        .map(ConflictoSync.fromJson)
-        .toList();
-  }
+  Future<List<ConflictoSync>> listarConflictos({String? estado}) =>
+      _fetchList(
+        '/sync/conflictos',
+        ConflictoSync.fromJson,
+        queryParameters: estado != null ? <String, dynamic>{'estado': estado} : null,
+      );
 
   /// Lanza [ErrorCoordinador] si el servidor devuelve 409 (conflicto ya resuelto
   /// o estado del ítem modificado desde que se registró el conflicto).
@@ -220,6 +203,15 @@ class CoordinadorRepository {
   }
 
   // ── Utilidades ───────────────────────────────────────────────────────────────
+
+  Future<List<T>> _fetchList<T>(
+    String url,
+    T Function(Map<String, dynamic>) fromJson, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
+    final resp = await _dio.get<List<dynamic>>(url, queryParameters: queryParameters);
+    return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
+  }
 
   static String _extraerDetalle(DioException e) {
     final data = e.response?.data;
