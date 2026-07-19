@@ -20,7 +20,7 @@ from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
 from app.config import settings
 from app.database import get_db
-from app.enums import EvidenciaSyncStatus, ItemEstado, Rol
+from app.enums import EvidenciaSyncStatus, ItemEstado, Rol, UsuarioEstado
 from app.models import (
     AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial,
     Proyecto, ProyectoUsuario, SyncConflicto, Usuario,
@@ -48,7 +48,8 @@ def _supervisores_del_proyecto(db: Session, proyecto: Proyecto) -> list[Usuario]
     residentes = (
         db.query(ProyectoUsuario)
         .filter(ProyectoUsuario.proyecto_id == proyecto.id,
-                ProyectoUsuario.rol_en_proyecto == Rol.RESIDENTE)
+                ProyectoUsuario.rol_en_proyecto == Rol.RESIDENTE,
+                ProyectoUsuario.estado == UsuarioEstado.ACTIVO)
         .all()
     )
     ids.update(r.usuario_id for r in residentes)
