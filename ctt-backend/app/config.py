@@ -16,9 +16,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # ── Base de datos ────────────────────────────────────────────────────────
-    # Default: SQLite local autocontenido. Para producción, definir p. ej.:
+    # Default: Postgres dev local (Docker). Para producción, definir p. ej.:
     #   DATABASE_URL=postgresql+psycopg://user:pass@host:5432/ctt
-    DATABASE_URL: str = "sqlite:///./ctt_dev.db"
+    DATABASE_URL: str = "postgresql+psycopg://postgres:ctt_dev@localhost:5432/ctt_dev"
 
     # ── Autenticación ────────────────────────────────────────────────────────
     # "mock"     -> resuelve el usuario desde un token simple (demo, sin Firebase)

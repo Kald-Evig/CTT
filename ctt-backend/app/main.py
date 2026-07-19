@@ -40,8 +40,8 @@ if settings.LOG_REQUESTS and settings.AUTH_MODE != "firebase":
     _log_req, _log_err = configurar_logging(_ruta_logs)
     app.add_middleware(LoggingMiddleware, log_requests=_log_req, log_errors=_log_err)
 
-# Crear el esquema en la BD. En producción se reemplaza por migraciones Alembic.
-Base.metadata.create_all(bind=engine)
+# CTT-49: create_all desactivado — el esquema lo gestiona `alembic upgrade head`.
+# Base.metadata.create_all(bind=engine)
 
 # Montaje de routers.
 for r in (plataforma.router, me.router, usuarios.router, proyectos.router,

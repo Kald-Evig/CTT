@@ -17,17 +17,23 @@ ctt-mobile-e031d en Firebase Auth (dev/UAT). Los secundarios sin cuenta real
 
 from datetime import date, timedelta
 
+from alembic import command
+from alembic.config import Config
+
 from app.database import Base, SessionLocal, engine
 from app.enums import EmpresaPlan, ItemEstado, Rol
 from app.models import (
     Empresa, EmpresaUsuario, Item, Proyecto, ProyectoUsuario, Usuario,
 )
 
+_ALEMBIC_CFG = Config("alembic.ini")
+
 
 def reset_db():
-    """Borra y recrea todas las tablas (solo para demo)."""
+    """Borra y recrea todas las tablas, luego marca la BD en head (solo para demo)."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    command.stamp(_ALEMBIC_CFG, "head")
 
 
 def run():
@@ -124,7 +130,7 @@ def run():
         db.add_all([sub1, sub2, sub3])
 
         db.commit()
-        print("✓ Datos de demo cargados.")
+        print("OK Datos de demo cargados.")
         print("  Empresa A:", emp_a.id)
         print("  Tokens demo (Authorization: Bearer <uid>):")
         for u in (super_admin, admin, coord, resid, trab1, trab2, itiner):

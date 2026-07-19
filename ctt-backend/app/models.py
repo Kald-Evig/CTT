@@ -64,8 +64,8 @@ class Empresa(Base):
     nombre: Mapped[str] = mapped_column(String(255))
     rut_empresa: Mapped[str] = mapped_column(String(20), unique=True)  # RUT chileno
     email_contacto: Mapped[str] = mapped_column(String(255))
-    plan: Mapped[EmpresaPlan] = mapped_column(SAEnum(EmpresaPlan), default=EmpresaPlan.TRIAL)
-    estado: Mapped[EmpresaEstado] = mapped_column(SAEnum(EmpresaEstado), default=EmpresaEstado.TRIAL)
+    plan: Mapped[EmpresaPlan] = mapped_column(SAEnum(EmpresaPlan, native_enum=False, create_constraint=True, name="plan"), default=EmpresaPlan.TRIAL)
+    estado: Mapped[EmpresaEstado] = mapped_column(SAEnum(EmpresaEstado, native_enum=False, create_constraint=True, name="estado"), default=EmpresaEstado.TRIAL)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     # Relaciones
@@ -87,7 +87,7 @@ class Usuario(Base):
     rut: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
     telefono: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    estado: Mapped[UsuarioEstado] = mapped_column(SAEnum(UsuarioEstado), default=UsuarioEstado.ACTIVO)
+    estado: Mapped[UsuarioEstado] = mapped_column(SAEnum(UsuarioEstado, native_enum=False, create_constraint=True, name="estado"), default=UsuarioEstado.ACTIVO)
     # Flag de plataforma: Super Admin (Sección 2.1). No es un rol de empresa.
     es_super_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
@@ -104,8 +104,8 @@ class EmpresaUsuario(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     empresa_id: Mapped[str] = mapped_column(ForeignKey("empresas.id"))
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
-    rol: Mapped[Rol] = mapped_column(SAEnum(Rol))
-    estado: Mapped[UsuarioEstado] = mapped_column(SAEnum(UsuarioEstado), default=UsuarioEstado.ACTIVO)
+    rol: Mapped[Rol] = mapped_column(SAEnum(Rol, native_enum=False, create_constraint=True, name="rol"))
+    estado: Mapped[UsuarioEstado] = mapped_column(SAEnum(UsuarioEstado, native_enum=False, create_constraint=True, name="estado"), default=UsuarioEstado.ACTIVO)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     empresa: Mapped["Empresa"] = relationship(back_populates="miembros")
@@ -127,7 +127,7 @@ class Proyecto(Base):
     latitud: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitud: Mapped[float | None] = mapped_column(Float, nullable=True)
     coordinador_principal_id: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
-    estado: Mapped[ProyectoEstado] = mapped_column(SAEnum(ProyectoEstado), default=ProyectoEstado.ACTIVO)
+    estado: Mapped[ProyectoEstado] = mapped_column(SAEnum(ProyectoEstado, native_enum=False, create_constraint=True, name="estado"), default=ProyectoEstado.ACTIVO)
     fecha_inicio: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     fecha_fin_estimada: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     created_by: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
@@ -148,7 +148,7 @@ class ProyectoUsuario(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     proyecto_id: Mapped[str] = mapped_column(ForeignKey("proyectos.id"))
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
-    rol_en_proyecto: Mapped[Rol] = mapped_column(SAEnum(Rol))
+    rol_en_proyecto: Mapped[Rol] = mapped_column(SAEnum(Rol, native_enum=False, create_constraint=True, name="rol_en_proyecto"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     proyecto: Mapped["Proyecto"] = relationship(back_populates="asignaciones")
@@ -168,9 +168,9 @@ class Item(Base):
     nombre: Mapped[str] = mapped_column(String(255))
     descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
     asignado_a: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
-    estado: Mapped[ItemEstado] = mapped_column(SAEnum(ItemEstado), default=ItemEstado.ABIERTO)
+    estado: Mapped[ItemEstado] = mapped_column(SAEnum(ItemEstado, native_enum=False, create_constraint=True, name="estado"), default=ItemEstado.ABIERTO)
     # [EXTENSIÓN] estado al que se debe volver al cerrar un PROBLEMA (Sección 6.2).
-    estado_previo: Mapped[ItemEstado | None] = mapped_column(SAEnum(ItemEstado), nullable=True)
+    estado_previo: Mapped[ItemEstado | None] = mapped_column(SAEnum(ItemEstado, native_enum=False, create_constraint=True, name="estado_previo"), nullable=True)
     fecha_inicio_estimada: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     duracion_estimada_horas: Mapped[float | None] = mapped_column(Float, nullable=True)
     fecha_limite: Mapped[datetime | None] = mapped_column(Date, nullable=True)  # para reporte de retraso
@@ -203,7 +203,7 @@ class ItemProblema(Base):
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"))
     reportado_por: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
     descripcion: Mapped[str] = mapped_column(Text)  # obligatoria
-    estado: Mapped[ProblemaEstado] = mapped_column(SAEnum(ProblemaEstado), default=ProblemaEstado.ABIERTO)
+    estado: Mapped[ProblemaEstado] = mapped_column(SAEnum(ProblemaEstado, native_enum=False, create_constraint=True, name="estado"), default=ProblemaEstado.ABIERTO)
     cerrado_por: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     cerrado_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
@@ -224,7 +224,8 @@ class ItemEvidencia(Base):
     s3_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     thumbnail_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     sync_status: Mapped[EvidenciaSyncStatus] = mapped_column(
-        SAEnum(EvidenciaSyncStatus), default=EvidenciaSyncStatus.PENDIENTE
+        SAEnum(EvidenciaSyncStatus, native_enum=False, create_constraint=True, name="sync_status"),
+        default=EvidenciaSyncStatus.PENDIENTE,
     )
     device_timestamp: Mapped[datetime] = mapped_column(DateTime, default=_now)  # tomada offline
     server_timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -280,7 +281,7 @@ class SyncConflicto(Base):
     cambio_servidor: Mapped[dict] = mapped_column(JSON)  # estado del servidor al conflicto
     dispositivo_id: Mapped[str] = mapped_column(String(255))
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
-    estado: Mapped[ConflictoEstado] = mapped_column(SAEnum(ConflictoEstado), default=ConflictoEstado.PENDIENTE)
+    estado: Mapped[ConflictoEstado] = mapped_column(SAEnum(ConflictoEstado, native_enum=False, create_constraint=True, name="estado"), default=ConflictoEstado.PENDIENTE)
     resuelto_por: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     resuelto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

@@ -7,7 +7,7 @@ sintaxis declarativa de los modelos es idéntica para ambos, por lo que migrar a
 AsyncSession es un cambio acotado (ver DEV_DOC.md → "Ruta a producción").
 """
 
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
 from app.config import settings
@@ -23,9 +23,18 @@ engine = create_engine(settings.DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
 class Base(DeclarativeBase):
     """Base declarativa de la que heredan todos los modelos ORM."""
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 def get_db() -> Session:
