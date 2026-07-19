@@ -144,11 +144,15 @@ class Proyecto(Base):
 # ─────────────────────────────────────────────────────────────────────────────
 class ProyectoUsuario(Base):
     __tablename__ = "proyecto_usuarios"
+    __table_args__ = (
+        UniqueConstraint("proyecto_id", "usuario_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     proyecto_id: Mapped[str] = mapped_column(ForeignKey("proyectos.id"))
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
     rol_en_proyecto: Mapped[Rol] = mapped_column(SAEnum(Rol, native_enum=False, create_constraint=True, name="rol_en_proyecto"))
+    estado: Mapped[UsuarioEstado] = mapped_column(SAEnum(UsuarioEstado, native_enum=False, create_constraint=True, name="proyecto_usuario_estado"), default=UsuarioEstado.ACTIVO)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     proyecto: Mapped["Proyecto"] = relationship(back_populates="asignaciones")
