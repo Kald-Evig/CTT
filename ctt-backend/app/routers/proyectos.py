@@ -306,18 +306,24 @@ def desasignar_miembro(
                             detail="El usuario no es miembro activo del proyecto.")
 
     # Regla 3: bloquear si hay ítems activos asignados al usuario en este proyecto.
-    activos = (
+    bloqueantes = (
         db.query(Item)
         .filter(
             Item.asignado_a == usuario_id,
             Item.proyecto_id == proyecto.id,
             Item.estado != ItemEstado.TERMINADO,
         )
-        .count()
+        .all()
     )
-    if activos > 0:
-        raise HTTPException(status_code=409,
-                            detail="El usuario tiene ítems activos asignados en este proyecto.")
+    if bloqueantes:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "USUARIO_CON_ITEMS_ACTIVOS",
+                "mensaje": "El usuario tiene ítems activos asignados en este proyecto.",
+                "blockingItems": [{"id": i.id, "nombre": i.nombre} for i in bloqueantes],
+            },
+        )
 
     fila.estado = UsuarioEstado.INACTIVO
     record_audit(

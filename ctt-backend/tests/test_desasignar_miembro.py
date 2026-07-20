@@ -40,6 +40,9 @@ def datos_delete(seeded, db, client):
     db.add(Item(proyecto_id=seeded.proyecto, nivel_profundidad=0,
                 nombre="Item activo bloqueado", asignado_a=bloqueado.id,
                 estado=ItemEstado.EN_PROGRESO, created_by=seeded.coord_id))
+    db.add(Item(proyecto_id=seeded.proyecto, nivel_profundidad=0,
+                nombre="Item activo bloqueado 2", asignado_a=bloqueado.id,
+                estado=ItemEstado.EN_PROGRESO, created_by=seeded.coord_id))
 
     con_terminado = Usuario(firebase_uid="d-terminado", nombre_completo="Con Terminado",
                             email="terminado@a.cl")
@@ -102,7 +105,7 @@ def test_delete_desasigna_miembro_sin_items_activos(datos_delete):
 
 
 def test_delete_con_items_activos_409_y_fila_sigue_activa(datos_delete):
-    """409 cuando hay ítems activos Y la fila NO debe quedar INACTIVA (bloqueo efectivo)."""
+    """409 cuando hay ítems activos, cuerpo estructurado, y la fila NO queda INACTIVA."""
     d = datos_delete
     s = d["seeded"]
     db = d["db"]
@@ -110,7 +113,22 @@ def test_delete_con_items_activos_409_y_fila_sigue_activa(datos_delete):
     r = d["client"].delete(f"/proyectos/{s.proyecto}/usuarios/{bloqueado_id}",
                            headers=s.headers(s.admin))
     assert r.status_code == 409
-    # Verificar que la fila sigue ACTIVA — el 409 no debe haberla desactivado.
+
+    # Cuerpo estructurado del 409.
+    detail = r.json()["detail"]
+    assert detail["code"] == "USUARIO_CON_ITEMS_ACTIVOS"
+    assert "blockingItems" in detail
+    items = detail["blockingItems"]
+    # El fixture crea 2 ítems EN_PROGRESO para bloqueado → deben aparecer los 2.
+    assert len(items) == 2
+    nombres = {i["nombre"] for i in items}
+    assert "Item activo bloqueado" in nombres
+    assert "Item activo bloqueado 2" in nombres
+    for i in items:
+        assert "id" in i
+        assert "nombre" in i
+
+    # La fila sigue ACTIVA — el 409 no debe haberla desactivado.
     db.expire_all()
     fila = (
         db.query(ProyectoUsuario)
