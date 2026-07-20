@@ -5,19 +5,20 @@ Cubre: crear proyecto, listar proyectos de la empresa, cerrar proyecto.
 Permisos según matriz 2.2; aislamiento por empresa según tenancy.py.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
+from app.authz import require_project_manage, require_project_read
 from app.database import get_db
-from app.enums import ProyectoEstado
-from app.models import Item, ItemHistorial, Proyecto, Usuario
+from app.enums import ProyectoEstado, UsuarioEstado
+from app.models import Item, ItemHistorial, Proyecto, ProyectoUsuario, Usuario
 from app.permissions import puede
 from app.schemas import (
-    DashboardProyectoOut, ProyectoCreate, ProyectoHistorialEntradaOut, ProyectoOut,
-    ProyectoUpdate,
+    AsignarUsuarioProyectoIn, DashboardProyectoOut, ProyectoCreate,
+    ProyectoHistorialEntradaOut, ProyectoOut, ProyectoUpdate, ProyectoUsuarioOut,
 )
 from app.tenancy import get_proyecto_de_empresa, get_usuario_de_empresa
 
@@ -190,6 +191,97 @@ def historial_proyecto(
         }
         for h, item_nombre, nombre_usuario in rows
     ]
+
+
+@router.get("/{proyecto_id}/usuarios", response_model=list[ProyectoUsuarioOut])
+def listar_miembros(
+    incluir_inactivos: bool = Query(default=False),
+    proyecto: Proyecto = Depends(require_project_read),
+    db: Session = Depends(get_db),
+):
+    """Miembros del proyecto (ADMIN, coordinador_principal, residente miembro)."""
+    q = (
+        db.query(ProyectoUsuario, Usuario.nombre_completo)
+        .join(Usuario, ProyectoUsuario.usuario_id == Usuario.id)
+        .filter(ProyectoUsuario.proyecto_id == proyecto.id)
+    )
+    if not incluir_inactivos:
+        q = q.filter(ProyectoUsuario.estado == UsuarioEstado.ACTIVO)
+    filas = q.order_by(Usuario.nombre_completo).all()
+    return [
+        {
+            "usuario_id": pu.usuario_id,
+            "nombre_completo": nombre,
+            "rol_en_proyecto": pu.rol_en_proyecto,
+            "estado": pu.estado,
+        }
+        for pu, nombre in filas
+    ]
+
+
+@router.post("/{proyecto_id}/usuarios", response_model=ProyectoUsuarioOut, status_code=201)
+def asignar_miembro(
+    body: AsignarUsuarioProyectoIn,
+    proyecto: Proyecto = Depends(require_project_manage),
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Asigna un usuario al proyecto. Deriva rol_en_proyecto de empresa_usuario (B-como-caché)."""
+    empresa_id = proyecto.empresa_id
+    # Valida membresía activa en empresa y deriva rol; 404 si no es miembro activo.
+    membresia = get_usuario_de_empresa(db, body.usuario_id, empresa_id)
+    rol_derivado = membresia.rol
+
+    existente = (
+        db.query(ProyectoUsuario)
+        .filter(
+            ProyectoUsuario.proyecto_id == proyecto.id,
+            ProyectoUsuario.usuario_id == body.usuario_id,
+        )
+        .first()
+    )
+
+    if existente is None:
+        fila = ProyectoUsuario(
+            proyecto_id=proyecto.id,
+            usuario_id=body.usuario_id,
+            rol_en_proyecto=rol_derivado,
+        )
+        db.add(fila)
+        db.flush()
+    elif existente.estado == UsuarioEstado.ACTIVO:
+        raise HTTPException(status_code=409,
+                            detail="El usuario ya es miembro activo del proyecto.")
+    else:
+        # INACTIVO: re-derivar rol (puede haber cambiado durante la inactividad).
+        existente.rol_en_proyecto = rol_derivado
+        existente.estado = UsuarioEstado.ACTIVO
+        fila = existente
+        db.flush()
+
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        **actor_de(ctx),
+        accion="asignacion_usuario",
+        entidad_tipo="proyecto_usuario",
+        entidad_id=fila.id,
+        proyecto_id=proyecto.id,
+    )
+    db.commit()
+    db.refresh(fila)
+
+    nombre = (
+        db.query(Usuario.nombre_completo)
+        .filter(Usuario.id == fila.usuario_id)
+        .scalar()
+    )
+    return {
+        "usuario_id": fila.usuario_id,
+        "nombre_completo": nombre,
+        "rol_en_proyecto": fila.rol_en_proyecto,
+        "estado": fila.estado,
+    }
 
 
 @router.get("/{proyecto_id}", response_model=ProyectoOut)

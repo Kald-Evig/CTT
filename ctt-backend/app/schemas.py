@@ -11,7 +11,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.enums import (
-    EmpresaPlan, EvidenciaSyncStatus, ItemEstado, ProyectoEstado, Rol,
+    EmpresaPlan, EvidenciaSyncStatus, ItemEstado, ProyectoEstado, Rol, UsuarioEstado,
 )
 
 _PATRON_RUT = re.compile(r"^\d{1,3}(?:\.\d{3})*-[\dkK]$")
@@ -115,6 +115,18 @@ class ProyectoUpdate(BaseModel):
         if v is None:
             raise ValueError("nombre es NOT NULL; omití el campo para no modificarlo.")
         return v
+
+
+class AsignarUsuarioProyectoIn(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    usuario_id: str = Field(min_length=1)
+
+
+class ProyectoUsuarioOut(BaseModel):
+    usuario_id: str
+    nombre_completo: str
+    rol_en_proyecto: Rol
+    estado: UsuarioEstado
 
 
 # ── Ítems ────────────────────────────────────────────────────────────────────
