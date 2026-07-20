@@ -13,7 +13,7 @@ from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
 from app.authz import require_project_manage, require_project_read
 from app.database import get_db
-from app.enums import ProyectoEstado, UsuarioEstado
+from app.enums import ItemEstado, ProyectoEstado, UsuarioEstado
 from app.models import Item, ItemHistorial, Proyecto, ProyectoUsuario, Usuario
 from app.permissions import puede
 from app.schemas import (
@@ -264,6 +264,67 @@ def asignar_miembro(
         empresa_id=empresa_id,
         **actor_de(ctx),
         accion="asignacion_usuario",
+        entidad_tipo="proyecto_usuario",
+        entidad_id=fila.id,
+        proyecto_id=proyecto.id,
+    )
+    db.commit()
+    db.refresh(fila)
+
+    nombre = (
+        db.query(Usuario.nombre_completo)
+        .filter(Usuario.id == fila.usuario_id)
+        .scalar()
+    )
+    return {
+        "usuario_id": fila.usuario_id,
+        "nombre_completo": nombre,
+        "rol_en_proyecto": fila.rol_en_proyecto,
+        "estado": fila.estado,
+    }
+
+
+@router.delete("/{proyecto_id}/usuarios/{usuario_id}", response_model=ProyectoUsuarioOut)
+def desasignar_miembro(
+    usuario_id: str,
+    proyecto: Proyecto = Depends(require_project_manage),
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Soft-delete de membresía: estado → INACTIVO. 404 si no existe o ya inactivo."""
+    fila = (
+        db.query(ProyectoUsuario)
+        .filter(
+            ProyectoUsuario.proyecto_id == proyecto.id,
+            ProyectoUsuario.usuario_id == usuario_id,
+            ProyectoUsuario.estado == UsuarioEstado.ACTIVO,
+        )
+        .first()
+    )
+    if fila is None:
+        raise HTTPException(status_code=404,
+                            detail="El usuario no es miembro activo del proyecto.")
+
+    # Regla 3: bloquear si hay ítems activos asignados al usuario en este proyecto.
+    activos = (
+        db.query(Item)
+        .filter(
+            Item.asignado_a == usuario_id,
+            Item.proyecto_id == proyecto.id,
+            Item.estado != ItemEstado.TERMINADO,
+        )
+        .count()
+    )
+    if activos > 0:
+        raise HTTPException(status_code=409,
+                            detail="El usuario tiene ítems activos asignados en este proyecto.")
+
+    fila.estado = UsuarioEstado.INACTIVO
+    record_audit(
+        db,
+        empresa_id=proyecto.empresa_id,
+        **actor_de(ctx),
+        accion="desasignacion_usuario",
         entidad_tipo="proyecto_usuario",
         entidad_id=fila.id,
         proyecto_id=proyecto.id,
