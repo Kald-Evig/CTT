@@ -211,6 +211,7 @@ class _SelectorAsignatarioSheetState
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       ref.invalidate(itemResidenteDetalleProvider(widget.item.id));
+      ref.invalidate(itemsProyectoProvider);
       Navigator.of(context).pop();
       messenger.showSnackBar(
         SnackBar(content: Text('Asignado a ${miembro.nombreCompleto}.')),
