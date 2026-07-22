@@ -76,6 +76,11 @@ class UsuarioCreateOut(UsuarioOut):
     reset_link: str | None = None
 
 
+class UsuarioEstadoUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    estado: UsuarioEstado
+
+
 # ── Proyectos ────────────────────────────────────────────────────────────────
 class ProyectoCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=255)

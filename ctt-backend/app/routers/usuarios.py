@@ -25,7 +25,7 @@ from app.database import get_db
 from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
 from app.permissions import puede
-from app.schemas import UsuarioCreate, UsuarioCreateOut, UsuarioOut
+from app.schemas import UsuarioCreate, UsuarioCreateOut, UsuarioEstadoUpdate, UsuarioOut
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -178,6 +178,45 @@ def crear_usuario(
     db.refresh(usuario)
     resp = _usuario_a_dict(usuario, body.rol)
     resp["reset_link"] = None
+    return resp
+
+
+@router.patch("/{usuario_id}/estado", response_model=UsuarioOut)
+def actualizar_estado_usuario(
+    usuario_id: str,
+    body: UsuarioEstadoUpdate,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Activa o desactiva la membresía de un usuario en la empresa activa.
+
+    Modifica EmpresaUsuario.estado (empresa-scoped), no Usuario.estado (global).
+    Justificación: get_current_context filtra membresías activas por
+    EmpresaUsuario.estado; INACTIVO aquí bloquea acceso a esta empresa sin
+    afectar otras membresías. Usuario.estado = INACTIVO es una acción de
+    Super Admin (plataforma) y requiere un endpoint separado.
+    """
+    empresa_id = requiere_empresa(ctx)
+    if not puede(ctx.rol, "crear_usuarios", ctx.es_super_admin):
+        raise HTTPException(403, "Su rol no puede gestionar usuarios.")
+
+    fila = (
+        db.query(EmpresaUsuario)
+        .filter(
+            EmpresaUsuario.empresa_id == empresa_id,
+            EmpresaUsuario.usuario_id == usuario_id,
+        )
+        .first()
+    )
+    if fila is None:
+        raise HTTPException(404, "Usuario no encontrado en esta empresa.")
+
+    fila.estado = body.estado
+    db.commit()
+
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    resp = _usuario_a_dict(usuario, fila.rol)
+    resp["estado"] = fila.estado.value  # estado de membresía, no global
     return resp
 
 
