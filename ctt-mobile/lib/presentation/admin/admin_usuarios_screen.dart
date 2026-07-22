@@ -33,6 +33,11 @@ class _AdminUsuariosScreenState extends ConsumerState<AdminUsuariosScreen> {
         title: const Text('Usuarios'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.lock_outline),
+            tooltip: 'Cerrar proyecto',
+            onPressed: () => context.push('/admin/cerrar-proyecto'),
+          ),
+          IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Cerrar sesión',
             onPressed: () => confirmarLogout(context, ref),

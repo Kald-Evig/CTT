@@ -27,6 +27,9 @@ import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
 import 'package:ctt_mobile/presentation/residente/detalle_item_residente_screen.dart';
 import 'package:ctt_mobile/presentation/residente/lista_items_residente_screen.dart';
 import 'package:ctt_mobile/presentation/residente/notificaciones_screen.dart';
+import 'package:ctt_mobile/presentation/admin/admin_usuarios_screen.dart';
+import 'package:ctt_mobile/presentation/admin/cerrar_proyecto_screen.dart';
+import 'package:ctt_mobile/presentation/admin/crear_usuario_screen.dart';
 import 'package:ctt_mobile/presentation/trabajador/detalle_item_screen.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
@@ -232,10 +235,18 @@ GoRouter router(RouterRef ref) {
       ),
       GoRoute(
         path: Rutas.admin,
-        builder: (_, __) => const _PantallaPlaceholder(
-          titulo: 'Admin',
-          icono: Icons.admin_panel_settings,
-        ),
+        builder: (_, __) => const AdminUsuariosScreen(),
+        routes: [
+          // Literales antes que params.
+          GoRoute(
+            path: 'crear-usuario',
+            builder: (_, __) => const CrearUsuarioScreen(),
+          ),
+          GoRoute(
+            path: 'cerrar-proyecto',
+            builder: (_, __) => const CerrarProyectoScreen(),
+          ),
+        ],
       ),
     ],
   );
@@ -283,14 +294,12 @@ ThemeData _temaCTT() => ThemeData(
 // ── Placeholder hasta que se construyan las pantallas reales ──────────────────
 
 class _PantallaPlaceholder extends StatelessWidget {
-  const _PantallaPlaceholder({required this.titulo, this.icono});
+  const _PantallaPlaceholder({required this.titulo});
   final String titulo;
-  final IconData? icono;
 
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-          leading: icono != null ? Icon(icono) : null,
           title: Text(titulo),
         ),
         body: Center(

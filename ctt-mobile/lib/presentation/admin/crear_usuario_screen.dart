@@ -120,13 +120,13 @@ class _CrearUsuarioScreenState extends ConsumerState<CrearUsuarioScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _rol,
+              initialValue: _rol,
               decoration: const InputDecoration(
                 labelText: 'Rol *',
                 border: OutlineInputBorder(),
               ),
               items: _roles
-                  .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                  .map((r) => DropdownMenuItem(value: r, child: Text(r),))
                   .toList(),
               onChanged: (v) => setState(() => _rol = v!),
             ),
@@ -207,7 +207,7 @@ class _DialogoResetLink extends StatelessWidget {
               child: const Row(
                 children: [
                   Icon(Icons.warning_amber_outlined,
-                      color: Colors.orange, size: 18),
+                      color: Colors.orange, size: 18,),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
