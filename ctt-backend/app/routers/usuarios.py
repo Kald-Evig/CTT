@@ -1,11 +1,18 @@
 """
 routers/usuarios.py — Gestión de usuarios dentro de una empresa (Sección 14.2).
 
-Crear usuario crea: (1) el Usuario interno, (2) su membresía en la empresa activa
-con el rol indicado. En MODO MOCK también genera un firebase_uid que se devuelve
-para poder "iniciar sesión" en la demo (en producción lo provee Firebase Auth).
+Crear usuario:
+  - AUTH_MODE=firebase: crea la cuenta en Firebase con contraseña aleatoria
+    (nunca visible ni persistida), inserta en BD y devuelve un reset link para
+    que el Admin lo entregue al usuario por fuera de banda.
+  - AUTH_MODE=mock: crea con uuid como firebase_uid (demo/UAT local).
+
+En ambos modos, si el email ya existe se reutiliza el Usuario y solo se agrega
+la membresía en la empresa activa.
 """
 
+import logging
+import secrets
 import uuid
 from typing import Annotated
 
@@ -18,9 +25,19 @@ from app.database import get_db
 from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
 from app.permissions import puede
-from app.schemas import UsuarioCreate, UsuarioOut
+from app.schemas import UsuarioCreate, UsuarioCreateOut, UsuarioOut
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
+
+_log_err = logging.getLogger(__name__)
+
+# Jerarquía de roles para la regla anti-escalada (Sección 2.1).
+_JERARQUIA_ROL: dict[Rol, int] = {
+    Rol.TRABAJADOR: 0,
+    Rol.RESIDENTE: 1,
+    Rol.COORDINADOR: 2,
+    Rol.ADMIN: 3,
+}
 
 
 def _usuario_a_dict(u: Usuario, rol: Rol) -> dict:
@@ -34,7 +51,7 @@ def _usuario_a_dict(u: Usuario, rol: Rol) -> dict:
     }
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=UsuarioCreateOut)
 def crear_usuario(
     body: UsuarioCreate,
     ctx: AuthContext = Depends(get_current_context),
@@ -45,27 +62,112 @@ def crear_usuario(
     if not puede(ctx.rol, "crear_usuarios", ctx.es_super_admin):
         raise HTTPException(403, "Su rol no puede crear usuarios.")
 
-    # ¿Ya existe un usuario con ese email? Reusarlo (puede pertenecer a varias
-    # empresas — Sección 14.3) en vez de duplicar.
+    # Anti-escalación: nunca asignar un rol superior al del actor.
+    if ctx.rol is not None and (
+        _JERARQUIA_ROL.get(body.rol, 0) > _JERARQUIA_ROL.get(ctx.rol, 3)
+    ):
+        raise HTTPException(403, "No puede asignar un rol superior al suyo.")
+
+    if settings.AUTH_MODE == "firebase":
+        from firebase_admin import auth as fb_auth
+
+        # Idempotencia: si el email ya existe en Firebase, reusar su uid.
+        firebase_uid: str | None = None
+        usuario_existia_en_firebase = False
+        try:
+            fb_user = fb_auth.get_user_by_email(body.email)
+            firebase_uid = fb_user.uid
+            usuario_existia_en_firebase = True
+        except fb_auth.UserNotFoundError:
+            pass
+
+        if firebase_uid is None:
+            # Crear cuenta con contraseña aleatoria server-side.
+            # La contraseña nunca se comunica, guarda ni loguea.
+            _pwd = secrets.token_urlsafe(32)
+            try:
+                fb_user = fb_auth.create_user(
+                    email=body.email,
+                    password=_pwd,
+                    email_verified=False,
+                )
+                firebase_uid = fb_user.uid
+            except Exception as exc:
+                raise HTTPException(502, f"Error al crear cuenta en Firebase: {exc}") from exc
+            finally:
+                _pwd = None  # minimizar ventana en memoria
+
+        # Insertar o reusar en la BD.
+        usuario = db.query(Usuario).filter(Usuario.email == body.email).first()
+        if usuario is None:
+            usuario = Usuario(
+                firebase_uid=firebase_uid,
+                nombre_completo=body.nombre_completo,
+                rut=body.rut,
+                email=body.email,
+                telefono=body.telefono,
+            )
+            db.add(usuario)
+            db.flush()
+
+        ya = (
+            db.query(EmpresaUsuario)
+            .filter(
+                EmpresaUsuario.usuario_id == usuario.id,
+                EmpresaUsuario.empresa_id == empresa_id,
+            )
+            .first()
+        )
+        if ya is not None:
+            raise HTTPException(409, "El usuario ya pertenece a esta empresa.")
+
+        db.add(EmpresaUsuario(empresa_id=empresa_id, usuario_id=usuario.id, rol=body.rol))
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            if not usuario_existia_en_firebase:
+                # Solo borrar si nosotros lo creamos; si ya existía, no tocarlo.
+                try:
+                    fb_auth.delete_user(firebase_uid)
+                except Exception as del_exc:
+                    _log_err.error(
+                        "Firebase uid huérfano tras fallo de BD: uid=%s error=%s",
+                        firebase_uid,
+                        del_exc,
+                    )
+            raise HTTPException(500, "Error al crear usuario. Intenta de nuevo.") from exc
+
+        reset_link: str | None = None
+        try:
+            reset_link = fb_auth.generate_password_reset_link(body.email)
+        except Exception:
+            pass  # no bloquear la respuesta si el link falla; Admin puede re-enviarlo
+
+        db.refresh(usuario)
+        resp = _usuario_a_dict(usuario, body.rol)
+        resp["reset_link"] = reset_link
+        return resp
+
+    # ── Modo mock: creación directa sin Firebase (demo/UAT) ──────────────────
     usuario = db.query(Usuario).filter(Usuario.email == body.email).first()
-    firebase_uid = None
     if usuario is None:
-        firebase_uid = str(uuid.uuid4())  # producción: lo entrega Firebase
         usuario = Usuario(
-            firebase_uid=firebase_uid,
+            firebase_uid=str(uuid.uuid4()),
             nombre_completo=body.nombre_completo,
             rut=body.rut,
             email=body.email,
             telefono=body.telefono,
         )
         db.add(usuario)
-        db.flush()  # obtener usuario.id sin commit todavía
+        db.flush()
 
-    # Evitar membresía duplicada en la misma empresa.
     ya = (
         db.query(EmpresaUsuario)
-        .filter(EmpresaUsuario.usuario_id == usuario.id,
-                EmpresaUsuario.empresa_id == empresa_id)
+        .filter(
+            EmpresaUsuario.usuario_id == usuario.id,
+            EmpresaUsuario.empresa_id == empresa_id,
+        )
         .first()
     )
     if ya is not None:
@@ -74,12 +176,8 @@ def crear_usuario(
     db.add(EmpresaUsuario(empresa_id=empresa_id, usuario_id=usuario.id, rol=body.rol))
     db.commit()
     db.refresh(usuario)
-
-    # Construimos manualmente para incluir rol (viene de EmpresaUsuario, no de Usuario).
-    resp: dict = _usuario_a_dict(usuario, body.rol)
-    # Solo en modo mock devolvemos el uid para facilitar el login de demo.
-    if settings.AUTH_MODE == "mock" and firebase_uid:
-        resp["firebase_uid_demo"] = firebase_uid
+    resp = _usuario_a_dict(usuario, body.rol)
+    resp["reset_link"] = None
     return resp
 
 

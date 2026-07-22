@@ -71,6 +71,11 @@ class UsuarioOut(BaseModel):
     rol: str
 
 
+class UsuarioCreateOut(UsuarioOut):
+    """Respuesta de POST /usuarios: incluye el reset link para que el Admin lo entregue al usuario."""
+    reset_link: str | None = None
+
+
 # ── Proyectos ────────────────────────────────────────────────────────────────
 class ProyectoCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=255)

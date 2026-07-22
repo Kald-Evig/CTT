@@ -11,6 +11,7 @@ psycopg[binary]==3.2.9    # Driver Postgres (psycopg3) — sync + binary protoco
 pydantic==2.7.1           # Validación de esquemas (request/response)
 pydantic-settings==2.3.0  # Carga de configuración por entorno
 python-multipart==0.0.9   # Soporte form-data (subida de evidencias)
+firebase-admin==6.5.0     # Firebase Admin SDK (crear usuarios, verificar tokens)
 
 # ── Testing ────────────────────────────────────────────────────────────────
 pytest==8.2.0

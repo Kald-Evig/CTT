@@ -23,6 +23,12 @@ from app.routers import (
     audit, items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
 )
 
+# Inicializar Firebase Admin SDK usando Application Default Credentials.
+# Solo activo en modo firebase; en mock no hay credenciales disponibles.
+if settings.AUTH_MODE == "firebase":
+    import firebase_admin
+    firebase_admin.initialize_app()
+
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
