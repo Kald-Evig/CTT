@@ -100,7 +100,7 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
           duracionEstimadaHoras: duracion,
         );
         if (!mounted) return;
-        ref.invalidate(itemsProyectoProvider(widget.proyectoId, null));
+        ref.invalidate(itemsProyectoProvider);
         ref.invalidate(itemResidenteDetalleProvider(widget.itemParaEditar!.id));
       } else {
         await repo.crearItem(
@@ -113,7 +113,7 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
           duracionEstimadaHoras: duracion,
         );
         if (!mounted) return;
-        ref.invalidate(itemsProyectoProvider(widget.proyectoId, null));
+        ref.invalidate(itemsProyectoProvider);
       }
       context.pop();
     } on ErrorCoordinador catch (e) {
