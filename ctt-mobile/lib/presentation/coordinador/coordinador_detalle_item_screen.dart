@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
+import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart';
 
@@ -96,6 +97,14 @@ class _AccionesCoordinador extends StatelessWidget {
             extra: item,
           ),
         ),
+        const SizedBox(height: 8),
+        ItemDetalleBotonAccion(
+          label: 'Reasignar trabajador',
+          icono: Icons.swap_horiz_outlined,
+          color: Theme.of(context).colorScheme.secondary,
+          filled: false,
+          onTap: () => _mostrarSelectorAsignatario(context, item, proyectoId),
+        ),
       ],
     );
   }
@@ -138,6 +147,184 @@ class _MarcaEdicion extends StatelessWidget {
         '${l.month.toString().padLeft(2, '0')}/${l.year} '
         '${l.hour.toString().padLeft(2, '0')}:'
         '${l.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+// ── Selector de asignatario (bottom sheet) ────────────────────────────────────
+
+void _mostrarSelectorAsignatario(
+  BuildContext context,
+  ItemResidente item,
+  String proyectoId,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      builder: (_, sc) => _SelectorAsignatarioSheet(
+        item: item,
+        proyectoId: proyectoId,
+        scrollController: sc,
+      ),
+    ),
+  );
+}
+
+class _SelectorAsignatarioSheet extends ConsumerStatefulWidget {
+  const _SelectorAsignatarioSheet({
+    required this.item,
+    required this.proyectoId,
+    required this.scrollController,
+  });
+
+  final ItemResidente item;
+  final String proyectoId;
+  final ScrollController scrollController;
+
+  @override
+  ConsumerState<_SelectorAsignatarioSheet> createState() =>
+      _SelectorAsignatarioSheetState();
+}
+
+class _SelectorAsignatarioSheetState
+    extends ConsumerState<_SelectorAsignatarioSheet> {
+  String? _asignandoId;
+  String? _error;
+
+  Future<void> _asignar(MiembroProyecto miembro) async {
+    setState(() {
+      _asignandoId = miembro.usuarioId;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(coordinadorRepositoryProvider)
+          .asignarItem(widget.item.id, miembro.usuarioId);
+
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      ref.invalidate(itemResidenteDetalleProvider(widget.item.id));
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text('Asignado a ${miembro.nombreCompleto}.')),
+      );
+    } on ErrorCoordinador catch (e) {
+      if (mounted) setState(() { _asignandoId = null; _error = e.mensaje; });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _asignandoId = null;
+          _error = 'Error al asignar. Intenta de nuevo.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final miembrosAsync =
+        ref.watch(miembrosProyectoProvider(widget.proyectoId));
+
+    return Column(
+      children: [
+        const _ManijaDrag(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Text(
+            'Asignar trabajador',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+        if (_error != null)
+          Container(
+            width: double.infinity,
+            color: Theme.of(context).colorScheme.errorContainer,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Text(
+              _error!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onErrorContainer,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        const Divider(height: 1),
+        Expanded(
+          child: miembrosAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('No se pudo cargar los miembros: $e'),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => ref.invalidate(
+                          miembrosProyectoProvider(widget.proyectoId),),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            data: (miembros) {
+              final trabajadores = miembros
+                  .where((m) =>
+                      m.rolEnProyecto == 'trabajador' && m.estado == 'activo',)
+                  .toList();
+              if (trabajadores.isEmpty) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No hay trabajadores asignados al proyecto.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                );
+              }
+              return ListView.builder(
+                controller: widget.scrollController,
+                itemCount: trabajadores.length,
+                itemBuilder: (_, i) {
+                  final m = trabajadores[i];
+                  final asignando = _asignandoId == m.usuarioId;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      child: Text(
+                        m.nombreCompleto.isNotEmpty
+                            ? m.nombreCompleto[0].toUpperCase()
+                            : '?',
+                      ),
+                    ),
+                    title: Text(m.nombreCompleto),
+                    trailing: asignando
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : null,
+                    enabled: _asignandoId == null,
+                    onTap: _asignandoId == null ? () => _asignar(m) : null,
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 

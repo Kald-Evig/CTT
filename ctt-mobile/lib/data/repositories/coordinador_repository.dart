@@ -151,6 +151,22 @@ class CoordinadorRepository {
     }
   }
 
+  Future<ItemResidente> asignarItem(String itemId, String usuarioId) async {
+    try {
+      final resp = await _dio.post<Map<String, dynamic>>(
+        '/items/$itemId/asignar',
+        data: {'usuario_id': usuarioId},
+      );
+      return ItemResidente.fromJson(resp.data!);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code != null && code >= 400 && code < 500) {
+        throw ErrorCoordinador(_extraerDetalle(e));
+      }
+      rethrow;
+    }
+  }
+
   // ── Dashboard (CTT-42) ───────────────────────────────────────────────────────
 
   Future<List<DashboardProyecto>> listarDashboard() =>
