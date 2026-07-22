@@ -74,6 +74,7 @@ class UsuarioOut(BaseModel):
 class UsuarioCreateOut(UsuarioOut):
     """Respuesta de POST /usuarios: incluye el reset link para que el Admin lo entregue al usuario."""
     reset_link: str | None = None
+    reset_link_pendiente: bool = False
 
 
 class UsuarioEstadoUpdate(BaseModel):
