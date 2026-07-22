@@ -28,3 +28,10 @@ build/
 # IDE
 .idea/
 .vscode/
+
+# Credenciales de Firebase Admin — NUNCA commitear
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+credentials.json
+*.key
+*.pem
