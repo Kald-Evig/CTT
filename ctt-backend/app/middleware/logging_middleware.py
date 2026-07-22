@@ -23,7 +23,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-_CAMPOS_SENSIBLES = frozenset({"firebase_uid", "rut", "password", "token", "uid"})
+_CAMPOS_SENSIBLES = frozenset({
+    "firebase_uid", "rut", "password", "token", "uid",
+    # Campos que pueden aparecer en responses de auth (reset link, OOB codes).
+    # Un reset_link en un log es una credencial filtrada.
+    "authorization", "jwt", "cookie", "oobCode", "oob_code", "reset_link", "link",
+})
 _LIMITE_BODY = 800  # caracteres máximos del body redactado en el log
 
 
