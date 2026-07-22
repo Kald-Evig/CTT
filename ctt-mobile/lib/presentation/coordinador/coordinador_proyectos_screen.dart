@@ -202,6 +202,13 @@ class _TarjetaProyectoState extends ConsumerState<_TarjetaProyecto> {
                     onPressed: () => context
                         .push('/coordinador/${widget.proyecto.id}/historial'),
                   ),
+                  IconButton(
+                    icon: const Icon(Icons.group_outlined, size: 20),
+                    tooltip: 'Miembros',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => context
+                        .push('/coordinador/${widget.proyecto.id}/miembros'),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),

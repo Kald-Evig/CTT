@@ -17,6 +17,12 @@ class ErrorCoordinador implements Exception {
   String toString() => mensaje;
 }
 
+/// Error tipado para el 409 de desasignar: el usuario tiene ítems activos.
+class ErrorMiembroConItems implements Exception {
+  const ErrorMiembroConItems({required this.blockingItems});
+  final List<ItemBloqueante> blockingItems;
+}
+
 @riverpod
 CoordinadorRepository coordinadorRepository(CoordinadorRepositoryRef ref) =>
     CoordinadorRepository(ref.watch(dioClientProvider));
@@ -175,6 +181,50 @@ class CoordinadorRepository {
           'offset': offset,
         },
       );
+
+  // ── Miembros de proyecto (CTT-44) ────────────────────────────────────────────
+
+  Future<List<MiembroProyecto>> getMiembros(String proyectoId) =>
+      _fetchList('/proyectos/$proyectoId/usuarios', MiembroProyecto.fromJson);
+
+  Future<MiembroProyecto> asignarMiembro(
+    String proyectoId,
+    String usuarioId,
+  ) async {
+    try {
+      final resp = await _dio.post<Map<String, dynamic>>(
+        '/proyectos/$proyectoId/usuarios',
+        data: {'usuario_id': usuarioId},
+      );
+      return MiembroProyecto.fromJson(resp.data!);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) throw ErrorCoordinador(_extraerDetalle(e));
+      rethrow;
+    }
+  }
+
+  Future<void> desasignarMiembro(String proyectoId, String usuarioId) async {
+    try {
+      await _dio.delete<void>('/proyectos/$proyectoId/usuarios/$usuarioId');
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 409) {
+        final data = e.response?.data;
+        if (data is Map<String, dynamic>) {
+          final detail = data['detail'];
+          if (detail is Map<String, dynamic> &&
+              detail['code'] == 'USUARIO_CON_ITEMS_ACTIVOS') {
+            final items = (detail['blockingItems'] as List<dynamic>)
+                .cast<Map<String, dynamic>>()
+                .map(ItemBloqueante.fromJson)
+                .toList();
+            throw ErrorMiembroConItems(blockingItems: items);
+          }
+        }
+        throw ErrorCoordinador(_extraerDetalle(e));
+      }
+      rethrow;
+    }
+  }
 
   // ── Conflictos ───────────────────────────────────────────────────────────────
 

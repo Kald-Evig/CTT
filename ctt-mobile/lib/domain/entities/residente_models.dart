@@ -196,17 +196,20 @@ class UsuarioEmpresa {
     required this.nombreCompleto,
     required this.email,
     required this.estado,
+    required this.rol,
   });
 
   final String id;
   final String nombreCompleto;
   final String email;
   final String estado;
+  final String rol;
 
   factory UsuarioEmpresa.fromJson(Map<String, dynamic> json) => UsuarioEmpresa(
         id: json['id'] as String,
         nombreCompleto: json['nombre_completo'] as String,
         email: json['email'] as String,
         estado: json['estado'] as String,
+        rol: json['rol'] as String,
       );
 }

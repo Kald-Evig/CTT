@@ -24,6 +24,15 @@ Future<List<HistorialProyectoEntrada>> historialProyecto(
 ) =>
     ref.watch(coordinadorRepositoryProvider).listarHistorialProyecto(proyectoId);
 
+// ── Miembros de proyecto (CTT-44) ────────────────────────────────────────────
+
+@riverpod
+Future<List<MiembroProyecto>> miembrosProyecto(
+  MiembrosProyectoRef ref,
+  String proyectoId,
+) =>
+    ref.watch(coordinadorRepositoryProvider).getMiembros(proyectoId);
+
 // ── Conflictos ────────────────────────────────────────────────────────────────
 
 @riverpod

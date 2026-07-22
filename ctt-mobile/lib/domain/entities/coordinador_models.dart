@@ -90,6 +90,41 @@ class ProyectoCoordinador {
       );
 }
 
+// ── Miembros de proyecto (CTT-44) ────────────────────────────────────────────
+
+class MiembroProyecto {
+  const MiembroProyecto({
+    required this.usuarioId,
+    required this.nombreCompleto,
+    required this.rolEnProyecto,
+    required this.estado,
+  });
+
+  final String usuarioId;
+  final String nombreCompleto;
+  final String rolEnProyecto;
+  final String estado;
+
+  factory MiembroProyecto.fromJson(Map<String, dynamic> json) => MiembroProyecto(
+        usuarioId: json['usuario_id'] as String,
+        nombreCompleto: json['nombre_completo'] as String,
+        rolEnProyecto: json['rol_en_proyecto'] as String,
+        estado: json['estado'] as String,
+      );
+}
+
+class ItemBloqueante {
+  const ItemBloqueante({required this.id, required this.nombre});
+
+  final String id;
+  final String nombre;
+
+  factory ItemBloqueante.fromJson(Map<String, dynamic> json) => ItemBloqueante(
+        id: json['id'] as String,
+        nombre: json['nombre'] as String,
+      );
+}
+
 // ── Dashboard (CTT-42) ────────────────────────────────────────────────────────
 
 class DashboardProyecto {

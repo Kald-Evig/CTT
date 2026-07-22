@@ -21,6 +21,7 @@ import 'package:ctt_mobile/presentation/coordinador/coordinador_proyectos_screen
 import 'package:ctt_mobile/presentation/coordinador/crear_item_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/crear_proyecto_screen.dart';
 import 'package:ctt_mobile/presentation/coordinador/historial_proyecto_screen.dart';
+import 'package:ctt_mobile/presentation/coordinador/miembros_proyecto_screen.dart';
 import 'package:ctt_mobile/presentation/empresa/empresa_activa_notifier.dart';
 import 'package:ctt_mobile/presentation/empresa/seleccion_empresa_screen.dart';
 import 'package:ctt_mobile/presentation/residente/detalle_item_residente_screen.dart';
@@ -188,6 +189,12 @@ GoRouter router(RouterRef ref) {
             path: ':proyectoId/editar',
             builder: (_, state) => CrearProyectoScreen(
               proyectoParaEditar: state.extra as ProyectoCoordinador?,
+            ),
+          ),
+          GoRoute(
+            path: ':proyectoId/miembros',
+            builder: (_, state) => MiembrosProyectoScreen(
+              proyectoId: state.pathParameters['proyectoId']!,
             ),
           ),
           GoRoute(
