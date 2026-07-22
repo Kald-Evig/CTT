@@ -81,6 +81,11 @@ class UsuarioEstadoUpdate(BaseModel):
     estado: UsuarioEstado
 
 
+class UsuarioRolUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    rol: Rol
+
+
 # ── Proyectos ────────────────────────────────────────────────────────────────
 class ProyectoCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=255)

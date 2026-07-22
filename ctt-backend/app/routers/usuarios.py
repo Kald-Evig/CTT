@@ -25,7 +25,7 @@ from app.database import get_db
 from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
 from app.permissions import puede
-from app.schemas import UsuarioCreate, UsuarioCreateOut, UsuarioEstadoUpdate, UsuarioOut
+from app.schemas import UsuarioCreate, UsuarioCreateOut, UsuarioEstadoUpdate, UsuarioRolUpdate, UsuarioOut
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -217,6 +217,49 @@ def actualizar_estado_usuario(
     usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     resp = _usuario_a_dict(usuario, fila.rol)
     resp["estado"] = fila.estado.value  # estado de membresía, no global
+    return resp
+
+
+@router.patch("/{usuario_id}/rol", response_model=UsuarioOut)
+def actualizar_rol_usuario(
+    usuario_id: str,
+    body: UsuarioRolUpdate,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """Cambia el rol de un usuario en la empresa activa (gestionar_roles).
+
+    Anti-escalación: nunca puede asignarse un rol superior al del actor.
+    Usa el permiso 'gestionar_roles' (permissions.py:33), que existía en la
+    matriz pero no tenía ningún endpoint invocándolo.
+    """
+    empresa_id = requiere_empresa(ctx)
+    if not puede(ctx.rol, "gestionar_roles", ctx.es_super_admin):
+        raise HTTPException(403, "Su rol no puede gestionar roles.")
+
+    # Anti-escalación: misma regla que en crear_usuario.
+    if ctx.rol is not None and (
+        _JERARQUIA_ROL.get(body.rol, 0) > _JERARQUIA_ROL.get(ctx.rol, 3)
+    ):
+        raise HTTPException(403, "No puede asignar un rol superior al suyo.")
+
+    fila = (
+        db.query(EmpresaUsuario)
+        .filter(
+            EmpresaUsuario.empresa_id == empresa_id,
+            EmpresaUsuario.usuario_id == usuario_id,
+        )
+        .first()
+    )
+    if fila is None:
+        raise HTTPException(404, "Usuario no encontrado en esta empresa.")
+
+    fila.rol = body.rol
+    db.commit()
+
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    resp = _usuario_a_dict(usuario, fila.rol)
+    resp["estado"] = fila.estado.value
     return resp
 
 
