@@ -58,6 +58,9 @@ class UsuarioCreate(BaseModel):
     @field_validator("rut")
     @classmethod
     def validar_rut_usuario(cls, v: str | None) -> str | None:
+        from app.config import settings
+        if settings.RUT_OBLIGATORIO and v is None:
+            raise ValueError("RUT es obligatorio (RUT_OBLIGATORIO=true).")
         return _validar_rut_chileno(v) if v is not None else v
 
 

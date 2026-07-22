@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     MAX_NIVEL_PROFUNDIDAD: int = 3          # nivel máximo permitido (0-indexado)
     MAX_HIJOS_DIRECTOS: int = 10            # máx ítems hijos por padre
 
+    # ── Validación de RUT ────────────────────────────────────────────────────
+    # False (default) → rut es opcional al crear usuarios (MVP).
+    # True            → rut es obligatorio; cambiar sin tocar lógica de negocio.
+    RUT_OBLIGATORIO: bool = False
+
     # ── Logging de desarrollo ────────────────────────────────────────────────
     # True  -> activo (default en dev / AUTH_MODE=mock)
     # False -> desactivar en producción: LOG_REQUESTS=false en las env vars

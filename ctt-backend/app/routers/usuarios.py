@@ -248,23 +248,29 @@ def actualizar_rol_usuario(
 @router.get("", response_model=list[UsuarioOut])
 def listar_usuarios(
     roles: Annotated[list[Rol] | None, Query(alias="rol")] = None,
+    incluir_inactivos: bool = False,
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Lista los usuarios que pertenecen a la empresa activa.
 
     Sin ?rol= → devuelve todos. Con uno o más ?rol=x&rol=y → filtra por esos roles.
-    El rol devuelto en cada usuario es el de la empresa activa del contexto.
+    incluir_inactivos=false (default) → solo membresías activas (comportamiento original).
+    incluir_inactivos=true → devuelve activos e inactivos (uso exclusivo de Admin UI).
     """
     empresa_id = requiere_empresa(ctx)
     q = (
-        db.query(Usuario, EmpresaUsuario.rol)
+        db.query(Usuario, EmpresaUsuario.rol, EmpresaUsuario.estado)
         .join(EmpresaUsuario, EmpresaUsuario.usuario_id == Usuario.id)
-        .filter(
-            EmpresaUsuario.empresa_id == empresa_id,
-            EmpresaUsuario.estado == UsuarioEstado.ACTIVO,
-        )
+        .filter(EmpresaUsuario.empresa_id == empresa_id)
     )
+    if not incluir_inactivos:
+        q = q.filter(EmpresaUsuario.estado == UsuarioEstado.ACTIVO)
     if roles:
         q = q.filter(EmpresaUsuario.rol.in_(roles))
-    return [_usuario_a_dict(u, rol) for u, rol in q.all()]
+    result = []
+    for u, rol, estado_membresia in q.all():
+        d = _usuario_a_dict(u, rol)
+        d["estado"] = estado_membresia.value
+        result.append(d)
+    return result
