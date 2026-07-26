@@ -47,3 +47,12 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// Crashlytics 2.8.1 usa XmlSlurper de Groovy, incompatible con Gradle 9.x.
+// Desactiva uploadCrashlyticsMappingFile* para release hasta migrar al plugin 3.x.
+// Impacto: stack traces en Crashlytics no se desofuscan — aceptable en UAT con
+// debug signing, donde ProGuard no está activo de todas formas.
+afterEvaluate {
+    tasks.matching { it.name.startsWith("uploadCrashlyticsMappingFile") }
+        .forEach { it.enabled = false }
+}
