@@ -11,6 +11,7 @@ __pycache__/
 
 # Logs de desarrollo — nunca commitear
 logs/
+uvicorn_*.txt
 
 # Variables de entorno
 .env

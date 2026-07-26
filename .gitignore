@@ -16,5 +16,8 @@ __pycache__/
 *.log
 ctt-mobile/android/.kotlin/
 
+# IDE
+.vscode/
+
 # Artefactos sueltos de pruebas manuales
 body.json
