@@ -13,16 +13,57 @@ from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
 from app.authz import require_project_manage, require_project_read
 from app.database import get_db
-from app.enums import ItemEstado, ProyectoEstado, UsuarioEstado
+from app.enums import ItemEstado, ProyectoEstado, Rol, UsuarioEstado
 from app.models import Item, ItemHistorial, Proyecto, ProyectoUsuario, Usuario
 from app.permissions import puede
 from app.schemas import (
     AsignarUsuarioProyectoIn, DashboardProyectoOut, ProyectoCreate,
     ProyectoHistorialEntradaOut, ProyectoOut, ProyectoUpdate, ProyectoUsuarioOut,
 )
-from app.tenancy import get_proyecto_de_empresa, get_usuario_de_empresa
+from app.tenancy import get_usuario_de_empresa
 
 router = APIRouter(prefix="/proyectos", tags=["Proyectos"])
+
+# ── Scope helpers (CTT-78) ────────────────────────────────────────────────────
+# Ambas funciones expresan la misma regla de visibilidad por rol.
+# Si se modifica una, actualizar la otra en paralelo.
+
+def _scope_orm(q, ctx: AuthContext):
+    """Aplica filtro de visibilidad a un query ORM ya filtrado por empresa_id."""
+    if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
+        return q
+    if ctx.rol == Rol.COORDINADOR:
+        return q.filter(Proyecto.coordinador_principal_id == ctx.usuario.id)
+    return (
+        q.join(ProyectoUsuario, ProyectoUsuario.proyecto_id == Proyecto.id)
+        .filter(
+            ProyectoUsuario.usuario_id == ctx.usuario.id,
+            ProyectoUsuario.estado == UsuarioEstado.ACTIVO,
+        )
+    )
+
+
+def _scope_sql(ctx: AuthContext) -> tuple[str, dict]:
+    """Retorna (cláusula_extra, params_extra) para añadir al WHERE del dashboard SQL.
+
+    Expresa la misma regla que _scope_orm — siempre actualizarlas en paralelo.
+    """
+    if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
+        return "", {}
+    if ctx.rol == Rol.COORDINADOR:
+        return (
+            "\nAND p.coordinador_principal_id = :scope_uid",
+            {"scope_uid": ctx.usuario.id},
+        )
+    return (
+        "\nAND EXISTS ("
+        "SELECT 1 FROM proyecto_usuarios pu "
+        "WHERE pu.proyecto_id = p.id "
+        "AND pu.usuario_id = :scope_uid "
+        "AND pu.estado = 'activo'"
+        ")",
+        {"scope_uid": ctx.usuario.id},
+    )
 
 
 @router.post("", response_model=ProyectoOut, status_code=201)
@@ -63,20 +104,17 @@ def listar_proyectos(
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    """Lista los proyectos de la empresa activa (filtrado por empresa_id)."""
+    """Lista los proyectos visibles al rol del usuario (filtrado por empresa y rol)."""
     empresa_id = requiere_empresa(ctx)
-    return (
-        db.query(Proyecto)
-        .filter(Proyecto.empresa_id == empresa_id)
-        .order_by(Proyecto.created_at.desc())
-        .all()
-    )
+    q = db.query(Proyecto).filter(Proyecto.empresa_id == empresa_id)
+    q = _scope_orm(q, ctx)
+    return q.order_by(Proyecto.created_at.desc()).all()
 
 
 # ── IMPORTANTE: /dashboard y /{id}/historial deben preceder a cualquier ruta
 # ── /{proyecto_id} para que FastAPI no interprete "dashboard" como un id. ────
 
-_DASHBOARD_SQL = text("""
+_DASHBOARD_SQL_TMPL = """
 SELECT
     p.id,
     p.nombre,
@@ -105,10 +143,10 @@ SELECT
         THEN 1 ELSE 0 END), 0)                                              AS hojas_terminadas
 FROM proyectos p
 LEFT JOIN items i ON i.proyecto_id = p.id
-WHERE p.empresa_id = :empresa_id
+WHERE p.empresa_id = :empresa_id{scope}
 GROUP BY p.id, p.nombre, p.estado, p.fecha_inicio, p.fecha_fin_estimada, p.created_at
 ORDER BY p.created_at DESC
-""")
+"""
 
 
 @router.get("/dashboard", response_model=list[DashboardProyectoOut])
@@ -129,7 +167,9 @@ def dashboard_proyectos(
     if not puede(ctx.rol, "acceso_reportes"):
         raise HTTPException(403, "Su rol no tiene acceso al dashboard.")
 
-    rows = db.execute(_DASHBOARD_SQL, {"empresa_id": empresa_id}).mappings().all()
+    scope_clause, scope_params = _scope_sql(ctx)
+    sql = text(_DASHBOARD_SQL_TMPL.format(scope=scope_clause))
+    rows = db.execute(sql, {"empresa_id": empresa_id, **scope_params}).mappings().all()
 
     resultado = []
     for r in rows:
@@ -155,7 +195,7 @@ def dashboard_proyectos(
 
 @router.get("/{proyecto_id}/historial", response_model=list[ProyectoHistorialEntradaOut])
 def historial_proyecto(
-    proyecto_id: str,
+    proyecto: Proyecto = Depends(require_project_read),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -164,10 +204,8 @@ def historial_proyecto(
     Agrega el historial de cambios de estado de todos los ítems del proyecto,
     incluyendo el nombre del ítem y del usuario que realizó el cambio.
     """
-    empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "ver_log_cambios"):
         raise HTTPException(403, "Su rol no puede ver el log de cambios.")
-    proyecto = get_proyecto_de_empresa(db, proyecto_id, empresa_id)
 
     rows = (
         db.query(ItemHistorial, Item.nombre, Usuario.nombre_completo)
@@ -353,29 +391,24 @@ def desasignar_miembro(
 
 @router.get("/{proyecto_id}", response_model=ProyectoOut)
 def obtener_proyecto(
-    proyecto_id: str,
-    ctx: AuthContext = Depends(get_current_context),
-    db: Session = Depends(get_db),
+    proyecto: Proyecto = Depends(require_project_read),
 ):
     """Devuelve un proyecto por id (multi-tenant; 404 si no pertenece a la empresa activa)."""
-    empresa_id = requiere_empresa(ctx)
-    return get_proyecto_de_empresa(db, proyecto_id, empresa_id)
+    return proyecto
 
 
 @router.put("/{proyecto_id}", response_model=ProyectoOut)
 def editar_proyecto(
-    proyecto_id: str,
     body: ProyectoUpdate,
+    proyecto: Proyecto = Depends(require_project_manage),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Edita datos de un proyecto (Coordinador/Admin). No modifica el estado."""
-    empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "crear_editar_proyecto"):
         raise HTTPException(403, "Su rol no puede editar proyectos.")
 
-    proyecto = get_proyecto_de_empresa(db, proyecto_id, empresa_id)
-
+    empresa_id = proyecto.empresa_id
     cambios = body.model_dump(exclude_unset=True)
     if not cambios:
         return proyecto
@@ -412,15 +445,13 @@ def editar_proyecto(
 
 @router.post("/{proyecto_id}/cerrar", response_model=ProyectoOut)
 def cerrar_proyecto(
-    proyecto_id: str,
+    proyecto: Proyecto = Depends(require_project_manage),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Cierra un proyecto definitivamente (solo Admin — Sección 2.2)."""
-    empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "cerrar_proyecto"):
         raise HTTPException(403, "Solo un Admin puede cerrar proyectos.")
-    proyecto = get_proyecto_de_empresa(db, proyecto_id, empresa_id)
     proyecto.estado = ProyectoEstado.CERRADO
     db.commit()
     db.refresh(proyecto)

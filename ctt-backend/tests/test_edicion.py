@@ -103,7 +103,8 @@ def test_put_proyecto_exclude_unset_no_toca_descripcion(client, seeded):
     """Enviar solo nombre no modifica descripcion."""
     pid = client.post(
         "/proyectos",
-        json={"nombre": "Proyecto Base", "descripcion": "Descripción original"},
+        json={"nombre": "Proyecto Base", "descripcion": "Descripción original",
+              "coordinador_principal_id": seeded.coord_id},
         headers=_h(seeded, seeded.coord),
     ).json()["id"]
 
@@ -239,7 +240,8 @@ def test_put_proyecto_descripcion_null_borra(client, seeded):
     """{'descripcion': null} sobre campo nullable → se borra, respuesta 200."""
     pid = client.post(
         "/proyectos",
-        json={"nombre": "Proyecto Con Desc", "descripcion": "Desc temporal"},
+        json={"nombre": "Proyecto Con Desc", "descripcion": "Desc temporal",
+              "coordinador_principal_id": seeded.coord_id},
         headers=_h(seeded, seeded.coord),
     ).json()["id"]
 
@@ -264,9 +266,9 @@ def test_put_item_descripcion_null_borra(client, seeded):
 
 # ── 9. Permisos: TRABAJADOR y RESIDENTE → 403 ────────────────────────────────
 
-def test_put_proyecto_trabajador_403(client, seeded):
+def test_put_proyecto_trabajador_404(client, seeded):
     r = _put_proyecto(client, seeded, seeded.proyecto, {"nombre": "Hack"}, uid=seeded.trab)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 404, r.text
 
 
 def test_put_proyecto_residente_403(client, seeded):
