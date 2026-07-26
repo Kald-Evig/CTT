@@ -83,3 +83,65 @@ python scripts/reparar_uids.py --aplicar
 2. Correr `reparar_uids.py` (dry-run) y revisar los UPDATE que aparecen.
 3. Si los UPDATE son correctos, correr `reparar_uids.py --aplicar`.
 4. Correr `reconciliar_uids.py` de nuevo para confirmar que todo quedó `SANO`.
+
+---
+
+## alinear_emails.py — Renombrar emails en Firebase Auth
+
+> **MODIFICA Firebase Auth.** La base de datos no se toca.
+
+Renombra el email de cuentas de Firebase para que coincida con el email
+registrado en la BD, **preservando el uid**. Se usa cuando el desajuste es
+de email (la cuenta existe en Firebase bajo otro email) y no de uid.
+
+**No es un script genérico.** Los pares de renombre están hardcodeados para
+la operación puntual de CTT-86:
+
+```
+trabajador@ctt.cl  →  luis@andessur.cl
+ctt@ctt.cl         →  soporte@ctt.cl
+```
+
+Para reutilizarlo con otros pares, editar la lista `RENOMBRES` en el script.
+
+### Por qué no toca la BD
+
+`auth.update_user(uid, email=nuevo_email)` cambia solo el email en Firebase.
+El uid permanece igual. Como la BD cruza por uid (`firebase_uid`), ya está
+correcta — no requiere ningún UPDATE.
+
+### Verificaciones del dry-run (por cada par)
+
+1. `email_viejo` existe en Firebase → muestra su uid.
+2. `email_nuevo` **no** existe en Firebase → evita conflicto de email duplicado.
+3. `email_nuevo` existe en la BD con `firebase_uid` == uid del paso 1 → confirma
+   que el renombre resuelve el desajuste.
+
+Si cualquiera falla, el script imprime `STOP:` y sale sin tocar nada.
+
+### Requisitos
+
+- `GOOGLE_APPLICATION_CREDENTIALS` apuntando al service account JSON de Firebase Admin.
+- El service account debe tener el rol **Firebase Authentication Admin** (o equivalente).
+- Acceso de lectura a la tabla `usuarios` (solo para verificar; no escribe en la BD).
+
+### Modos de ejecución
+
+```bash
+# DRY-RUN (comportamiento por defecto) — NO modifica nada
+# Corre las tres verificaciones por par y muestra qué haría.
+# Revisar la salida antes de aplicar.
+python scripts/alinear_emails.py
+
+# APLICAR — ejecuta auth.update_user() en Firebase para cada par verificado
+# Muestra diagnóstico post-reparación (tabla de reconciliación completa).
+python scripts/alinear_emails.py --aplicar
+```
+
+### Flujo recomendado
+
+1. Correr `reconciliar_uids.py` para confirmar qué filas son HUÉRFANO EN BASE.
+2. Correr `alinear_emails.py` (dry-run) y revisar que las verificaciones pasan.
+3. Que Kald autorice el `--aplicar`.
+4. Correr `alinear_emails.py --aplicar`.
+5. Correr `reconciliar_uids.py` de nuevo para confirmar 0 huérfanos.
