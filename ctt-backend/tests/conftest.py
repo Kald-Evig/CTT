@@ -11,6 +11,7 @@ import os
 # porque el engine se crea al importar app.database.
 os.environ["DATABASE_URL"] = "sqlite:///./test_ctt.db"
 os.environ["AUTH_MODE"] = "mock"
+os.environ["ENV"] = "local"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

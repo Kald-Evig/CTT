@@ -1,47 +1,44 @@
 """
 config.py — Configuración central de la aplicación.
 
-Toda la configuración se lee de variables de entorno (con defaults seguros para
-desarrollo). Esto permite que el MISMO código corra como:
-  - Prototipo local  : SQLite + auth mock   (defaults de este archivo)
-  - Producción       : PostgreSQL + Firebase (definiendo las variables de entorno)
+Los defaults son seguros para producción (fallan cerrado). Para desarrollo local
+es obligatorio setear AUTH_MODE=mock y ENV=local en el .env (ver .env.example).
 
 Sección 3.2 del DDT: PostgreSQL 15+ (AWS RDS) y Firebase Auth son el objetivo
 de producción. El swap se hace SIN tocar el resto del código: basta cambiar
 DATABASE_URL y AUTH_MODE.
 """
 
+from typing import Literal
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # ── Base de datos ────────────────────────────────────────────────────────
-    # Default: Postgres dev local (Docker). Para producción, definir p. ej.:
-    #   DATABASE_URL=postgresql+psycopg://user:pass@host:5432/ctt
     DATABASE_URL: str = "postgresql+psycopg://postgres:ctt_dev@localhost:5432/ctt_dev"
 
+    # ── Entorno ──────────────────────────────────────────────────────────────
+    # "local"      -> desarrollo local (habilita AUTH_MODE=mock)
+    # "production" -> producción (AUTH_MODE=mock aborta el arranque)
+    ENV: Literal["local", "production"] = "production"
+
     # ── Autenticación ────────────────────────────────────────────────────────
-    # "mock"     -> resuelve el usuario desde un token simple (demo, sin Firebase)
-    # "firebase" -> valida JWT con firebase-admin (producción, Sección 4.3 del DDT)
-    AUTH_MODE: str = "mock"
+    # "mock"     -> token Bearer == firebase_uid, sin validación criptográfica.
+    #              Solo permitido con ENV=local. Cualquier otro valor aborta el arranque.
+    # "firebase" -> valida JWT con firebase-admin (producción, Sección 4.3 del DDT).
+    #              Default intencional: olvidar la variable falla cerrado (501).
+    AUTH_MODE: Literal["mock", "firebase"] = "firebase"
 
     # ── Reglas de negocio (Sección 5.3 del DDT) ──────────────────────────────
-    # Profundidad del árbol de ítems. El DDT es ambiguo ("máximo 4" vs
-    # "0=raíz, máx 4 niveles"); aquí se interpreta como 4 NIVELES de ítem
-    # (nivel_profundidad 0..3), según el árbol narrativo:
-    #   Ítem(0) -> Sub L1(1) -> Sub L2(2) -> Sub L3(3)
-    # Esta ambigüedad está señalada en DEV_DOC.md para que el equipo la confirme.
     MAX_NIVEL_PROFUNDIDAD: int = 3          # nivel máximo permitido (0-indexado)
     MAX_HIJOS_DIRECTOS: int = 10            # máx ítems hijos por padre
 
     # ── Validación de RUT ────────────────────────────────────────────────────
-    # False (default) → rut es opcional al crear usuarios (MVP).
-    # True            → rut es obligatorio; cambiar sin tocar lógica de negocio.
     RUT_OBLIGATORIO: bool = False
 
     # ── Logging de desarrollo ────────────────────────────────────────────────
-    # True  -> activo (default en dev / AUTH_MODE=mock)
-    # False -> desactivar en producción: LOG_REQUESTS=false en las env vars
     LOG_REQUESTS: bool = True
 
     # ── Metadatos ────────────────────────────────────────────────────────────
@@ -49,6 +46,16 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0-mvp"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _validar_combinacion_segura(self) -> "Settings":
+        if self.AUTH_MODE == "mock" and self.ENV != "local":
+            raise ValueError(
+                f"Combinación prohibida: AUTH_MODE='mock' requiere ENV='local' "
+                f"(actual ENV='{self.ENV}'). "
+                f"Setear ENV=local en el .env para desarrollo local."
+            )
+        return self
 
 
 # Instancia única reutilizada en toda la app (patrón singleton simple).
