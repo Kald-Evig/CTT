@@ -325,3 +325,60 @@ def test_escalacion_coord_o_no_puede_autopromocionar(client, d78):
     # El proyecto no fue modificado — coord_p sigue siendo el principal.
     r2 = client.get(f"/proyectos/{d78['pid']}", headers=_hdr(d78, "admin"))
     assert r2.json()["coordinador_principal_id"] == d78["coord_p_id"]
+
+
+# ── AJUSTE 1: Coordinador creador queda como coordinador_principal (CTT-78) ──
+
+def test_crear_coordinador_sin_principal_queda_como_principal(client, d78):
+    """Bug fix: Coordinador crea sin body.coordinador_principal_id → auto-asignado.
+    Sin el fix, la factory le rechazaba PUT con 404 al intentar editar su propio proyecto."""
+    hdr = _hdr(d78, "coord_p")
+    r = client.post("/proyectos", json={"nombre": "Nuevo CTT-78"}, headers=hdr)
+    assert r.status_code == 201, r.text
+    nuevo_id = r.json()["id"]
+    assert r.json()["coordinador_principal_id"] == d78["coord_p_id"]
+
+    # Puede editar inmediatamente — este era el bug bloqueante
+    r_put = client.put(f"/proyectos/{nuevo_id}", json={"nombre": "Editado"},
+                       headers=hdr)
+    assert r_put.status_code == 200, r_put.text
+
+
+def test_crear_coordinador_con_otro_principal_no_sobreescribe(client, d78):
+    """Si body.coordinador_principal_id viene definido, se respeta sin sobreescribir."""
+    hdr = _hdr(d78, "coord_p")
+    r = client.post(
+        "/proyectos",
+        json={"nombre": "Delegado", "coordinador_principal_id": d78["coord_o_id"]},
+        headers=hdr,
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["coordinador_principal_id"] == d78["coord_o_id"]
+
+
+def test_crear_admin_sin_principal_queda_null(client, d78):
+    """Admin crea sin coordinador_principal_id → queda null.
+    Admin no necesita principal: pasa por el bypass es_super_admin/ADMIN de la factory."""
+    hdr = _hdr(d78, "admin")
+    r = client.post("/proyectos", json={"nombre": "Proj Admin"}, headers=hdr)
+    assert r.status_code == 201, r.text
+    nuevo_id = r.json()["id"]
+    assert r.json()["coordinador_principal_id"] is None
+
+    # Admin puede editarlo igual (bypass de factory)
+    r_put = client.put(f"/proyectos/{nuevo_id}", json={"nombre": "Edit Admin"},
+                       headers=hdr)
+    assert r_put.status_code == 200, r_put.text
+
+
+# ── AJUSTE 2 se agrega en commit siguiente ────────────────────────────────────
+
+    """
+    Fixture de consistencia: 3 proyectos con distinta configuración de
+    coordinador_principal y membresías, para verificar que las tres
+    implementaciones del scope concuerdan.
+
+      proy_a: coordinador_principal = coord_p; miembros: resid_a (RESIDENTE), trab_a (TRABAJADOR)
+      proy_b: coordinador_principal = coord_o; miembros: resid_b (RESIDENTE)
+      proy_c: coordinador_principal = None;    sin miembros
+    """

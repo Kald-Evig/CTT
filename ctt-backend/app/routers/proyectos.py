@@ -77,9 +77,15 @@ def crear_proyecto(
     if not puede(ctx.rol, "crear_editar_proyecto"):
         raise HTTPException(403, "Su rol no puede crear proyectos.")
 
-    # Validar que el coordinador pertenece a la misma empresa (Sección 4.2).
-    if body.coordinador_principal_id:
-        get_usuario_de_empresa(db, body.coordinador_principal_id, empresa_id)
+    # Derivar coordinador_principal_id:
+    # body explícito → respetar.  Sin body + Coordinador → auto-asignarse.
+    # Sin body + Admin → null (Admin pasa por bypass de factory; asigna coordinador luego).
+    coord_id = body.coordinador_principal_id
+    if coord_id is None and ctx.rol == Rol.COORDINADOR:
+        coord_id = ctx.usuario.id
+
+    if coord_id:
+        get_usuario_de_empresa(db, coord_id, empresa_id)
 
     proyecto = Proyecto(
         empresa_id=empresa_id,
@@ -88,7 +94,7 @@ def crear_proyecto(
         ubicacion_nombre=body.ubicacion_nombre,
         latitud=body.latitud,
         longitud=body.longitud,
-        coordinador_principal_id=body.coordinador_principal_id,
+        coordinador_principal_id=coord_id,
         fecha_inicio=body.fecha_inicio,
         fecha_fin_estimada=body.fecha_fin_estimada,
         created_by=ctx.usuario.id,
