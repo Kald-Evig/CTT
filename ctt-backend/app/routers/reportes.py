@@ -13,15 +13,15 @@ El alcance "parcial" del Residente se acota a los proyectos donde participa
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.auth import AuthContext, get_current_context
+from app.authz import require_project_read
 from app.database import get_db
 from app.enums import ItemEstado, ProblemaEstado
 from app.models import Item, ItemProblema, Proyecto, Usuario
 from app.permissions import puede
-from app.tenancy import get_proyecto_de_empresa
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
 
@@ -33,14 +33,12 @@ def _check_acceso(ctx: AuthContext):
 
 @router.get("/avance/{proyecto_id}")
 def avance_por_proyecto(
-    proyecto_id: str,
+    proyecto: Proyecto = Depends(require_project_read),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """% de ítems terminados vs total del proyecto (Sección 10.1)."""
-    empresa_id = requiere_empresa(ctx)
     _check_acceso(ctx)
-    proyecto = get_proyecto_de_empresa(db, proyecto_id, empresa_id)
     total = db.query(Item).filter(Item.proyecto_id == proyecto.id).count()
     terminados = (
         db.query(Item)
@@ -54,7 +52,7 @@ def avance_por_proyecto(
 
 @router.get("/retrasos/{proyecto_id}")
 def items_con_retraso(
-    proyecto_id: str,
+    proyecto: Proyecto = Depends(require_project_read),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -62,13 +60,11 @@ def items_con_retraso(
 
     Nota (Sección 10.3): solo aplica a ítems CON fecha_limite definida.
     """
-    empresa_id = requiere_empresa(ctx)
     _check_acceso(ctx)
-    get_proyecto_de_empresa(db, proyecto_id, empresa_id)
     hoy = date.today()
     items = (
         db.query(Item)
-        .filter(Item.proyecto_id == proyecto_id,
+        .filter(Item.proyecto_id == proyecto.id,
                 Item.fecha_limite.isnot(None),
                 Item.fecha_limite < hoy,
                 Item.estado != ItemEstado.TERMINADO)
@@ -83,18 +79,16 @@ def items_con_retraso(
 
 @router.get("/problemas/{proyecto_id}")
 def problemas_activos(
-    proyecto_id: str,
+    proyecto: Proyecto = Depends(require_project_read),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Lista de ítems bloqueados por problemas abiertos, con antigüedad (Sección 10.1)."""
-    empresa_id = requiere_empresa(ctx)
     _check_acceso(ctx)
-    get_proyecto_de_empresa(db, proyecto_id, empresa_id)
     filas = (
         db.query(ItemProblema, Item)
         .join(Item, ItemProblema.item_id == Item.id)
-        .filter(Item.proyecto_id == proyecto_id,
+        .filter(Item.proyecto_id == proyecto.id,
                 ItemProblema.estado == ProblemaEstado.ABIERTO)
         .all()
     )
@@ -108,21 +102,17 @@ def problemas_activos(
 
 @router.get("/actividad/{proyecto_id}")
 def actividad_por_trabajador(
-    proyecto_id: str,
+    proyecto: Proyecto = Depends(require_project_read),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Tareas por trabajador: terminadas / en progreso / pendientes (Sección 10.1)."""
-    empresa_id = requiere_empresa(ctx)
     _check_acceso(ctx)
-    get_proyecto_de_empresa(db, proyecto_id, empresa_id)
-
     items = (
         db.query(Item)
-        .filter(Item.proyecto_id == proyecto_id, Item.asignado_a.isnot(None))
+        .filter(Item.proyecto_id == proyecto.id, Item.asignado_a.isnot(None))
         .all()
     )
-    # Agregación por trabajador.
     resumen: dict[str, dict] = {}
     for i in items:
         r = resumen.setdefault(i.asignado_a, {"terminadas": 0, "en_progreso": 0,
@@ -134,7 +124,6 @@ def actividad_por_trabajador(
         else:
             r["pendientes"] += 1
 
-    # Resolver nombres de trabajadores.
     salida = []
     for uid, conteos in resumen.items():
         u = db.query(Usuario).filter(Usuario.id == uid).first()
