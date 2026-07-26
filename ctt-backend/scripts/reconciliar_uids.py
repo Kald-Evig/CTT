@@ -13,6 +13,10 @@ NO modifica ningún dato.
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from pathlib import Path
+
+# Permite correr desde scripts/ sin PYTHONPATH=.. explícito.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import firebase_admin
 from firebase_admin import auth, credentials
