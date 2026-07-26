@@ -8,6 +8,7 @@ import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
+import 'package:ctt_mobile/presentation/shared/layout_constants.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
 class CoordinadorItemsScreen extends ConsumerStatefulWidget {
@@ -72,6 +73,7 @@ class _CoordinadorItemsScreenState
                     itemsProyectoProvider(widget.proyectoId, _estadoFiltro),
                   ),
                   child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: kFabListPaddingBottom),
                     itemCount: items.length,
                     itemBuilder: (_, i) => _TarjetaItem(
                       item: items[i],

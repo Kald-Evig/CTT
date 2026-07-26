@@ -9,6 +9,7 @@ import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
+import 'package:ctt_mobile/presentation/shared/layout_constants.dart';
 
 class MiembrosProyectoScreen extends ConsumerWidget {
   const MiembrosProyectoScreen({super.key, required this.proyectoId});
@@ -58,6 +59,7 @@ class MiembrosProyectoScreen extends ConsumerWidget {
             onRefresh: () async =>
                 ref.invalidate(miembrosProyectoProvider(proyectoId)),
             child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: kFabListPaddingBottom),
               itemCount: miembros.length,
               itemBuilder: (_, i) => _MiembroTile(
                 miembro: miembros[i],

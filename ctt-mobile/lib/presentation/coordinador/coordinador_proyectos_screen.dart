@@ -9,6 +9,7 @@ import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
+import 'package:ctt_mobile/presentation/shared/layout_constants.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 
 class CoordinadorProyectosScreen extends ConsumerStatefulWidget {
@@ -87,7 +88,10 @@ class _CoordinadorProyectosScreenState
                   onRefresh: () async =>
                       ref.invalidate(dashboardProyectosProvider),
                   child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.only(
+                      top: 8,
+                      bottom: kFabListPaddingBottom,
+                    ),
                     itemCount: proyectos.length,
                     itemBuilder: (_, i) => _TarjetaProyecto(
                       proyecto: proyectos[i],

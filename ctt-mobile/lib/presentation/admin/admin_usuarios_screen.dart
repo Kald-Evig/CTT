@@ -8,6 +8,7 @@ import 'package:ctt_mobile/data/repositories/admin_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/admin/admin_providers.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
+import 'package:ctt_mobile/presentation/shared/layout_constants.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 
 class AdminUsuariosScreen extends ConsumerStatefulWidget {
@@ -91,7 +92,10 @@ class _AdminUsuariosScreenState extends ConsumerState<AdminUsuariosScreen> {
                 return RefreshIndicator(
                   onRefresh: () async => ref.invalidate(usuariosAdminProvider),
                   child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.only(
+                      top: 8,
+                      bottom: kFabListPaddingBottom,
+                    ),
                     itemCount: usuarios.length,
                     itemBuilder: (_, i) => _TarjetaUsuario(
                       usuario: usuarios[i],
