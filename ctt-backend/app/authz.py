@@ -13,8 +13,8 @@ FastAPI. Úsala via los aliases nombrados:
 La dependencia retorna el Proyecto cargado; FastAPI lo cachea en el request,
 evitando una segunda query en el endpoint.
 
-Reglas (fuente de verdad — CTT-44):
-  - ADMIN          → pasa siempre, sin verificar relación con el proyecto.
+Reglas (fuente de verdad — CTT-44, CTT-78):
+  - ADMIN / Super Admin → pasa siempre, sin verificar relación con el proyecto.
   - COORDINADOR    → pasa solo si es coordinador_principal del proyecto.
                      Si no lo es: 404 (RFC 9110 — no revelar existencia).
   - RESIDENTE      → lectura: pasa si tiene membresía activa en proyecto_usuarios.
@@ -54,7 +54,7 @@ def require_project_access(
         # Valida tenant y existencia; 404 automático si no pertenece a la empresa.
         proyecto = get_proyecto_de_empresa(db, proyecto_id, empresa_id)
 
-        if ctx.rol == Rol.ADMIN:
+        if ctx.rol == Rol.ADMIN or ctx.es_super_admin:
             return proyecto
 
         if ctx.rol == Rol.COORDINADOR:

@@ -170,3 +170,20 @@ def test_trabajador_miembro_gestionar_403(datos_authz):
     with pytest.raises(HTTPException) as exc:
         _invoke("gestionar", datos_authz, "trab_miembro")
     assert exc.value.status_code == 403
+
+
+# ── super admin ───────────────────────────────────────────────────────────────
+
+def test_super_admin_con_empresa_pasa_aunque_no_sea_principal(datos_authz):
+    """Super admin con empresa activa y rol=COORDINADOR pasa la factory aunque
+    no sea coordinador_principal — es_super_admin=True tiene prioridad (CTT-78)."""
+    d = datos_authz
+    ctx_sa = AuthContext(
+        usuario=d["coord_otro"].usuario,
+        empresa_id=d["coord_otro"].empresa_id,
+        rol=Rol.COORDINADOR,
+        es_super_admin=True,
+    )
+    dep = require_project_access("lectura")
+    p = dep(proyecto_id=d["proyecto_id"], ctx=ctx_sa, db=d["db"])
+    assert p.id == d["proyecto_id"]
