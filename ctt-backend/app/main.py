@@ -9,10 +9,15 @@ main.py — Punto de entrada de la API CTT.
   de este entregable de backend.
 """
 
+import json
+import logging
+import os
 from pathlib import Path
 
+import firebase_admin
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from firebase_admin import credentials as fb_credentials
 
 from app.config import settings
 from app.database import Base, engine
@@ -23,8 +28,29 @@ from app.routers import (
     audit, items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
 )
 
-import firebase_admin
-firebase_admin.initialize_app()
+_log = logging.getLogger(__name__)
+
+
+def _firebase_credential():
+    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if not gac:
+        _log.warning("firebase_admin: GOOGLE_APPLICATION_CREDENTIALS no seteado — usando ADC")
+        return None
+    try:
+        with open(gac) as f:
+            cred_type = json.load(f).get("type")
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"No se puede leer GOOGLE_APPLICATION_CREDENTIALS={gac!r}: {exc}"
+        ) from exc
+    if cred_type == "service_account":
+        _log.info("firebase_admin: type=service_account → Certificate(%s)", gac)
+        return fb_credentials.Certificate(gac)
+    _log.info("firebase_admin: type=%r (no service_account) → delegando a ADC", cred_type)
+    return None
+
+
+firebase_admin.initialize_app(_firebase_credential())
 
 app = FastAPI(
     title=settings.APP_NAME,
