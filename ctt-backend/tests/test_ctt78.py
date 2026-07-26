@@ -371,7 +371,141 @@ def test_crear_admin_sin_principal_queda_null(client, d78):
     assert r_put.status_code == 200, r_put.text
 
 
-# ── AJUSTE 2 se agrega en commit siguiente ────────────────────────────────────
+
+# ── AJUSTE 2: Consistencia entre _scope_orm, _scope_sql y la factory ─────────
+
+@pytest.fixture()
+def d78_scope(db):
+    """
+    Fixture de consistencia: 3 proyectos con distinta configuración de
+    coordinador_principal y membresías, para verificar que las tres
+    implementaciones del scope concuerdan.
+
+      proy_a: coordinador_principal = coord_p; miembros: resid_a (RESIDENTE), trab_a (TRABAJADOR)
+      proy_b: coordinador_principal = coord_o; miembros: resid_b (RESIDENTE)
+      proy_c: coordinador_principal = None;    sin miembros
+    """
+    emp = Empresa(nombre="Emp Scope", rut_empresa="76.999.999-9",
+                  email_contacto="scope@t.cl", plan=EmpresaPlan.PRO)
+    db.add(emp)
+    db.flush()
+
+    admin    = Usuario(firebase_uid="sc-admin",    nombre_completo="Admin Sc",    email="admin@sc.cl")
+    coord_p  = Usuario(firebase_uid="sc-coord-p",  nombre_completo="Coord P Sc",  email="coord.p@sc.cl")
+    coord_o  = Usuario(firebase_uid="sc-coord-o",  nombre_completo="Coord O Sc",  email="coord.o@sc.cl")
+    resid_a  = Usuario(firebase_uid="sc-resid-a",  nombre_completo="Resid A Sc",  email="resid.a@sc.cl")
+    resid_b  = Usuario(firebase_uid="sc-resid-b",  nombre_completo="Resid B Sc",  email="resid.b@sc.cl")
+    resid_nm = Usuario(firebase_uid="sc-resid-nm", nombre_completo="Resid NM Sc", email="resid.nm@sc.cl")
+    trab_a   = Usuario(firebase_uid="sc-trab-a",   nombre_completo="Trab A Sc",   email="trab.a@sc.cl")
+    trab_nm  = Usuario(firebase_uid="sc-trab-nm",  nombre_completo="Trab NM Sc",  email="trab.nm@sc.cl")
+    db.add_all([admin, coord_p, coord_o, resid_a, resid_b, resid_nm, trab_a, trab_nm])
+    db.flush()
+
+    db.add_all([
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=admin.id,    rol=Rol.ADMIN),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=coord_p.id,  rol=Rol.COORDINADOR),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=coord_o.id,  rol=Rol.COORDINADOR),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=resid_a.id,  rol=Rol.RESIDENTE),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=resid_b.id,  rol=Rol.RESIDENTE),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=resid_nm.id, rol=Rol.RESIDENTE),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=trab_a.id,   rol=Rol.TRABAJADOR),
+        EmpresaUsuario(empresa_id=emp.id, usuario_id=trab_nm.id,  rol=Rol.TRABAJADOR),
+    ])
+
+    proy_a = Proyecto(empresa_id=emp.id, nombre="Scope A",
+                      coordinador_principal_id=coord_p.id, created_by=coord_p.id)
+    proy_b = Proyecto(empresa_id=emp.id, nombre="Scope B",
+                      coordinador_principal_id=coord_o.id, created_by=coord_o.id)
+    proy_c = Proyecto(empresa_id=emp.id, nombre="Scope C",
+                      coordinador_principal_id=None, created_by=admin.id)
+    db.add_all([proy_a, proy_b, proy_c])
+    db.flush()
+
+    db.add_all([
+        ProyectoUsuario(proyecto_id=proy_a.id, usuario_id=resid_a.id,
+                        rol_en_proyecto=Rol.RESIDENTE),
+        ProyectoUsuario(proyecto_id=proy_b.id, usuario_id=resid_b.id,
+                        rol_en_proyecto=Rol.RESIDENTE),
+        ProyectoUsuario(proyecto_id=proy_a.id, usuario_id=trab_a.id,
+                        rol_en_proyecto=Rol.TRABAJADOR),
+    ])
+    db.commit()
+
+    def h(uid: str) -> dict:
+        return {"Authorization": f"Bearer {uid}"}
+
+    return {
+        "universo": {proy_a.id, proy_b.id, proy_c.id},
+        "admin":    admin.firebase_uid,
+        "coord_p":  coord_p.firebase_uid,
+        "coord_o":  coord_o.firebase_uid,
+        "resid_a":  resid_a.firebase_uid,
+        "resid_b":  resid_b.firebase_uid,
+        "resid_nm": resid_nm.firebase_uid,
+        "trab_a":   trab_a.firebase_uid,
+        "trab_nm":  trab_nm.firebase_uid,
+        "h": h,
+    }
+
+
+def test_scope_consistencia_entre_fuentes(client, d78_scope):
+    """
+    Verifica que _scope_orm (GET /proyectos), _scope_sql (GET /proyectos/dashboard)
+    y la factory (GET /proyectos/{id}) concuerdan sobre el mismo conjunto de proyectos
+    para cada actor.
+
+    Si cualquiera de las tres implementaciones diverge, este test rompe — es el mecanismo
+    que reemplaza al comentario 'actualizar en paralelo'.
+
+    Fixture: 3 proyectos (proy_a principal=coord_p, proy_b principal=coord_o, proy_c sin
+    principal). Membresías: resid_a→proy_a, resid_b→proy_b, trab_a→proy_a.
+
+    Nota sobre TRABAJADOR: la lista (_scope_orm) incluye sus proyectos con membresía,
+    pero la factory devuelve 403 (visible pero sin permiso de acceso). Se verifica que
+    la factory no devuelve 404 (que sería inconsistente con la visibilidad en lista).
+    TRABAJADOR no tiene acceso al dashboard (acceso_reportes), así que la comparación
+    A==B no aplica para ese rol.
+    """
+    d = d78_scope
+    universo = d["universo"]
+    actores = [
+        "admin", "coord_p", "coord_o",
+        "resid_a", "resid_b", "resid_nm",
+        "trab_a", "trab_nm",
+    ]
+
+    for actor in actores:
+        hdr = d["h"](d[actor])
+
+        # A: ids visibles via _scope_orm (GET /proyectos)
+        r_lista = client.get("/proyectos", headers=hdr)
+        assert r_lista.status_code == 200, \
+            f"[{actor}] GET /proyectos devolvió {r_lista.status_code}"
+        ids_lista = {p["id"] for p in r_lista.json()}
+
+        # B: ids visibles via _scope_sql (GET /proyectos/dashboard)
+        # Solo para roles con acceso_reportes; TRABAJADOR recibe 403 → skip comparación.
+        r_dash = client.get("/proyectos/dashboard", headers=hdr)
+        if r_dash.status_code == 200:
+            ids_dash = {p["id"] for p in r_dash.json()}
+            assert ids_lista == ids_dash, (
+                f"[{actor}] _scope_orm ≠ _scope_sql: "
+                f"lista={ids_lista} dashboard={ids_dash}"
+            )
+
+        # C: factory por proyecto — visibilidad en lista ↔ factory no devuelve 404
+        for pid in universo:
+            r_get = client.get(f"/proyectos/{pid}", headers=hdr)
+            if pid in ids_lista:
+                assert r_get.status_code != 404, (
+                    f"[{actor}] proyecto {pid!r} está en lista "
+                    f"pero factory devuelve 404"
+                )
+            else:
+                assert r_get.status_code == 404, (
+                    f"[{actor}] proyecto {pid!r} NO está en lista "
+                    f"pero factory devuelve {r_get.status_code}"
+                )
 
     """
     Fixture de consistencia: 3 proyectos con distinta configuración de
