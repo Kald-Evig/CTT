@@ -27,6 +27,7 @@ Reglas (fuente de verdad — CTT-44, CTT-78):
 from typing import Callable, Literal
 
 from fastapi import Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, get_current_context, requiere_empresa
@@ -105,3 +106,41 @@ def require_project_access(
 # Aliases nombrados — úsalos en los endpoints para evitar repetir el literal.
 require_project_read   = require_project_access("lectura")
 require_project_manage = require_project_access("gestionar")
+
+
+def _ids_proyectos_visibles(db: Session, ctx: AuthContext) -> set[str] | None:
+    """IDs de proyectos visibles para el usuario según su rol; None = todos.
+
+    Usar solo donde no es posible expresar el scope como filtro ORM directo
+    (actualmente: filtro sobre AuditLog, que no tiene FK a Proyecto).
+    Para listing de proyectos usar _scope_orm; para el dashboard usar _scope_sql.
+
+    Deuda (CTT-96): las tres implementaciones expresan la misma regla de visibilidad.
+    Unificar _scope_orm y _scope_sql requeriría materializar IDs en rutas de listing
+    (un roundtrip extra de BD) y generar SQL IN dinámico en el dashboard — trade-off
+    no vale la pena hoy. Si se agrega un 5.º lugar, evaluar de nuevo.
+    """
+    if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
+        return None
+    empresa_id = requiere_empresa(ctx)
+    if ctx.rol == Rol.COORDINADOR:
+        return set(
+            db.scalars(
+                select(Proyecto.id).where(
+                    Proyecto.empresa_id == empresa_id,
+                    Proyecto.coordinador_principal_id == ctx.usuario.id,
+                )
+            ).all()
+        )
+    # RESIDENTE / TRABAJADOR: visibilidad por membresía activa en proyecto_usuarios.
+    return set(
+        db.scalars(
+            select(ProyectoUsuario.proyecto_id)
+            .join(Proyecto, ProyectoUsuario.proyecto_id == Proyecto.id)
+            .where(
+                Proyecto.empresa_id == empresa_id,
+                ProyectoUsuario.usuario_id == ctx.usuario.id,
+                ProyectoUsuario.estado == UsuarioEstado.ACTIVO,
+            )
+        ).all()
+    )

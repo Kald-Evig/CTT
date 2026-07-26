@@ -212,6 +212,7 @@ def test_filtro_proyecto_id(client, seeded, db):
     """?proyecto_id=X devuelve solo entradas de ese proyecto."""
     # Crear segundo proyecto con ítem en la misma empresa A
     proyecto2 = Proyecto(empresa_id=seeded.emp_a, nombre="Obra 2",
+                         coordinador_principal_id=seeded.coord_id,
                          created_by=seeded.coord_id)
     db.add(proyecto2); db.flush()
     item2 = Item(proyecto_id=proyecto2.id, nivel_profundidad=0, nombre="Tarea 2",

@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.authz import _ids_proyectos_visibles
 from app.database import get_db
 from app.models import AuditLog
 from app.permissions import puede
@@ -48,8 +49,23 @@ def listar_audit_log(
 
     q = db.query(AuditLog).filter(AuditLog.empresa_id == empresa_id)
 
+    # Resource-scoped: Coordinador ve solo entradas de sus proyectos.
+    # Entradas con proyecto_id NULL (acciones empresa-scope: crear usuario,
+    # cambiar rol, etc.) quedan excluidas automáticamente para Coordinador:
+    # NULL IN (...) evalúa a NULL → falsy en WHERE sin necesidad de OR explícito.
+    # Falla cerrado — una acción nueva sin proyecto_id queda oculta al Coordinador
+    # por construcción, no por decisión ad-hoc (CTT-96, Opción A).
+    ids_visibles = _ids_proyectos_visibles(db, ctx)
+    if ids_visibles is not None:
+        q = q.filter(AuditLog.proyecto_id.in_(ids_visibles))
+
     if proyecto_id is not None:
+        # Validar acceso al proyecto antes de filtrar.
+        # 404, no 403 — no revelar existencia del recurso (OWASP A01, RFC 9110).
+        if ids_visibles is not None and proyecto_id not in ids_visibles:
+            raise HTTPException(404, "Proyecto no encontrado.")
         q = q.filter(AuditLog.proyecto_id == proyecto_id)
+
     if entidad_tipo is not None:
         q = q.filter(AuditLog.entidad_tipo == entidad_tipo)
     if entidad_id is not None:
