@@ -108,6 +108,48 @@ require_project_read   = require_project_access("lectura")
 require_project_manage = require_project_access("gestionar")
 
 
+# ── Scope helpers (CTT-78) ────────────────────────────────────────────────────
+# Ambas funciones expresan la misma regla de visibilidad por rol.
+# Si se modifica una, actualizar la otra en paralelo.
+
+def _scope_orm(q, ctx: AuthContext):
+    """Aplica filtro de visibilidad a un query ORM ya filtrado por empresa_id."""
+    if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
+        return q
+    if ctx.rol == Rol.COORDINADOR:
+        return q.filter(Proyecto.coordinador_principal_id == ctx.usuario.id)
+    return (
+        q.join(ProyectoUsuario, ProyectoUsuario.proyecto_id == Proyecto.id)
+        .filter(
+            ProyectoUsuario.usuario_id == ctx.usuario.id,
+            ProyectoUsuario.estado == UsuarioEstado.ACTIVO,
+        )
+    )
+
+
+def _scope_sql(ctx: AuthContext) -> tuple[str, dict]:
+    """Retorna (cláusula_extra, params_extra) para añadir al WHERE del dashboard SQL.
+
+    Expresa la misma regla que _scope_orm — siempre actualizarlas en paralelo.
+    """
+    if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
+        return "", {}
+    if ctx.rol == Rol.COORDINADOR:
+        return (
+            "\nAND p.coordinador_principal_id = :scope_uid",
+            {"scope_uid": ctx.usuario.id},
+        )
+    return (
+        "\nAND EXISTS ("
+        "SELECT 1 FROM proyecto_usuarios pu "
+        "WHERE pu.proyecto_id = p.id "
+        "AND pu.usuario_id = :scope_uid "
+        "AND pu.estado = 'activo'"
+        ")",
+        {"scope_uid": ctx.usuario.id},
+    )
+
+
 def _ids_proyectos_visibles(db: Session, ctx: AuthContext) -> set[str] | None:
     """IDs de proyectos visibles para el usuario según su rol; None = todos.
 
@@ -115,10 +157,9 @@ def _ids_proyectos_visibles(db: Session, ctx: AuthContext) -> set[str] | None:
     (actualmente: filtro sobre AuditLog, que no tiene FK a Proyecto).
     Para listing de proyectos usar _scope_orm; para el dashboard usar _scope_sql.
 
-    Deuda (CTT-96): las tres implementaciones expresan la misma regla de visibilidad.
-    Unificar _scope_orm y _scope_sql requeriría materializar IDs en rutas de listing
-    (un roundtrip extra de BD) y generar SQL IN dinámico en el dashboard — trade-off
-    no vale la pena hoy. Si se agrega un 5.º lugar, evaluar de nuevo.
+    Las tres implementaciones de este módulo expresan la misma regla de visibilidad.
+    Unificarlas requeriría materializar IDs en rutas de listing (un roundtrip extra
+    de BD) y generar SQL IN dinámico en el dashboard — trade-off no vale la pena hoy.
     """
     if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
         return None
