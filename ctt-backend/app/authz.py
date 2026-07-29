@@ -157,9 +157,11 @@ def _ids_proyectos_visibles(db: Session, ctx: AuthContext) -> set[str] | None:
     (actualmente: filtro sobre AuditLog, que no tiene FK a Proyecto).
     Para listing de proyectos usar _scope_orm; para el dashboard usar _scope_sql.
 
-    Las tres implementaciones de este módulo expresan la misma regla de visibilidad.
-    Unificarlas requeriría materializar IDs en rutas de listing (un roundtrip extra
-    de BD) y generar SQL IN dinámico en el dashboard — trade-off no vale la pena hoy.
+    Deuda (CTT-96): las tres implementaciones de este módulo expresan la
+    misma regla de visibilidad. Unificarlas requeriría materializar IDs en
+    rutas de listing (un roundtrip extra de BD) y generar SQL IN dinámico
+    en el dashboard — trade-off no vale la pena hoy. Si se agrega un 4.º
+    lugar, evaluar de nuevo.
     """
     if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
         return None
