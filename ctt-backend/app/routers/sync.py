@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.authz import _scope_orm
 from app.database import get_db
 from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
 from app.models import Item, ItemComentario, ItemProblema, Proyecto, SyncConflicto
@@ -50,7 +51,7 @@ def listar_conflictos(
     else:
         filtro_estado = ConflictoEstado.PENDIENTE
 
-    conflictos = (
+    q = (
         db.query(SyncConflicto)
         .join(Item, SyncConflicto.item_id == Item.id)
         .join(Proyecto, Item.proyecto_id == Proyecto.id)
@@ -58,8 +59,8 @@ def listar_conflictos(
             Proyecto.empresa_id == empresa_id,
             SyncConflicto.estado == filtro_estado,
         )
-        .all()
     )
+    conflictos = _scope_orm(q, ctx).all()
     return [
         {
             "id": c.id,
@@ -93,13 +94,13 @@ def resolver_conflicto(
     if not puede(ctx.rol, "resolver_conflictos_sync"):
         raise HTTPException(403, "Su rol no puede resolver conflictos.")
 
-    conflicto = (
+    q = (
         db.query(SyncConflicto)
         .join(Item, SyncConflicto.item_id == Item.id)
         .join(Proyecto, Item.proyecto_id == Proyecto.id)
         .filter(SyncConflicto.id == conflicto_id, Proyecto.empresa_id == empresa_id)
-        .first()
     )
+    conflicto = _scope_orm(q, ctx).first()
     if conflicto is None:
         raise HTTPException(404, "Conflicto no encontrado.")
     if conflicto.estado == ConflictoEstado.RESUELTO:
