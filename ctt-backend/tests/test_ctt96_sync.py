@@ -15,7 +15,7 @@ import pytest
 
 from app.enums import ConflictoEstado, EmpresaPlan, ItemEstado, Rol
 from app.models import (
-    Empresa, EmpresaUsuario, Item, Proyecto, SyncConflicto, Usuario,
+    Empresa, EmpresaUsuario, Item, ItemComentario, Proyecto, SyncConflicto, Usuario,
 )
 
 
@@ -66,7 +66,7 @@ def d96_sync(db):
 
     conflicto_a = SyncConflicto(
         item_id=item_a.id,
-        cambio_local={"estado": "en_progreso", "comentario": None},
+        cambio_local={"estado": "en_progreso", "comentario": "comentario de prueba CTT-96"},
         cambio_servidor={"estado": "abierto"},
         dispositivo_id="dev-a",
         usuario_id=coord_p.id,
@@ -93,8 +93,10 @@ def d96_sync(db):
         "coord_p":     coord_p.firebase_uid,
         "coord_o":     coord_o.firebase_uid,
         "resid":       resid.firebase_uid,
+        "coord_p_id":  coord_p.id,
         "conflicto_a": conflicto_a.id,
         "conflicto_b": conflicto_b.id,
+        "item_a":      item_a.id,
         "h": h,
     }
 
@@ -136,17 +138,25 @@ def test_get_residente_devuelve_403(client, d96_sync):
 
 # ── POST /sync/conflictos/{id}/resolver ──────────────────────────────────────
 
-def test_resolver_coord_ajeno_devuelve_404(client, d96_sync):
+def test_resolver_coord_ajeno_devuelve_404(client, d96_sync, db):
     d = d96_sync
     r = client.post(
         f"/sync/conflictos/{d['conflicto_a']}/resolver",
-        json={"version_ganadora": "servidor"},
+        json={"version_ganadora": "local"},
         headers=d["h"](d["coord_o"]),
     )
     assert r.status_code == 404, r.text
 
+    db.expire_all()
+    c = db.query(SyncConflicto).filter(SyncConflicto.id == d["conflicto_a"]).first()
+    assert c.estado == ConflictoEstado.PENDIENTE
+    item = db.query(Item).filter(Item.id == d["item_a"]).first()
+    assert item.estado == ItemEstado.ABIERTO
+    comentario = db.query(ItemComentario).filter(ItemComentario.item_id == d["item_a"]).first()
+    assert comentario is None
 
-def test_resolver_coord_principal_devuelve_200(client, d96_sync):
+
+def test_resolver_coord_principal_devuelve_200(client, d96_sync, db):
     d = d96_sync
     r = client.post(
         f"/sync/conflictos/{d['conflicto_a']}/resolver",
@@ -154,6 +164,11 @@ def test_resolver_coord_principal_devuelve_200(client, d96_sync):
         headers=d["h"](d["coord_p"]),
     )
     assert r.status_code == 200, r.text
+
+    db.expire_all()
+    c = db.query(SyncConflicto).filter(SyncConflicto.id == d["conflicto_a"]).first()
+    assert c.estado == ConflictoEstado.RESUELTO
+    assert c.resuelto_por == d["coord_p_id"]
 
 
 def test_resolver_admin_devuelve_200(client, d96_sync):
