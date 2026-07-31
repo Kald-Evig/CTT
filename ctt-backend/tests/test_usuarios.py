@@ -119,6 +119,10 @@ def test_multitenant_mismo_usuario_rol_por_empresa(client, seeded, db):
 # ── POST /items — validación de rol del asignatario ──────────────────────────
 
 def test_crear_item_asignatario_trabajador_ok(client, seeded):
+    # El asignatario debe ser miembro activo del proyecto (CTT-96): agregarlo primero.
+    r = client.post(f"/proyectos/{seeded.proyecto}/usuarios",
+                    json={"usuario_id": seeded.trab_id}, headers=_h(seeded))
+    assert r.status_code == 201, r.text
     r = client.post(
         "/items",
         json={
@@ -173,6 +177,10 @@ def test_crear_item_sin_asignacion_ok(client, seeded):
 # ── POST /items/{id}/asignar — validación de rol del asignatario ──────────────
 
 def test_asignar_trabajador_ok(client, seeded):
+    # El asignatario debe ser miembro activo del proyecto (CTT-96): agregarlo primero.
+    r = client.post(f"/proyectos/{seeded.proyecto}/usuarios",
+                    json={"usuario_id": seeded.trab_id}, headers=_h(seeded))
+    assert r.status_code == 201, r.text
     r = client.post(
         f"/items/{seeded.item}/asignar",
         json={"usuario_id": seeded.trab_id},

@@ -214,6 +214,18 @@ def test_put_item_campo_proyecto_id_forbid_422(client, seeded):
     assert r.status_code == 422, r.text
 
 
+def test_put_item_campo_asignado_a_forbid_422(client, seeded):
+    """Enviar 'asignado_a' al PUT ítem → 422 (extra='forbid').
+
+    Fija el supuesto: asignado_a NO está en ItemUpdate. Si alguien lo agrega al schema,
+    este test rompe — recordatorio de que abriría un tercer camino de asignación que
+    debe pasar por _validar_asignatario_trabajador y _validar_asignatario_miembro
+    (CTT-96), igual que crear_item y POST /asignar.
+    """
+    r = _put_item(client, seeded, seeded.item, {"asignado_a": seeded.trab_id})
+    assert r.status_code == 422, r.text
+
+
 # ── 7. NOT NULL con null → 422 ────────────────────────────────────────────────
 
 def test_put_proyecto_nombre_null_422(client, seeded):

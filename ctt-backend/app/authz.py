@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.auth import AuthContext, get_current_context, requiere_empresa
 from app.database import get_db
 from app.enums import Rol, UsuarioEstado
-from app.models import Proyecto, ProyectoUsuario
+from app.models import Item, Proyecto, ProyectoUsuario
 from app.tenancy import get_proyecto_de_empresa
 
 
@@ -106,6 +106,65 @@ def require_project_access(
 # Aliases nombrados — úsalos en los endpoints para evitar repetir el literal.
 require_project_read   = require_project_access("lectura")
 require_project_manage = require_project_access("gestionar")
+
+
+# ── Item access (CTT-96) ──────────────────────────────────────────────────────
+
+def require_item_access(
+    item_id: str,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> Item:
+    """Dependencia FastAPI para autorización resource-scoped en endpoints de ítem.
+
+    Una sola query: JOIN Proyecto (tenant) + OUTER JOIN ProyectoUsuario (en ON,
+    no en WHERE, para preservar la fila del ítem cuando no hay membresía).
+
+    Reglas (CTT-96, decisión Kald 29-jul-2026):
+      ADMIN / Super Admin → pasa siempre dentro de la empresa.
+      COORDINADOR         → pasa si es coordinador_principal del proyecto; 404 si no.
+      RESIDENTE           → pasa si tiene membresía activa en proyecto_usuarios; 404 si no.
+      TRABAJADOR          → (a) asignado_a == él → pasa (gana sobre ausencia de membresía).
+                            (b) membresía activa pero no asignado → 403.
+                            (c) sin membresía y no asignado → 404 (OWASP A01).
+    """
+    empresa_id = requiere_empresa(ctx)
+
+    row = (
+        db.query(Item, Proyecto, ProyectoUsuario)
+        .join(Proyecto, (Item.proyecto_id == Proyecto.id) & (Proyecto.empresa_id == empresa_id))
+        .outerjoin(
+            ProyectoUsuario,
+            (ProyectoUsuario.proyecto_id == Item.proyecto_id)
+            & (ProyectoUsuario.usuario_id == ctx.usuario.id)
+            & (ProyectoUsuario.estado == UsuarioEstado.ACTIVO),
+        )
+        .filter(Item.id == item_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(404, "Ítem no encontrado.")
+    item, proyecto, membresia = row
+
+    if ctx.rol == Rol.ADMIN or ctx.es_super_admin:
+        return item
+
+    if ctx.rol == Rol.COORDINADOR:
+        if proyecto.coordinador_principal_id != ctx.usuario.id:
+            raise HTTPException(404, "Ítem no encontrado.")
+        return item
+
+    if ctx.rol == Rol.RESIDENTE:
+        if membresia is None:
+            raise HTTPException(404, "Ítem no encontrado.")
+        return item
+
+    # TRABAJADOR — (a) gana sobre membresía; luego (b) vs (c).
+    if item.asignado_a == ctx.usuario.id:
+        return item
+    if membresia is not None:
+        raise HTTPException(403, "Este ítem no está asignado a usted.")
+    raise HTTPException(404, "Ítem no encontrado.")
 
 
 # ── Scope helpers (CTT-78) ────────────────────────────────────────────────────

@@ -384,6 +384,11 @@ def d78_scope(db):
       proy_a: coordinador_principal = coord_p; miembros: resid_a (RESIDENTE), trab_a (TRABAJADOR)
       proy_b: coordinador_principal = coord_o; miembros: resid_b (RESIDENTE)
       proy_c: coordinador_principal = None;    sin miembros
+
+    La consume test_scope_consistencia_entre_fuentes, que verifica:
+      - Consistencia _scope_orm / _scope_sql / factory sobre el mismo conjunto.
+      - Invariante A: visibilidad de proyecto ↔ visibilidad de ítem (CTT-96).
+      - Invariante B: el TRABAJADOR ve exactamente sus ítems asignados (CTT-96).
     """
     emp = Empresa(nombre="Emp Scope", rut_empresa="76.999.999-9",
                   email_contacto="scope@t.cl", plan=EmpresaPlan.PRO)
@@ -435,15 +440,18 @@ def d78_scope(db):
         return {"Authorization": f"Bearer {uid}"}
 
     return {
-        "universo": {proy_a.id, proy_b.id, proy_c.id},
-        "admin":    admin.firebase_uid,
-        "coord_p":  coord_p.firebase_uid,
-        "coord_o":  coord_o.firebase_uid,
-        "resid_a":  resid_a.firebase_uid,
-        "resid_b":  resid_b.firebase_uid,
-        "resid_nm": resid_nm.firebase_uid,
-        "trab_a":   trab_a.firebase_uid,
-        "trab_nm":  trab_nm.firebase_uid,
+        "universo":  {proy_a.id, proy_b.id, proy_c.id},
+        "proy_a_id": proy_a.id,
+        "proy_b_id": proy_b.id,
+        "admin":     admin.firebase_uid,
+        "coord_p":   coord_p.firebase_uid,
+        "coord_o":   coord_o.firebase_uid,
+        "resid_a":   resid_a.firebase_uid,
+        "resid_b":   resid_b.firebase_uid,
+        "resid_nm":  resid_nm.firebase_uid,
+        "trab_a":    trab_a.firebase_uid,
+        "trab_a_id": trab_a.id,
+        "trab_nm":   trab_nm.firebase_uid,
         "h": h,
     }
 
@@ -507,12 +515,59 @@ def test_scope_consistencia_entre_fuentes(client, d78_scope):
                     f"pero factory devuelve {r_get.status_code}"
                 )
 
-    """
-    Fixture de consistencia: 3 proyectos con distinta configuración de
-    coordinador_principal y membresías, para verificar que las tres
-    implementaciones del scope concuerdan.
+    # ── Invariante A: visibilidad de proyecto ↔ visibilidad de ítem ──────────────
+    # Crear un ítem en proy_a (admin lo crea; sin asignación).
+    h_admin = d["h"](d["admin"])
+    r_item = client.post(
+        "/items",
+        json={"proyecto_id": d["proy_a_id"], "nombre": "Ítem scope A"},
+        headers=h_admin,
+    )
+    assert r_item.status_code == 201, f"[Invariante A setup] {r_item.text}"
+    item_a_id = r_item.json()["id"]
 
-      proy_a: coordinador_principal = coord_p; miembros: resid_a (RESIDENTE), trab_a (TRABAJADOR)
-      proy_b: coordinador_principal = coord_o; miembros: resid_b (RESIDENTE)
-      proy_c: coordinador_principal = None;    sin miembros
-    """
+    for actor in actores:
+        hdr = d["h"](d[actor])
+        ids_visibles = {p["id"] for p in client.get("/proyectos", headers=hdr).json()}
+        r_item_get = client.get(f"/items/{item_a_id}", headers=hdr)
+
+        if d["proy_a_id"] in ids_visibles:
+            # Actor ve proy_a → el ítem responde 200 (acceso) o 403 (visible sin permiso).
+            # Aserción exacta: != 404 pasaría con 500/401/422/400 y ocultaría un endpoint roto.
+            assert r_item_get.status_code in (200, 403), (
+                f"[Invariante A] [{actor}] ve proy_a en lista pero ítem devuelve "
+                f"{r_item_get.status_code}"
+            )
+        else:
+            # Actor no ve proy_a → no debe poder acceder al ítem.
+            assert r_item_get.status_code == 404, (
+                f"[Invariante A] [{actor}] NO ve proy_a pero ítem devuelve {r_item_get.status_code}"
+            )
+
+    # ── Invariante B: TRABAJADOR ve exactamente sus ítems asignados ──────────────
+    h_trab_a = d["h"](d["trab_a"])
+    h_trab_nm = d["h"](d["trab_nm"])
+
+    # item_a no está asignado a trab_a → 403 (miembro del proyecto pero no asignado).
+    r = client.get(f"/items/{item_a_id}", headers=h_trab_a)
+    assert r.status_code == 403, (
+        f"[Invariante B] trab_a accedió a ítem no asignado con {r.status_code}"
+    )
+
+    # Crear ítem asignado a trab_a → trab_a debe poder verlo.
+    r_mi = client.post(
+        "/items",
+        json={"proyecto_id": d["proy_a_id"], "nombre": "Ítem de trab_a",
+              "asignado_a": d["trab_a_id"]},
+        headers=h_admin,
+    )
+    assert r_mi.status_code == 201, f"[Invariante B setup] {r_mi.text}"
+    item_trab_id = r_mi.json()["id"]
+
+    assert client.get(f"/items/{item_trab_id}", headers=h_trab_a).status_code == 200, (
+        "[Invariante B] trab_a no puede ver su ítem asignado"
+    )
+    # trab_nm: no miembro, no asignado → 404.
+    assert client.get(f"/items/{item_trab_id}", headers=h_trab_nm).status_code == 404, (
+        "[Invariante B] trab_nm accedió a ítem ajeno"
+    )

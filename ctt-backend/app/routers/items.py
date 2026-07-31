@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
+from app.authz import require_item_access, require_project_read
 from app.config import settings
 from app.database import get_db
 from app.enums import EvidenciaSyncStatus, ItemEstado, Rol, UsuarioEstado
@@ -74,6 +75,25 @@ def _validar_asignatario_trabajador(db: Session, usuario_id: str, empresa_id: st
         )
 
 
+def _validar_asignatario_miembro(db: Session, usuario_id: str, proyecto_id: str) -> None:
+    """Verifica que el asignatario tiene membresía activa en el proyecto (CTT-96).
+
+    Se aplica en los DOS caminos de asignación (crear_item con asignado_a y
+    POST /{id}/asignar): sin este chequeo, uno sería una puerta trasera al otro.
+    """
+    membresia = (
+        db.query(ProyectoUsuario)
+        .filter(
+            ProyectoUsuario.proyecto_id == proyecto_id,
+            ProyectoUsuario.usuario_id == usuario_id,
+            ProyectoUsuario.estado == UsuarioEstado.ACTIVO,
+        )
+        .first()
+    )
+    if membresia is None:
+        raise HTTPException(409, "El asignatario no es miembro activo del proyecto.")
+
+
 # ── Crear ítem ───────────────────────────────────────────────────────────────
 @router.post("", response_model=ItemOut, status_code=201)
 def crear_item(
@@ -88,11 +108,21 @@ def crear_item(
 
     proyecto = get_proyecto_de_empresa(db, body.proyecto_id, empresa_id)
 
+    # Autorización resource-scoped (CTT-96): proyecto_id viene en el body, no en el
+    # path, así que el chequeo va explícito aquí (no via require_item_access).
+    # Solo COORDINADOR/ADMIN llegan hasta acá (gate de puede). El Coordinador debe
+    # ser el coordinador_principal del proyecto; si no, 404 (no revelar existencia).
+    if not (ctx.rol == Rol.ADMIN or ctx.es_super_admin):
+        if proyecto.coordinador_principal_id != ctx.usuario.id:
+            raise HTTPException(404, "Proyecto no encontrado.")
+
     nivel = 0
     if body.parent_item_id:
         padre = get_item_de_empresa(db, body.parent_item_id, empresa_id)
         if padre.proyecto_id != proyecto.id:
-            raise HTTPException(400, "El ítem padre pertenece a otro proyecto.")
+            # Mismo 404 y mensaje que un padre inexistente: no revelar que el ítem
+            # existe en otro proyecto (oráculo de existencia — OWASP A01).
+            raise HTTPException(404, "Ítem no encontrado.")
         nivel = padre.nivel_profundidad + 1
         # Sección 5.3: profundidad máxima.
         if nivel > settings.MAX_NIVEL_PROFUNDIDAD:
@@ -107,9 +137,11 @@ def crear_item(
             raise HTTPException(
                 400, f"Máximo {settings.MAX_HIJOS_DIRECTOS} sub-ítems por ítem padre.")
 
-    # Validar que el asignatario pertenece a la empresa y tiene rol trabajador.
+    # Validar que el asignatario pertenece a la empresa, tiene rol trabajador y
+    # es miembro activo del proyecto (misma regla que POST /{id}/asignar — CTT-96).
     if body.asignado_a:
         _validar_asignatario_trabajador(db, body.asignado_a, empresa_id)
+        _validar_asignatario_miembro(db, body.asignado_a, proyecto.id)
 
     item = Item(
         proyecto_id=proyecto.id,
@@ -196,9 +228,16 @@ def listar_items(
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    """Lista los ítems de un proyecto, opcionalmente filtrados por estado."""
+    """Lista los ítems de un proyecto, opcionalmente filtrados por estado.
+
+    Dos caminos según rol (CTT-96): ADMIN/COORDINADOR/RESIDENTE pasan por el guard
+    de proyecto (misma regla que la factory). El TRABAJADOR NO usa guard — puede
+    tener ítems asignados en un proyecto del que no es miembro (rama a); ve solo los
+    suyos, filtrados por tenant (proyecto ajeno/inexistente → lista vacía, sin oráculo).
+    """
     empresa_id = requiere_empresa(ctx)
-    get_proyecto_de_empresa(db, proyecto_id, empresa_id)  # valida pertenencia
+    if ctx.rol != Rol.TRABAJADOR:
+        require_project_read(proyecto_id=proyecto_id, ctx=ctx, db=db)
 
     al_ult = aliased(AuditLog, name="al_ult")
     q = (
@@ -209,6 +248,11 @@ def listar_items(
     )
     if estado is not None:
         q = q.filter(Item.estado == estado)
+    if ctx.rol == Rol.TRABAJADOR:
+        # Filtro de tenant (no guard): mismo criterio que mis_items (empresa_id + asignado_a).
+        q = (q.join(Proyecto, Item.proyecto_id == Proyecto.id)
+               .filter(Proyecto.empresa_id == empresa_id,
+                       Item.asignado_a == ctx.usuario.id))
     rows = q.order_by(Item.orden).all()
     return [
         _item_dict(item, asignado_nombre, ult_actor, ult_fecha)
@@ -257,22 +301,22 @@ def mis_items(
 @router.get("/{item_id}", response_model=ItemOut)
 def detalle_item(
     item_id: str,
-    ctx: AuthContext = Depends(get_current_context),
+    item: Item = Depends(require_item_access),
     db: Session = Depends(get_db),
 ):
-    empresa_id = requiere_empresa(ctx)
     al_ult = aliased(AuditLog, name="al_ult")
     row = (
         db.query(Item, Usuario.nombre_completo, al_ult.actor_nombre, al_ult.created_at)
-        .join(Proyecto, Item.proyecto_id == Proyecto.id)
         .outerjoin(Usuario, Item.asignado_a == Usuario.id)
         .outerjoin(al_ult, al_ult.id == _ult_edit_id_fijo(item_id))
-        .filter(Item.id == item_id, Proyecto.empresa_id == empresa_id)
+        .filter(Item.id == item_id)
         .first()
     )
+    # Inalcanzable hoy: require_item_access ya garantizó existencia. Se conserva para
+    # que un cambio futuro en los joins falle con 404 y no con TypeError en el unpack.
     if row is None:
         raise HTTPException(404, "Ítem no encontrado.")
-    item, asignado_nombre, ult_actor, ult_fecha = row
+    _, asignado_nombre, ult_actor, ult_fecha = row
     return _item_dict(item, asignado_nombre, ult_actor, ult_fecha)
 
 
@@ -281,6 +325,7 @@ def detalle_item(
 def editar_item(
     item_id: str,
     body: ItemUpdate,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -288,8 +333,6 @@ def editar_item(
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "crear_editar_item"):
         raise HTTPException(403, "Su rol no puede editar ítems.")
-
-    item = get_item_de_empresa(db, item_id, empresa_id)
 
     # Bloqueo ANTES de cualquier mutación.
     if item.estado == ItemEstado.TERMINADO:
@@ -330,6 +373,7 @@ def editar_item(
 def asignar_item(
     item_id: str,
     body: AsignarItemIn,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -337,9 +381,10 @@ def asignar_item(
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "asignar_item"):
         raise HTTPException(403, "Su rol no puede asignar ítems.")
-    item = get_item_de_empresa(db, item_id, empresa_id)
-    # Validar que el asignatario pertenece a la empresa y tiene rol trabajador.
+    # Validar que el asignatario pertenece a la empresa, tiene rol trabajador y
+    # es miembro activo del proyecto (misma regla que crear_item — CTT-96).
     _validar_asignatario_trabajador(db, body.usuario_id, empresa_id)
+    _validar_asignatario_miembro(db, body.usuario_id, item.proyecto_id)
     item.asignado_a = body.usuario_id
 
     # Notificación: ítem asignado a trabajador (Sección 9.2).
@@ -358,13 +403,13 @@ def asignar_item(
 def transicion_item(
     item_id: str,
     body: TransicionIn,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Aplica una transición de estado (Sección 6). La autorización fina por
     transición la resuelve la máquina de estados."""
     empresa_id = requiere_empresa(ctx)
-    item = get_item_de_empresa(db, item_id, empresa_id)
     proyecto = db.query(Proyecto).filter(Proyecto.id == item.proyecto_id).first()
 
     # ── Detección de conflicto de concurrencia (Sección 8) ───────────────────
@@ -394,6 +439,8 @@ def transicion_item(
         )
 
     estado_anterior = item.estado.value  # capturar ANTES de que transicionar() mute item.estado
+    # Defensa en profundidad: la máquina de estados valida rol y transición permitida.
+    # require_item_access ya garantizó que el actor tiene acceso al ítem.
     try:
         transicionar(
             db, item, body.nuevo_estado,
@@ -457,6 +504,7 @@ def transicion_item(
 @router.post("/{item_id}/cerrar-problema", response_model=ItemOut)
 def cerrar_problema_item(
     item_id: str,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -464,7 +512,6 @@ def cerrar_problema_item(
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "cerrar_problema"):
         raise HTTPException(403, "Su rol no puede cerrar problemas.")
-    item = get_item_de_empresa(db, item_id, empresa_id)
     # Capturar estado_previo ANTES de cerrar_problema() — la función lo borra (→ None).
     estado_restaurado = (item.estado_previo or ItemEstado.EN_PROGRESO).value
     try:
@@ -492,12 +539,12 @@ def cerrar_problema_item(
 def revertir_terminado_item(
     item_id: str,
     motivo: str = Query(..., min_length=1),
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Reversión excepcional de un ítem TERMINADO (solo Admin — Sección 5.3)."""
     empresa_id = requiere_empresa(ctx)
-    item = get_item_de_empresa(db, item_id, empresa_id)
     try:
         revertir_terminado(db, item, rol=ctx.rol, usuario_id=ctx.usuario.id, motivo=motivo)
     except TransicionInvalida as e:
@@ -523,14 +570,13 @@ def revertir_terminado_item(
 def agregar_comentario(
     item_id: str,
     body: ComentarioIn,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Agrega un comentario (todos los roles de obra — nunca genera conflicto)."""
-    empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "agregar_comentario"):
         raise HTTPException(403, "Su rol no puede comentar.")
-    item = get_item_de_empresa(db, item_id, empresa_id)
     c = ItemComentario(item_id=item.id, usuario_id=ctx.usuario.id, texto=body.texto)
     db.add(c)
     db.commit()
@@ -540,12 +586,10 @@ def agregar_comentario(
 @router.get("/{item_id}/comentarios", response_model=list[ComentarioOut])
 def listar_comentarios(
     item_id: str,
-    ctx: AuthContext = Depends(get_current_context),
+    item: Item = Depends(require_item_access),
     db: Session = Depends(get_db),
 ):
     """Lista comentarios del ítem ordenados cronológicamente (todos los roles)."""
-    empresa_id = requiere_empresa(ctx)
-    item = get_item_de_empresa(db, item_id, empresa_id)
     rows = (
         db.query(ItemComentario, Usuario.nombre_completo)
         .outerjoin(Usuario, ItemComentario.usuario_id == Usuario.id)
@@ -570,6 +614,7 @@ def listar_comentarios(
 def registrar_evidencia(
     item_id: str,
     body: EvidenciaIn,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -578,10 +623,8 @@ def registrar_evidencia(
     La subida binaria real va directo a S3 vía pre-signed URL (Sección 4.4);
     aquí solo se registra el metadato y la clave S3.
     """
-    empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "subir_foto"):
         raise HTTPException(403, "Su rol no puede subir fotos.")
-    item = get_item_de_empresa(db, item_id, empresa_id)
     ev = ItemEvidencia(
         item_id=item.id,
         usuario_id=ctx.usuario.id,
@@ -598,12 +641,10 @@ def registrar_evidencia(
 @router.get("/{item_id}/evidencias", response_model=list[EvidenciaOut])
 def listar_evidencias(
     item_id: str,
-    ctx: AuthContext = Depends(get_current_context),
+    item: Item = Depends(require_item_access),
     db: Session = Depends(get_db),
 ):
     """Lista evidencias fotográficas del ítem ordenadas cronológicamente."""
-    empresa_id = requiere_empresa(ctx)
-    item = get_item_de_empresa(db, item_id, empresa_id)
     return (
         db.query(ItemEvidencia)
         .filter(ItemEvidencia.item_id == item.id)
@@ -616,14 +657,13 @@ def listar_evidencias(
 @router.get("/{item_id}/historial", response_model=list[HistorialOut])
 def historial_item(
     item_id: str,
+    item: Item = Depends(require_item_access),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Devuelve el log cronológico de cambios del ítem (Sección 10)."""
-    empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "ver_log_cambios"):
         raise HTTPException(403, "Su rol no puede ver el log de cambios.")
-    item = get_item_de_empresa(db, item_id, empresa_id)
     rows = (
         db.query(ItemHistorial, Usuario.nombre_completo)
         .outerjoin(Usuario, ItemHistorial.usuario_id == Usuario.id)

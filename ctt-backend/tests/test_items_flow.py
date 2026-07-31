@@ -31,7 +31,15 @@ def test_ciclo_completo_item(client, seeded):
     assert item["estado"] == "abierto"
     assert item["nivel_profundidad"] == 0
 
-    # 3) Coordinador asigna el ítem al trabajador.
+    # 3) Coordinador agrega al trabajador y al residente como miembros del proyecto
+    #    (requisito de autorización resource-scoped — CTT-96): el trabajador para poder
+    #    ser asignado y transicionar, el residente para poder supervisar/aprobar.
+    r = client.post(f"/proyectos/{proyecto_id}/usuarios",
+                    json={"usuario_id": seeded.trab_id}, headers=h_coord)
+    assert r.status_code == 201, r.text
+    r = client.post(f"/proyectos/{proyecto_id}/usuarios",
+                    json={"usuario_id": seeded.resid_id}, headers=h_coord)
+    assert r.status_code == 201, r.text
     r = client.post(f"/items/{item_id}/asignar",
                     json={"usuario_id": seeded.trab_id}, headers=h_coord)
     assert r.status_code == 200, r.text
@@ -72,14 +80,22 @@ def test_transicion_no_permitida_da_409(client, seeded):
     assert r.status_code == 409
 
 
-def test_trabajador_no_asignado_no_inicia(client, seeded):
-    # Crear un ítem nuevo (sin asignar) y que el trabajador intente iniciarlo.
+def test_trabajador_sin_acceso_a_item_recibe_404(client, seeded):
+    # Ítem no asignado al trabajador y sin membresía → 404 (OWASP A01, IDOR prevention).
     r = client.post("/items",
                     json={"proyecto_id": seeded.proyecto, "nombre": "Sin asignar"},
                     headers=seeded.headers(seeded.coord))
     item_id = r.json()["id"]
     r = client.post(f"/items/{item_id}/transicion",
                     json={"nuevo_estado": "en_progreso"},
+                    headers=seeded.headers(seeded.trab))
+    assert r.status_code == 404
+
+
+def test_trabajador_con_acceso_transicion_invalida_da_409(client, seeded):
+    # seeded.item está asignado al trabajador; saltar directo a TERMINADO → 409 (máquina de estados).
+    r = client.post(f"/items/{seeded.item}/transicion",
+                    json={"nuevo_estado": "terminado"},
                     headers=seeded.headers(seeded.trab))
     assert r.status_code == 409
 
