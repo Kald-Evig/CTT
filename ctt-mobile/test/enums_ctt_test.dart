@@ -54,5 +54,11 @@ void main() {
       // EstadoSyncLocal.conflicto NO existe en el backend — es gestión interna.
       expect(EstadoSyncLocal.conflicto.valor, 'conflicto');
     });
+
+    test('rechazado existe como estado terminal local', () {
+      // Estado terminal para 403/404 del backend — gestión interna, no existe
+      // en el servidor. Distingue rechazo permanente de error transitorio.
+      expect(EstadoSyncLocal.rechazado.valor, 'rechazado');
+    });
   });
 }

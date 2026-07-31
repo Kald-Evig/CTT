@@ -12,11 +12,10 @@ import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 
 part 'ciclo_sync.g.dart';
-
-const _maxReintentos = 5;
 
 /// Provider que usa las instancias del ProviderScope (foreground).
 /// El ConectividadListener lo lee para el flush inmediato al reconectar.
@@ -42,7 +41,11 @@ class CicloSync {
     if (pendientes.isEmpty) return;
 
     for (final cambio in pendientes) {
-      if (cambio.reintentos >= _maxReintentos) continue;
+      // Defensa en profundidad: hoy inalcanzable, porque reactivarErrores ya no
+      // revive las entradas agotadas (reintentos >= kMaxReintentosSync) y
+      // obtenerPendientes solo trae 'pendiente'. Se conserva por si el filtro
+      // SQL de reactivarErrores se afloja y una agotada vuelve a la cola.
+      if (cambio.reintentos >= kMaxReintentosSync) continue;
 
       // "Claim" atómico: si otro ciclo ya tomó esta entrada, retorna false → saltar.
       final tomado = await syncDao.marcarEnviando(cambio.id);
@@ -56,15 +59,22 @@ class CicloSync {
         );
         await syncDao.marcarSincronizado(cambio.id);
       } on DioException catch (e) {
-        if (e.response?.statusCode == 409) {
+        final status = e.response?.statusCode;
+        if (status == 409) {
           final body = e.response?.data;
           final conflictoId =
               body is Map ? body['conflicto_id'] as String? : null;
           await syncDao.marcarConflicto(cambio.id, conflictoId: conflictoId);
+        } else if (status == 403 || status == 404) {
+          // Rechazo permanente: permiso denegado o recurso inexistente. No se
+          // arregla reintentando — estado terminal, sin tocar reintentos.
+          await syncDao.marcarRechazado(cambio.id, extraerDetalleBackend(e));
         } else {
+          // Transitorio (red, timeout, 5xx): reintentar en ciclos futuros con
+          // el motivo real del backend cuando lo haya.
           await syncDao.marcarError(
             cambio.id,
-            e.message ?? 'Error de red',
+            extraerDetalleBackend(e),
             cambio.reintentos + 1,
           );
         }

@@ -183,7 +183,9 @@ enum EstadoSyncLocal {
   sincronizado('sincronizado'),
   error('error'),
   /// Conflicto detectado — requiere resolución manual por Coordinador/Admin.
-  conflicto('conflicto');
+  conflicto('conflicto'),
+  /// Rechazo permanente del backend (403/404). Terminal: no se reintenta.
+  rechazado('rechazado');
 
   const EstadoSyncLocal(this.valor);
   final String valor;

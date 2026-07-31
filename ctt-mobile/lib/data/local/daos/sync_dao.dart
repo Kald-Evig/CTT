@@ -8,6 +8,12 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'sync_dao.g.dart';
 
+/// Tope de reintentos de una entrada en `error` antes de considerarla agotada.
+/// Fuente única del número: lo usa el guard del ciclo (ciclo_sync.dart) y el
+/// filtro de [SyncDao.reactivarErrores], para no revivir entradas que ya
+/// agotaron sus intentos.
+const kMaxReintentosSync = 5;
+
 @riverpod
 SyncDao syncDao(SyncDaoRef ref) => SyncDao(ref.watch(baseDatosCTTProvider));
 
@@ -93,10 +99,35 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         ),
       );
 
+  /// Marca una entrada como rechazada de forma permanente (403/404 del backend).
+  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
+  /// Terminal: NO incrementa reintentos — un permiso denegado o un recurso
+  /// inexistente no se arregla reintentando.
+  Future<void> marcarRechazado(String id, String mensaje) =>
+      (update(syncPendientesTable)
+            ..where(
+              (t) =>
+                  t.id.equals(id) &
+                  t.estado.equals(EstadoSyncLocal.enviando.valor),
+            ))
+          .write(
+        SyncPendientesTableCompanion(
+          estado: Value(EstadoSyncLocal.rechazado.valor),
+          ultimoError: Value(mensaje),
+        ),
+      );
+
   /// Reactiva entradas en error para que el próximo ciclo las reintente.
+  /// NO toca terminales (`rechazado`/`conflicto`: el filtro es estado='error')
+  /// ni entradas agotadas (reintentos >= [kMaxReintentosSync]): esas deben
+  /// quedar en `error`, que es la verdad, y no volver a `pendiente`.
   Future<void> reactivarErrores() =>
       (update(syncPendientesTable)
-            ..where((t) => t.estado.equals(EstadoSyncLocal.error.valor)))
+            ..where(
+              (t) =>
+                  t.estado.equals(EstadoSyncLocal.error.valor) &
+                  t.reintentos.isSmallerThanValue(kMaxReintentosSync),
+            ))
           .write(
         SyncPendientesTableCompanion(
           estado: Value(EstadoSyncLocal.pendiente.valor),
