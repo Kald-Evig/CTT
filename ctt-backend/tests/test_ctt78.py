@@ -372,7 +372,7 @@ def test_crear_admin_sin_principal_queda_null(client, d78):
 
 
 
-# ── AJUSTE 2: Consistencia entre _scope_orm, _scope_sql y la factory ─────────
+# ── AJUSTE 2: Consistencia entre scope_orm, scope_sql y la factory ─────────
 
 @pytest.fixture()
 def d78_scope(db):
@@ -386,7 +386,7 @@ def d78_scope(db):
       proy_c: coordinador_principal = None;    sin miembros
 
     La consume test_scope_consistencia_entre_fuentes, que verifica:
-      - Consistencia _scope_orm / _scope_sql / factory sobre el mismo conjunto.
+      - Consistencia scope_orm / scope_sql / factory sobre el mismo conjunto.
       - Invariante A: visibilidad de proyecto ↔ visibilidad de ítem (CTT-96).
       - Invariante B: el TRABAJADOR ve exactamente sus ítems asignados (CTT-96).
     """
@@ -458,7 +458,7 @@ def d78_scope(db):
 
 def test_scope_consistencia_entre_fuentes(client, d78_scope):
     """
-    Verifica que _scope_orm (GET /proyectos), _scope_sql (GET /proyectos/dashboard)
+    Verifica que scope_orm (GET /proyectos), scope_sql (GET /proyectos/dashboard)
     y la factory (GET /proyectos/{id}) concuerdan sobre el mismo conjunto de proyectos
     para cada actor.
 
@@ -468,7 +468,7 @@ def test_scope_consistencia_entre_fuentes(client, d78_scope):
     Fixture: 3 proyectos (proy_a principal=coord_p, proy_b principal=coord_o, proy_c sin
     principal). Membresías: resid_a→proy_a, resid_b→proy_b, trab_a→proy_a.
 
-    Nota sobre TRABAJADOR: la lista (_scope_orm) incluye sus proyectos con membresía,
+    Nota sobre TRABAJADOR: la lista (scope_orm) incluye sus proyectos con membresía,
     pero la factory devuelve 403 (visible pero sin permiso de acceso). Se verifica que
     la factory no devuelve 404 (que sería inconsistente con la visibilidad en lista).
     TRABAJADOR no tiene acceso al dashboard (acceso_reportes), así que la comparación
@@ -485,19 +485,19 @@ def test_scope_consistencia_entre_fuentes(client, d78_scope):
     for actor in actores:
         hdr = d["h"](d[actor])
 
-        # A: ids visibles via _scope_orm (GET /proyectos)
+        # A: ids visibles via scope_orm (GET /proyectos)
         r_lista = client.get("/proyectos", headers=hdr)
         assert r_lista.status_code == 200, \
             f"[{actor}] GET /proyectos devolvió {r_lista.status_code}"
         ids_lista = {p["id"] for p in r_lista.json()}
 
-        # B: ids visibles via _scope_sql (GET /proyectos/dashboard)
+        # B: ids visibles via scope_sql (GET /proyectos/dashboard)
         # Solo para roles con acceso_reportes; TRABAJADOR recibe 403 → skip comparación.
         r_dash = client.get("/proyectos/dashboard", headers=hdr)
         if r_dash.status_code == 200:
             ids_dash = {p["id"] for p in r_dash.json()}
             assert ids_lista == ids_dash, (
-                f"[{actor}] _scope_orm ≠ _scope_sql: "
+                f"[{actor}] scope_orm ≠ scope_sql: "
                 f"lista={ids_lista} dashboard={ids_dash}"
             )
 

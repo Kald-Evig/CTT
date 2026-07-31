@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth import AuthContext, get_current_context, requiere_empresa
-from app.authz import _scope_orm
+from app.authz import scope_orm
 from app.database import get_db
 from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
 from app.models import Item, ItemComentario, ItemProblema, Proyecto, SyncConflicto
@@ -60,7 +60,7 @@ def listar_conflictos(
             SyncConflicto.estado == filtro_estado,
         )
     )
-    conflictos = _scope_orm(q, ctx).all()
+    conflictos = scope_orm(q, ctx).all()
     return [
         {
             "id": c.id,
@@ -100,7 +100,7 @@ def resolver_conflicto(
         .join(Proyecto, Item.proyecto_id == Proyecto.id)
         .filter(SyncConflicto.id == conflicto_id, Proyecto.empresa_id == empresa_id)
     )
-    conflicto = _scope_orm(q, ctx).first()
+    conflicto = scope_orm(q, ctx).first()
     if conflicto is None:
         raise HTTPException(404, "Conflicto no encontrado.")
     if conflicto.estado == ConflictoEstado.RESUELTO:

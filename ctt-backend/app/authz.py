@@ -171,7 +171,7 @@ def require_item_access(
 # Ambas funciones expresan la misma regla de visibilidad por rol.
 # Si se modifica una, actualizar la otra en paralelo.
 
-def _scope_orm(q, ctx: AuthContext):
+def scope_orm(q, ctx: AuthContext):
     """Aplica filtro de visibilidad a un query ORM ya filtrado por empresa_id."""
     if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
         return q
@@ -186,10 +186,10 @@ def _scope_orm(q, ctx: AuthContext):
     )
 
 
-def _scope_sql(ctx: AuthContext) -> tuple[str, dict]:
+def scope_sql(ctx: AuthContext) -> tuple[str, dict]:
     """Retorna (cláusula_extra, params_extra) para añadir al WHERE del dashboard SQL.
 
-    Expresa la misma regla que _scope_orm — siempre actualizarlas en paralelo.
+    Expresa la misma regla que scope_orm — siempre actualizarlas en paralelo.
     """
     if ctx.es_super_admin or ctx.rol == Rol.ADMIN:
         return "", {}
@@ -214,7 +214,7 @@ def _ids_proyectos_visibles(db: Session, ctx: AuthContext) -> set[str] | None:
 
     Usar solo donde no es posible expresar el scope como filtro ORM directo
     (actualmente: filtro sobre AuditLog, que no tiene FK a Proyecto).
-    Para listing de proyectos usar _scope_orm; para el dashboard usar _scope_sql.
+    Para listing de proyectos usar scope_orm; para el dashboard usar scope_sql.
 
     Deuda (CTT-96): las tres implementaciones de este módulo expresan la
     misma regla de visibilidad. Unificarlas requeriría materializar IDs en

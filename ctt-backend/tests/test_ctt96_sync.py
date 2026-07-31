@@ -2,7 +2,7 @@
 test_ctt96_sync.py — Scope resource-scoped para CTT-96 fase 2.
 
 Verifica que GET /sync/conflictos y POST /sync/conflictos/{id}/resolver
-aplican _scope_orm: un Coordinador solo ve y resuelve conflictos de
+aplican scope_orm: un Coordinador solo ve y resuelve conflictos de
 proyectos donde es coordinador_principal.
 
 Fixture: emp_a con dos coordinadores y dos proyectos, uno por cada uno,

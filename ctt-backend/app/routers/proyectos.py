@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import a_serializable, record_audit
 from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
-from app.authz import _scope_orm, _scope_sql, require_project_manage, require_project_read
+from app.authz import scope_orm, scope_sql, require_project_manage, require_project_read
 from app.database import get_db
 from app.enums import ItemEstado, ProyectoEstado, Rol, UsuarioEstado
 from app.models import Item, ItemHistorial, Proyecto, ProyectoUsuario, Usuario
@@ -72,7 +72,7 @@ def listar_proyectos(
     """Lista los proyectos visibles al rol del usuario (filtrado por empresa y rol)."""
     empresa_id = requiere_empresa(ctx)
     q = db.query(Proyecto).filter(Proyecto.empresa_id == empresa_id)
-    q = _scope_orm(q, ctx)
+    q = scope_orm(q, ctx)
     return q.order_by(Proyecto.created_at.desc()).all()
 
 
@@ -132,7 +132,7 @@ def dashboard_proyectos(
     if not puede(ctx.rol, "acceso_reportes"):
         raise HTTPException(403, "Su rol no tiene acceso al dashboard.")
 
-    scope_clause, scope_params = _scope_sql(ctx)
+    scope_clause, scope_params = scope_sql(ctx)
     sql = text(_DASHBOARD_SQL_TMPL.format(scope=scope_clause))
     rows = db.execute(sql, {"empresa_id": empresa_id, **scope_params}).mappings().all()
 
