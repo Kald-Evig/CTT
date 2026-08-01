@@ -99,8 +99,16 @@ class CicloSync {
       case 'cambio_estado_item':
         await dio.post<void>('/items/$entidadId/transicion', data: data);
       case 'subir_foto':
-        // TODO Fase 2: obtener pre-signed URL de S3 y subir el archivo local.
-        return;
+        // Stub deliberado: la captura y subida de evidencia no existe todavía
+        // (CTT-99). El throw es intencional para NO caer en marcarSincronizado
+        // sin una respuesta 2xx del servidor: cae en el catch genérico y la
+        // entrada queda en `error` con motivo. Se reemplaza por la lógica de
+        // subida real (pre-signed URL de S3 + upload del archivo local), NO
+        // por otro parche.
+        throw UnimplementedError(
+          'subir_foto: la captura y subida de evidencia no está implementada (CTT-99). '
+          'La entrada NO se marca como sincronizada.',
+        );
       default:
         throw Exception('Acción de sync desconocida: $accion');
     }
