@@ -210,6 +210,65 @@ def test_asignatario_lista_solo_sus_items_del_proyecto(client, seeded):
     assert hermano_id not in ids    # no ve el hermano
 
 
+def test_coordinador_no_principal_no_lista_items(client, seeded, db):
+    """GET /items?proyecto_id=X para coordinador NO principal de la MISMA empresa → 404.
+
+    Es guard, no filtro: la puerta lateral del listado responde 404 igual que la
+    factory de detalle (no lista vacía, que sería un oráculo de existencia del proyecto).
+    """
+    coord2 = Usuario(firebase_uid="t-coord2-list", nombre_completo="Coord2 List",
+                     email="coord2list@a.cl")
+    db.add(coord2)
+    db.flush()
+    db.add(EmpresaUsuario(empresa_id=seeded.emp_a, usuario_id=coord2.id, rol=Rol.COORDINADOR))
+    db.commit()
+
+    r = client.get(f"/items?proyecto_id={seeded.proyecto}",
+                   headers=seeded.headers(coord2.firebase_uid))
+    assert r.status_code == 404, r.text
+
+
+def test_trabajador_miembro_lista_solo_sus_asignados(client, seeded, db):
+    """GET /items?proyecto_id=X para TRABAJADOR miembro activo Y con asignación:
+    200, ve su ítem asignado, NO ve los hermanos, NO ve sus asignados de OTRO proyecto.
+
+    El tercer caso (asignado en otro proyecto de la misma empresa) distingue el filtro
+    real (proyecto_id + empresa_id + asignado_a) de uno que ignore proyecto_id y devuelva
+    todos los asignados del tenant.
+    """
+    # Membresía activa en el proyecto (seeded.trab ya está asignado a seeded.item).
+    db.add(ProyectoUsuario(
+        proyecto_id=seeded.proyecto,
+        usuario_id=seeded.trab_id,
+        rol_en_proyecto=Rol.TRABAJADOR,
+    ))
+    # Otro proyecto de la MISMA empresa, con un ítem asignado a trab.
+    otro_proy = Proyecto(empresa_id=seeded.emp_a, nombre="Obra A2",
+                         coordinador_principal_id=seeded.coord_id, created_by=seeded.coord_id)
+    db.add(otro_proy)
+    db.flush()
+    item_otro_proy = Item(proyecto_id=otro_proy.id, nivel_profundidad=0,
+                          nombre="Asignado en otro proyecto", asignado_a=seeded.trab_id,
+                          estado=ItemEstado.ABIERTO, created_by=seeded.coord_id)
+    db.add(item_otro_proy)
+    db.commit()
+
+    # Hermano en el mismo proyecto, no asignado a trab.
+    hermano_id = client.post(
+        "/items",
+        json={"proyecto_id": seeded.proyecto, "nombre": "Hermano"},
+        headers=seeded.headers(seeded.coord),
+    ).json()["id"]
+
+    r = client.get(f"/items?proyecto_id={seeded.proyecto}",
+                   headers=seeded.headers(seeded.trab))
+    assert r.status_code == 200, r.text
+    ids = {it["id"] for it in r.json()}
+    assert seeded.item in ids               # su ítem asignado en este proyecto
+    assert hermano_id not in ids            # membresía no le abre los hermanos
+    assert item_otro_proy.id not in ids     # proyecto_id filtra: su asignado de OTRO proyecto no aparece
+
+
 def test_trabajador_no_ve_items_de_otra_empresa(client, seeded, db):
     """GET /items con proyecto_id de empresa B y X-Empresa-Id de A → 200 vacío (filtro tenant)."""
     # trab también es TRABAJADOR en empresa B, con un ítem asignado allí.
