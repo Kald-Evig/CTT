@@ -308,3 +308,23 @@ def test_empresa_b_recibe_404_en_endpoints_get(client, seeded, url_tpl):
     url = url_tpl.format(id=seeded.item)
     r = client.get(url, headers=seeded.headers(seeded.admin_b))
     assert r.status_code == 404
+
+
+# ── Trabajador sin relación: sub-endpoints GET de ítem → 404 (IDOR intra-empresa) ──
+
+@pytest.mark.parametrize("sub", ["comentarios", "evidencias", "historial"])
+def test_trabajador_sin_relacion_recibe_404_en_subendpoints(client, seeded, sub):
+    """Trabajador sin membresía y sin asignación → 404 en comentarios/evidencias/historial.
+
+    No se reutiliza seeded.item: seeded.trab es su asignatario y daría 200. Se crea un
+    ítem sin asignar del que trab no es miembro ni asignatario → 404 (OWASP A01, IDOR).
+    Distinto del parametrize de arriba, cuyo actor es admin_b (aislamiento cross-tenant).
+    """
+    otro_item_id = client.post(
+        "/items",
+        json={"proyecto_id": seeded.proyecto, "nombre": "Sin asignar sub"},
+        headers=seeded.headers(seeded.coord),
+    ).json()["id"]
+
+    r = client.get(f"/items/{otro_item_id}/{sub}", headers=seeded.headers(seeded.trab))
+    assert r.status_code == 404, r.text
