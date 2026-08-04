@@ -571,3 +571,52 @@ def test_scope_consistencia_entre_fuentes(client, d78_scope):
     assert client.get(f"/items/{item_trab_id}", headers=h_trab_nm).status_code == 404, (
         "[Invariante B] trab_nm accedió a ítem ajeno"
     )
+
+    # ── Jerarquía (DoD "incluidos los hijos"): las DOS invariantes valen sobre un HIJO ──
+    # Hijo de item_a en proy_a (nivel 1), sin asignación.
+    r_hijo = client.post(
+        "/items",
+        json={"proyecto_id": d["proy_a_id"], "nombre": "Hijo scope A",
+              "parent_item_id": item_a_id},
+        headers=h_admin,
+    )
+    assert r_hijo.status_code == 201, f"[Jerarquía setup] {r_hijo.text}"
+    hijo_id = r_hijo.json()["id"]
+
+    # Invariante A sobre el hijo: visibilidad de proy_a ↔ visibilidad del hijo.
+    for actor in actores:
+        hdr = d["h"](d[actor])
+        ids_visibles = {p["id"] for p in client.get("/proyectos", headers=hdr).json()}
+        r_hijo_get = client.get(f"/items/{hijo_id}", headers=hdr)
+        if d["proy_a_id"] in ids_visibles:
+            assert r_hijo_get.status_code in (200, 403), (
+                f"[Jerarquía/Invariante A] [{actor}] ve proy_a pero el hijo devuelve "
+                f"{r_hijo_get.status_code}"
+            )
+        else:
+            assert r_hijo_get.status_code == 404, (
+                f"[Jerarquía/Invariante A] [{actor}] NO ve proy_a pero el hijo devuelve "
+                f"{r_hijo_get.status_code}"
+            )
+
+    # Invariante B sobre el hijo: el TRABAJADOR ve exactamente sus hijos asignados.
+    # hijo no asignado a trab_a → 403 (miembro del proyecto pero no asignado al hijo).
+    assert client.get(f"/items/{hijo_id}", headers=h_trab_a).status_code == 403, (
+        "[Jerarquía/Invariante B] trab_a accedió a hijo no asignado"
+    )
+    # Crear hijo asignado a trab_a → trab_a debe poder verlo.
+    r_hijo_mi = client.post(
+        "/items",
+        json={"proyecto_id": d["proy_a_id"], "nombre": "Hijo de trab_a",
+              "parent_item_id": item_a_id, "asignado_a": d["trab_a_id"]},
+        headers=h_admin,
+    )
+    assert r_hijo_mi.status_code == 201, f"[Jerarquía/Invariante B setup] {r_hijo_mi.text}"
+    hijo_trab_id = r_hijo_mi.json()["id"]
+    assert client.get(f"/items/{hijo_trab_id}", headers=h_trab_a).status_code == 200, (
+        "[Jerarquía/Invariante B] trab_a no puede ver su hijo asignado"
+    )
+    # trab_nm: no miembro, no asignado → 404.
+    assert client.get(f"/items/{hijo_trab_id}", headers=h_trab_nm).status_code == 404, (
+        "[Jerarquía/Invariante B] trab_nm accedió a hijo ajeno"
+    )
