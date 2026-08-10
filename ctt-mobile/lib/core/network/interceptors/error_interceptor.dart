@@ -34,36 +34,22 @@ class ErrorInterceptor extends Interceptor {
       case 401:
         // Token expirado: desloguear y limpiar sesión.
         alCerrarSesion();
-        handler.reject(DioException(
-          requestOptions: err.requestOptions,
-          error: const ExcepcionNoAutorizado(),
-          type: DioExceptionType.badResponse,
-        ),);
+        handler.reject(err.copyWith(error: const ExcepcionNoAutorizado()));
       case 403:
-        handler.reject(DioException(
-          requestOptions: err.requestOptions,
-          error: const ExcepcionSinPermiso(),
-          type: DioExceptionType.badResponse,
-        ),);
+        handler.reject(err.copyWith(error: const ExcepcionSinPermiso()));
       case 422:
         // FastAPI devuelve validación Pydantic en el campo detail.
         final detalle =
             (err.response?.data as Map<String, dynamic>?)?['detail']
                 ?.toString() ??
                 'Datos inválidos.';
-        handler.reject(DioException(
-          requestOptions: err.requestOptions,
-          error: ExcepcionValidacion(detalle),
-          type: DioExceptionType.badResponse,
-        ),);
+        handler.reject(err.copyWith(error: ExcepcionValidacion(detalle)));
       case final int code when code >= 500:
-        handler.reject(DioException(
-          requestOptions: err.requestOptions,
+        handler.reject(err.copyWith(
           error: ExcepcionServidor(
             'Error interno del servidor.',
             codigoHttp: code,
           ),
-          type: DioExceptionType.badResponse,
         ),);
       default:
         // Sin respuesta (timeout, sin conexión).

@@ -65,9 +65,11 @@ class CicloSync {
           final conflictoId =
               body is Map ? body['conflicto_id'] as String? : null;
           await syncDao.marcarConflicto(cambio.id, conflictoId: conflictoId);
-        } else if (status == 403 || status == 404) {
-          // Rechazo permanente: permiso denegado o recurso inexistente. No se
-          // arregla reintentando — estado terminal, sin tocar reintentos.
+        } else if (status == 403 || status == 404 || status == 422) {
+          // Rechazo permanente: permiso denegado, recurso inexistente o datos
+          // inválidos. No se arregla reintentando — estado terminal, sin tocar
+          // reintentos. El 422 (validación de datos) es permanente por
+          // naturaleza: reintentar el mismo payload da el mismo error (CTT-102).
           await syncDao.marcarRechazado(cambio.id, extraerDetalleBackend(e));
         } else {
           // Transitorio (red, timeout, 5xx): reintentar en ciclos futuros con
