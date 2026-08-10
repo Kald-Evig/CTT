@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Configuración de seguridad de red.
-    Solo permite cleartext (HTTP) para el host del emulador Android (10.0.2.2).
+    Permite cleartext (HTTP) solo para dos hosts de desarrollo:
+      - 10.0.2.2       host del emulador Android (localhost de la máquina host).
+      - 100.83.123.115 backend expuesto en el tailnet (Tailscale) para pruebas
+                       en dispositivo físico.
     Todo el tráfico restante queda forzado a HTTPS.
 -->
 <network-security-config>
@@ -9,5 +12,6 @@
 
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">100.83.123.115</domain>
     </domain-config>
 </network-security-config>
