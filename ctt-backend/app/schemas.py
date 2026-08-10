@@ -64,14 +64,19 @@ class UsuarioCreate(BaseModel):
         return _validar_rut_chileno(v) if v is not None else v
 
 
-class UsuarioOut(BaseModel):
+class UsuarioBaseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
     nombre_completo: str
-    rut: str | None
     email: str
     estado: str
     rol: str
+
+
+class UsuarioOut(UsuarioBaseOut):
+    # `rut` solo se expone en operaciones de gestión del padrón (POST /usuarios,
+    # PATCH estado/rol — Admin). El LISTADO usa UsuarioBaseOut, sin rut (CTT-97).
+    rut: str | None
 
 
 class UsuarioCreateOut(UsuarioOut):

@@ -24,7 +24,7 @@ from app.database import get_db
 from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
 from app.permissions import puede
-from app.schemas import UsuarioCreate, UsuarioCreateOut, UsuarioEstadoUpdate, UsuarioRolUpdate, UsuarioOut
+from app.schemas import UsuarioBaseOut, UsuarioCreate, UsuarioCreateOut, UsuarioEstadoUpdate, UsuarioRolUpdate, UsuarioOut
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
@@ -245,7 +245,7 @@ def actualizar_rol_usuario(
     return resp
 
 
-@router.get("", response_model=list[UsuarioOut])
+@router.get("", response_model=list[UsuarioBaseOut])
 def listar_usuarios(
     roles: Annotated[list[Rol] | None, Query(alias="rol")] = None,
     incluir_inactivos: bool = False,
@@ -259,6 +259,8 @@ def listar_usuarios(
     incluir_inactivos=true → devuelve activos e inactivos (uso exclusivo de Admin UI).
     """
     empresa_id = requiere_empresa(ctx)
+    if not puede(ctx.rol, "ver_usuarios"):
+        raise HTTPException(403, "Su rol no puede ver el padrón de usuarios.")
     q = (
         db.query(Usuario, EmpresaUsuario.rol, EmpresaUsuario.estado)
         .join(EmpresaUsuario, EmpresaUsuario.usuario_id == Usuario.id)

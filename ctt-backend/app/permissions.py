@@ -29,6 +29,9 @@ MATRIZ_PERMISOS: dict[str, set[Rol]] = {
     "crear_editar_item":     {Rol.COORDINADOR, Rol.ADMIN},
     "crear_editar_proyecto": {Rol.COORDINADOR, Rol.ADMIN},
     "cerrar_proyecto":       {Rol.ADMIN},
+    # Lectura del padrón de la empresa (GET /usuarios, CTT-97). El Trabajador NO:
+    # su app solo consume /items/mis-items y /items/{id}/transicion.
+    "ver_usuarios":          {Rol.RESIDENTE, Rol.COORDINADOR, Rol.ADMIN},
     "crear_usuarios":        {Rol.ADMIN},            # + super_admin (manejado aparte)
     "gestionar_roles":       {Rol.ADMIN},            # + super_admin
     # Residente tiene acceso PARCIAL a reportes (Sección 2.2). Se concede acceso y
