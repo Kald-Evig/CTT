@@ -2,6 +2,9 @@
 *.db
 *.db-shm
 *.db-wal
+# Dumps/backups de DB (p. ej. ctt_dev.db.OLD): *.db no los cubre por el sufijo.
+# Importante: pueden contener datos personales reales (RUT, correos), no solo seed.
+*.db.*
 
 # Caché de Python
 __pycache__/
