@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 import firebase_admin
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from firebase_admin import credentials as fb_credentials
@@ -49,6 +50,11 @@ def _firebase_credential():
     _log.info("firebase_admin: type=%r (no service_account) → delegando a ADC", cred_type)
     return None
 
+
+# Carga .env a os.environ para que _firebase_credential() vea GOOGLE_APPLICATION_
+# CREDENTIALS (pydantic-settings lee el .env solo hacia el objeto Settings, no a
+# os.environ). No sobrescribe variables ya presentes en el entorno real.
+load_dotenv()
 
 firebase_admin.initialize_app(_firebase_credential())
 
