@@ -91,7 +91,7 @@ def _validar_asignatario_miembro(db: Session, usuario_id: str, proyecto_id: str)
         .first()
     )
     if membresia is None:
-        raise HTTPException(409, "El asignatario no es miembro activo del proyecto.")
+        raise HTTPException(409, "El asignatario no es miembro activo del proyecto. Agregue a la persona al proyecto antes de asignarle este ítem.")
 
 
 # ── Crear ítem ───────────────────────────────────────────────────────────────
