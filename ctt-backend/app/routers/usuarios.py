@@ -261,6 +261,10 @@ def listar_usuarios(
     empresa_id = requiere_empresa(ctx)
     if not puede(ctx.rol, "ver_usuarios"):
         raise HTTPException(403, "Su rol no puede ver el padrón de usuarios.")
+    # Ver inactivos es exclusivo de administración (Admin / Super Admin). Para el
+    # resto se fuerza a activos, en silencio: es un filtro, no un acceso a recurso.
+    if not (ctx.rol == Rol.ADMIN or ctx.es_super_admin):
+        incluir_inactivos = False
     q = (
         db.query(Usuario, EmpresaUsuario.rol, EmpresaUsuario.estado)
         .join(EmpresaUsuario, EmpresaUsuario.usuario_id == Usuario.id)

@@ -67,3 +67,45 @@ def test_post_usuarios_si_trae_rut(client, seeded, monkeypatch):
     body = r.json()
     assert "rut" in body
     assert body["rut"] == "12.345.678-5"
+
+
+# ── incluir_inactivos gateado a administración (CTT-97, PASO 4) ────────────────
+def _seed_trabajador_inactivo(db, seeded):
+    """Agrega un trabajador con membresía INACTIVA en la empresa A. Devuelve su id."""
+    from app.enums import Rol, UsuarioEstado
+    from app.models import EmpresaUsuario, Usuario
+    u = Usuario(firebase_uid="t-inactivo-ctt97", nombre_completo="Inactivo CTT97",
+                email="inactivo.ctt97@a.cl")
+    db.add(u)
+    db.flush()
+    db.add(EmpresaUsuario(empresa_id=seeded.emp_a, usuario_id=u.id,
+                          rol=Rol.TRABAJADOR, estado=UsuarioEstado.INACTIVO))
+    db.commit()
+    return u.id
+
+
+def test_residente_incluir_inactivos_no_recibe_inactivos(client, seeded, db):
+    """Residente con incluir_inactivos=true NO recibe inactivos: se fuerza a activos."""
+    uid_inactivo = _seed_trabajador_inactivo(db, seeded)
+    r = client.get(
+        "/usuarios",
+        params={"incluir_inactivos": True},
+        headers=seeded.headers(seeded.resid, seeded.emp_a),
+    )
+    assert r.status_code == 200, r.text
+    ids = {u["id"] for u in r.json()}
+    assert ids, "el listado no debe venir vacío (hay usuarios activos)"
+    assert uid_inactivo not in ids, "Residente no debe ver inactivos ni pidiéndolos"
+
+
+def test_admin_incluir_inactivos_si_recibe_inactivos(client, seeded, db):
+    """Control positivo: Admin con incluir_inactivos=true SÍ recibe el inactivo."""
+    uid_inactivo = _seed_trabajador_inactivo(db, seeded)
+    r = client.get(
+        "/usuarios",
+        params={"incluir_inactivos": True},
+        headers=seeded.headers(seeded.admin, seeded.emp_a),
+    )
+    assert r.status_code == 200, r.text
+    ids = {u["id"] for u in r.json()}
+    assert uid_inactivo in ids, "Admin con incluir_inactivos=true debe ver el inactivo"
