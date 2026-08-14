@@ -27,8 +27,14 @@ class ConectividadListener extends _$ConectividadListener {
 
     final sub = Connectivity().onConnectivityChanged.listen((resultados) async {
       final tieneRed = resultados.any((r) => r != ConnectivityResult.none);
+      final flancoAOnline = tieneRed && !teniaRed;
+      // Actualizar el flanco ANTES del await: Stream.listen con callback async no
+      // espera a que termine el callback anterior. Si `teniaRed` se asignara
+      // después del await, un segundo evento de conectividad entraría con el valor
+      // viejo y dispararía un flush concurrente sobre la misma cola (CTT-105).
+      teniaRed = tieneRed;
 
-      if (tieneRed && !teniaRed) {
+      if (flancoAOnline) {
         try {
           // Flush foreground: usa BD y Dio del ProviderScope. Sin instancias nuevas.
           await ref.read(cicloSyncProvider).ejecutar();
@@ -44,8 +50,6 @@ class ConectividadListener extends _$ConectividadListener {
           );
         }
       }
-
-      teniaRed = tieneRed;
     });
 
     ref.onDispose(sub.cancel);

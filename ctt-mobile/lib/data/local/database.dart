@@ -41,6 +41,9 @@ class SyncPendientesTable extends Table {
   /// EstadoSyncLocal.valor — ver enums_ctt.dart.
   TextColumn get estado => text().withDefault(const Constant('pendiente'))();
   TextColumn get ultimoError => text().nullable()();
+  /// Clave de idempotencia (CTT-105). Nullable: las filas encoladas antes de
+  /// esta versión no la tienen y no se puede inventar una retroactivamente.
+  TextColumn get idempotencyKey => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -114,7 +117,7 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT() : super(_abrirConexion());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -122,6 +125,10 @@ class BaseDatosCTT extends _$BaseDatosCTT {
         onUpgrade: (m, desde, hasta) async {
           if (desde < 2) {
             await m.addColumn(itemsCacheTable, itemsCacheTable.proyectoNombre);
+          }
+          if (desde < 3) {
+            await m.addColumn(
+                syncPendientesTable, syncPendientesTable.idempotencyKey,);
           }
         },
       );

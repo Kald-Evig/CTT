@@ -8,6 +8,7 @@ library;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -57,6 +58,10 @@ class TransicionService {
   }) async {
     final deviceId = await deviceIdService.obtener();
     final ahora = DateTime.now().toUtc();
+    // Una sola clave por invocación de ejecutar(): la comparten el POST online y
+    // el encolado, para que el backend deduplique si la respuesta online se pierde
+    // y el cambio se reintenta después desde la cola (CTT-105).
+    final idempotencyKey = const Uuid().v4();
 
     try {
       final resp = await dio.post<Map<String, dynamic>>(
@@ -72,6 +77,7 @@ class TransicionService {
         options: Options(
           sendTimeout: _kTimeoutTransicion,
           receiveTimeout: _kTimeoutTransicion,
+          headers: {'Idempotency-Key': idempotencyKey},
         ),
       );
       return TransicionAplicadaOnline(resp.data!);
@@ -80,12 +86,14 @@ class TransicionService {
       if (e.response?.statusCode == 409) {
         return _manejar409(
           e, itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
+          idempotencyKey,
         );
       }
 
       // Error de red (sin conexión, timeout): encolar para sincronizar después.
       if (_esErrorDeRed(e)) {
-        await _encolar(itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId);
+        await _encolar(itemId, nuevoEstado, comentario, descripcionProblema, ahora,
+            deviceId, idempotencyKey,);
         return const TransicionEncoladaOffline();
       }
 
@@ -102,6 +110,7 @@ class TransicionService {
     String? descripcionProblema,
     DateTime ahora,
     String deviceId,
+    String idempotencyKey,
   ) async {
     final body = e.response?.data;
     final conflictoId = body is Map ? body['conflicto_id'] as String? : null;
@@ -110,6 +119,7 @@ class TransicionService {
       // Conflicto de concurrencia: encolar con estado conflicto para resolución manual.
       final entradaId = await _encolar(
         itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
+        idempotencyKey,
       );
       await syncDao.marcarConflicto(entradaId, conflictoId: conflictoId);
       return TransicionConConflicto(conflictoId);
@@ -127,6 +137,7 @@ class TransicionService {
     String? descripcionProblema,
     DateTime ahora,
     String deviceId,
+    String idempotencyKey,
   ) async {
     final id = const Uuid().v4();
     await syncDao.encolar(SyncPendientesTableCompanion.insert(
@@ -143,6 +154,7 @@ class TransicionService {
       }),
       timestampDispositivo: ahora,
       dispositivoId: deviceId,
+      idempotencyKey: Value(idempotencyKey),
     ),);
     return id;
   }

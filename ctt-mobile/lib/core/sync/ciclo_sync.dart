@@ -56,6 +56,7 @@ class CicloSync {
           accion: cambio.accion,
           entidadId: cambio.entidadId,
           payload: cambio.payload,
+          idempotencyKey: cambio.idempotencyKey,
         );
         await syncDao.marcarSincronizado(cambio.id);
       } on DioException catch (e) {
@@ -94,12 +95,22 @@ class CicloSync {
     required String accion,
     required String entidadId,
     required String payload,
+    String? idempotencyKey,
   }) async {
     final data = jsonDecode(payload) as Map<String, dynamic>;
 
     switch (accion) {
       case 'cambio_estado_item':
-        await dio.post<void>('/items/$entidadId/transicion', data: data);
+        // La clave (null en filas encoladas antes de la migración v3) va como
+        // header, NO en el payload: el payload alimenta el fingerprint del
+        // servidor y meterla ahí rompería la deduplicación (CTT-105).
+        await dio.post<void>(
+          '/items/$entidadId/transicion',
+          data: data,
+          options: idempotencyKey != null
+              ? Options(headers: {'Idempotency-Key': idempotencyKey})
+              : null,
+        );
       case 'subir_foto':
         // Stub deliberado: la captura y subida de evidencia no existe todavía
         // (CTT-99). El throw es intencional para NO caer en marcarSincronizado
