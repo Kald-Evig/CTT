@@ -14,6 +14,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -113,7 +114,7 @@ class TransicionService {
     String idempotencyKey,
   ) async {
     final body = e.response?.data;
-    final conflictoId = body is Map ? body['conflicto_id'] as String? : null;
+    final conflictoId = extraerConflictoId(e);
 
     if (conflictoId != null) {
       // Conflicto de concurrencia: encolar con estado conflicto para resolución manual.

@@ -62,9 +62,7 @@ class CicloSync {
       } on DioException catch (e) {
         final status = e.response?.statusCode;
         if (status == 409) {
-          final body = e.response?.data;
-          final conflictoId =
-              body is Map ? body['conflicto_id'] as String? : null;
+          final conflictoId = extraerConflictoId(e);
           await syncDao.marcarConflicto(cambio.id, conflictoId: conflictoId);
         } else if (status == 403 || status == 404 || status == 422) {
           // Rechazo permanente: permiso denegado, recurso inexistente o datos

@@ -1,10 +1,11 @@
-/// extraer_detalle_backend.dart — Motivo legible de un error del backend.
+/// extraer_detalle_backend.dart — Lectores del `detail` de un error del backend.
 ///
-/// Único helper compartido para leer el campo `detail` de una respuesta de
-/// FastAPI desde un [DioException]. Vive en core/network porque opera sobre
-/// [DioException] (concern de red) y solo depende de `package:dio`, así que
-/// tanto los repositorios (data/) como los servicios de core/ pueden importarlo
-/// sin riesgo de dependencia circular.
+/// Helpers compartidos que leen la respuesta de FastAPI desde un [DioException]:
+///   - [extraerDetalleBackend]: el motivo legible (String).
+///   - [extraerConflictoId]:    el `conflicto_id` de un 409 de concurrencia.
+/// Viven en core/network porque operan sobre [DioException] (concern de red) y
+/// solo dependen de `package:dio`, así que tanto los repositorios (data/) como
+/// los servicios de core/ pueden importarlos sin riesgo de dependencia circular.
 ///
 /// Deuda (CTT-65): hoy existen cinco copias privadas de esta lógica
 /// (admin_repository, coordinador_repository, transicion_service,
@@ -46,4 +47,23 @@ String extraerDetalleBackend(DioException e) {
     }
   }
   return e.message ?? 'Error de red';
+}
+
+/// Devuelve el `conflicto_id` de un 409 de conflicto de concurrencia, o null.
+///
+/// El backend lo anida bajo `detail` (ver `transicion_item`):
+///   `{"detail": {"tipo": "conflicto_concurrencia", "conflicto_id": "...", ...}}`
+/// Devuelve null ante cualquier otra forma —sin body, `detail` String (rechazo
+/// de negocio), `detail` lista (422 de Pydantic), o `detail` Map sin la clave—
+/// para que la clasificación de la cola no distinga un rechazo de un conflicto.
+String? extraerConflictoId(DioException e) {
+  final data = e.response?.data;
+  if (data is Map<String, dynamic>) {
+    final detail = data['detail'];
+    if (detail is Map<String, dynamic>) {
+      final id = detail['conflicto_id'];
+      if (id is String) return id;
+    }
+  }
+  return null;
 }
