@@ -24,6 +24,7 @@ from app.config import settings
 from app.database import Base, engine
 # Importar modelos registra las tablas en la metadata de Base.
 from app import models  # noqa: F401
+from app.middleware.idempotency_middleware import IdempotencyMiddleware
 from app.middleware.logging_middleware import LoggingMiddleware, configurar_logging
 from app.routers import (
     audit, items, me, notificaciones, plataforma, proyectos, reportes, sync, usuarios,
@@ -67,6 +68,11 @@ app = FastAPI(
         "Modo de autenticación actual: **%s**." % settings.AUTH_MODE
     ),
 )
+
+# CTT-105: idempotencia de mutaciones. Registrado ANTES de LoggingMiddleware para
+# quedar por DENTRO (Logging lo envuelve) y que todo request —incluido un replay
+# servido desde caché— aparezca en el log. Sin condición, a diferencia de Logging.
+app.add_middleware(IdempotencyMiddleware)
 
 # Logging de requests a archivo — solo activo en desarrollo (LOG_REQUESTS=true).
 # En producción: LOG_REQUESTS=false en las variables de entorno.
