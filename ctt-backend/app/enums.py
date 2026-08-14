@@ -68,3 +68,9 @@ class EvidenciaSyncStatus(str, Enum):
 class ConflictoEstado(str, Enum):
     PENDIENTE = "pendiente"
     RESUELTO = "resuelto"
+
+
+class IdempotenciaEstado(str, Enum):
+    """Estado de una clave de idempotencia (CTT-105)."""
+    EN_PROCESO = "en_proceso"   # reserva tomada, endpoint todavía en ejecución
+    COMPLETADO = "completado"   # respuesta definitiva persistida, lista para replay

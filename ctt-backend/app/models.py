@@ -30,7 +30,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.enums import (
     ConflictoEstado, EmpresaEstado, EmpresaPlan, EvidenciaSyncStatus,
-    ItemEstado, ProblemaEstado, ProyectoEstado, Rol, UsuarioEstado,
+    IdempotenciaEstado, ItemEstado, ProblemaEstado, ProyectoEstado, Rol,
+    UsuarioEstado,
 )
 
 
@@ -336,3 +337,35 @@ class AuditLog(Base):
     device_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     synced_offline: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)  # server ts autoritativo
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CLAVES_IDEMPOTENCIA  [CTT-105 — idempotencia de mutaciones]
+# ─────────────────────────────────────────────────────────────────────────────
+class ClaveIdempotencia(Base):
+    """Registro de una clave de idempotencia por empresa (CTT-105).
+
+    El middleware reserva la clave con INSERT ... ON CONFLICT DO NOTHING; al
+    completar el endpoint persiste status_code + response_body y marca
+    `completado` para poder replayar la respuesta. `fingerprint` detecta la
+    misma clave reusada con un body distinto.
+    """
+    __tablename__ = "claves_idempotencia"
+    __table_args__ = (
+        # Scope por empresa: la misma clave puede convivir en empresas distintas.
+        UniqueConstraint("empresa_id", "idempotency_key",
+                         name="uq_claves_idempotencia_empresa_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    empresa_id: Mapped[str] = mapped_column(ForeignKey("empresas.id"))
+    idempotency_key: Mapped[str] = mapped_column(String(255))   # valor del header Idempotency-Key
+    endpoint: Mapped[str] = mapped_column(String(255))          # operación cubierta (path del endpoint)
+    fingerprint: Mapped[str] = mapped_column(String(64))        # SHA-256 hex del body
+    estado: Mapped[IdempotenciaEstado] = mapped_column(
+        SAEnum(IdempotenciaEstado, native_enum=False, create_constraint=True, name="idempotencia_estado"),
+        default=IdempotenciaEstado.EN_PROCESO,
+    )
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

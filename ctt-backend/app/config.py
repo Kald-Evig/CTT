@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # ── Logging de desarrollo ────────────────────────────────────────────────
     LOG_REQUESTS: bool = True
 
+    # ── Idempotencia (CTT-105) ───────────────────────────────────────────────
+    # Días de retención de las claves de idempotencia antes de poder purgarlas.
+    IDEMPOTENCY_TTL_DIAS: int = 30
+
     # ── Metadatos ────────────────────────────────────────────────────────────
     APP_NAME: str = "CTT — Field Service Management"
     APP_VERSION: str = "1.0.0-mvp"
