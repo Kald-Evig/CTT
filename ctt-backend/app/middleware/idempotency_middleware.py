@@ -19,6 +19,9 @@ abre su propia SessionLocal y la cierra en un finally.
 import hashlib
 import json
 
+from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -26,7 +29,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.database import SessionLocal
 from app.enums import IdempotenciaEstado
-from app.models import ClaveIdempotencia
+from app.models import ClaveIdempotencia, MetricaIdempotencia
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -106,6 +109,24 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                     },
                 )
             if existente.estado == IdempotenciaEstado.COMPLETADO:
+                # Contador diario de replays (CTT-105 Parte 2): UPSERT sobre la
+                # misma session ya abierta, un commit dentro del try. El insert
+                # se elige por dialecto: Postgres en producción, SQLite en la
+                # suite de tests; ambos soportan ON CONFLICT DO UPDATE.
+                insert = (
+                    sqlite_insert
+                    if session.bind.dialect.name == "sqlite"
+                    else pg_insert
+                )
+                session.execute(
+                    insert(MetricaIdempotencia)
+                    .values(fecha=func.current_date(), replays=1)
+                    .on_conflict_do_update(
+                        index_elements=["fecha"],
+                        set_={"replays": MetricaIdempotencia.replays + 1},
+                    )
+                )
+                session.commit()
                 return JSONResponse(
                     status_code=existente.status_code,
                     content=existente.response_body,

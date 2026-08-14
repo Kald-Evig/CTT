@@ -17,7 +17,7 @@ Convenciones:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from enum import Enum as PyEnum
 
@@ -369,3 +369,16 @@ class ClaveIdempotencia(Base):
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class MetricaIdempotencia(Base):
+    """Contador diario de replays servidos por el middleware (CTT-105 Parte 2).
+
+    Una fila por día; el middleware incrementa `replays` cada vez que sirve una
+    respuesta cacheada (header `Idempotent-Replayed: true`). Métrica operacional
+    agregada: sin PII y sin scope por empresa, la PK es la fecha.
+    """
+    __tablename__ = "metricas_idempotencia"
+
+    fecha: Mapped[date] = mapped_column(Date, primary_key=True)
+    replays: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)

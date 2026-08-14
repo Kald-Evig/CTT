@@ -6,7 +6,7 @@ asignado al trabajador, así que abierto→en_progreso es válido para `trab`).
 """
 
 from app.enums import IdempotenciaEstado, ItemEstado
-from app.models import AuditLog, ClaveIdempotencia, Item
+from app.models import AuditLog, ClaveIdempotencia, Item, MetricaIdempotencia
 
 
 def _headers_key(seeded, uid, empresa_id, key):
@@ -116,3 +116,25 @@ def test_no_2xx_no_persiste_y_reintentable(client, seeded, db):
 
     item = db.query(Item).filter_by(id=seeded.item).one()
     assert item.estado == ItemEstado.ABIERTO  # nunca cambió
+
+
+# 6 — CONTADOR: solo el replay incrementa la métrica diaria, no el primer request.
+def test_replay_incrementa_contador_diario(client, seeded, db):
+    h = _headers_key(seeded, seeded.trab, seeded.emp_a, "k-metrica")
+    payload = {"nuevo_estado": "en_progreso"}
+
+    r1 = client.post(f"/items/{seeded.item}/transicion", json=payload, headers=h)
+    assert r1.status_code == 200, r1.text
+    # El primer request NO es replay: la métrica sigue vacía.
+    db.expire_all()
+    assert db.query(MetricaIdempotencia).count() == 0
+
+    r2 = client.post(f"/items/{seeded.item}/transicion", json=payload, headers=h)
+    assert r2.status_code == 200, r2.text
+    assert r2.headers.get("Idempotent-Replayed") == "true"
+
+    db.expire_all()
+    # Un solo replay servido hoy -> el contador del día queda en 1.
+    filas = db.query(MetricaIdempotencia).all()
+    assert len(filas) == 1
+    assert filas[0].replays == 1
