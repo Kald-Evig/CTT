@@ -18,6 +18,7 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart';
+import 'package:ctt_mobile/presentation/shared/mensajes.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
 class DetalleItemScreen extends ConsumerWidget {
@@ -84,7 +85,6 @@ class _CuerpoDetalle extends ConsumerWidget {
                   color: Theme.of(context).colorScheme.primary,
                 ),
           ),
-
           if (item.descripcion != null && item.descripcion!.isNotEmpty) ...[
             const SizedBox(height: 16),
             const Divider(),
@@ -94,11 +94,9 @@ class _CuerpoDetalle extends ConsumerWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
-
           const SizedBox(height: 32),
           const Divider(),
           const SizedBox(height: 16),
-
           _AccionesEstado(item: item, estado: estado),
         ],
       ),
@@ -130,7 +128,9 @@ class _AccionesEstado extends ConsumerWidget {
               icono: Icons.check_circle_outline,
               color: Colors.green.shade700,
               onTap: () => _ejecutarCambio(
-                context, ref, EstadoItem.pendienteRevision,
+                context,
+                ref,
+                EstadoItem.pendienteRevision,
               ),
             ),
             const SizedBox(height: 12),
@@ -153,7 +153,8 @@ class _AccionesEstado extends ConsumerWidget {
         ),
       EstadoItem.pendienteRevision => const ItemDetalleMensajeEstado(
           icono: Icons.hourglass_top_rounded,
-          texto: 'Ítem enviado a revisión. Aguarda la confirmación del coordinador.',
+          texto:
+              'Ítem enviado a revisión. Aguarda la confirmación del coordinador.',
         ),
       EstadoItem.terminado => const ItemDetalleMensajeEstado(
           icono: Icons.verified_outlined,
@@ -181,9 +182,7 @@ class _AccionesEstado extends ConsumerWidget {
       // El repositorio ya revirtió la caché; solo refrescar la UI.
       ref.invalidate(itemDetalleProvider(item.id));
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
+        mostrarMensaje(context, 'Error al guardar: $e');
       }
     }
   }
@@ -224,10 +223,11 @@ class _AccionesEstado extends ConsumerWidget {
 
     if (!context.mounted) return;
     try {
-      final resultado = await ref.read(itemsRepositoryProvider).reportarProblema(
-            itemId: item.id,
-            descripcion: descripcion,
-          );
+      final resultado =
+          await ref.read(itemsRepositoryProvider).reportarProblema(
+                itemId: item.id,
+                descripcion: descripcion,
+              );
       ref.invalidate(itemDetalleProvider(item.id));
       ref.invalidate(misItemsProvider);
       if (context.mounted) {
@@ -236,9 +236,7 @@ class _AccionesEstado extends ConsumerWidget {
     } catch (e) {
       ref.invalidate(itemDetalleProvider(item.id));
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(SnackBar(content: Text('Error al reportar: $e')));
+        mostrarMensaje(context, 'Error al reportar: $e');
       }
     }
   }
@@ -252,9 +250,7 @@ class _AccionesEstado extends ConsumerWidget {
       TransicionConConflicto() =>
         'Hay un conflicto que un coordinador debe resolver.',
     };
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+    mostrarMensaje(context, msg);
   }
 }
 

@@ -17,6 +17,7 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart';
+import 'package:ctt_mobile/presentation/shared/mensajes.dart';
 
 class DetalleItemResidenteScreen extends ConsumerWidget {
   const DetalleItemResidenteScreen({super.key, required this.itemId});
@@ -32,7 +33,8 @@ class DetalleItemResidenteScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => ErrorVista(
           mensaje: 'No se pudo cargar el ítem: $e',
-          onReintento: () => ref.invalidate(itemResidenteDetalleProvider(itemId)),
+          onReintento: () =>
+              ref.invalidate(itemResidenteDetalleProvider(itemId)),
         ),
         data: (item) => ItemDetalleCuerpo(
           item: item,
@@ -137,9 +139,7 @@ class _AccionesResidente extends ConsumerWidget {
       ref.invalidate(itemResidenteDetalleProvider(item.id));
       ref.invalidate(itemsProyectoProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(const SnackBar(content: Text('Problema cerrado.')));
+        mostrarMensaje(context, 'Problema cerrado.');
       }
     } catch (e) {
       if (context.mounted) {
@@ -168,8 +168,9 @@ class _AccionesResidente extends ConsumerWidget {
             ),
             maxLines: 3,
             autofocus: true,
-            validator: (v) =>
-                v == null || v.trim().isEmpty ? 'El motivo es obligatorio' : null,
+            validator: (v) => v == null || v.trim().isEmpty
+                ? 'El motivo es obligatorio'
+                : null,
           ),
         ),
         actions: [
@@ -277,7 +278,8 @@ class _AccionesResidente extends ConsumerWidget {
       context: context,
       builder: (ctx) => Consumer(
         builder: (ctx, dialogRef, _) {
-          final usuariosAsync = dialogRef.watch(usuariosEmpresaPorRolesProvider(const ['trabajador']));
+          final usuariosAsync = dialogRef
+              .watch(usuariosEmpresaPorRolesProvider(const ['trabajador']));
           return AlertDialog(
             title: const Text('Asignar a trabajador'),
             content: SizedBox(
@@ -322,13 +324,13 @@ class _AccionesResidente extends ConsumerWidget {
     );
     if (usuarioId == null || !context.mounted) return;
     try {
-      await ref.read(residenteRepositoryProvider).asignarItem(item.id, usuarioId);
+      await ref
+          .read(residenteRepositoryProvider)
+          .asignarItem(item.id, usuarioId);
       ref.invalidate(itemResidenteDetalleProvider(item.id));
       ref.invalidate(itemsProyectoProvider);
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(const SnackBar(content: Text('Ítem asignado.')));
+        mostrarMensaje(context, 'Ítem asignado.');
       }
     } catch (e) {
       if (context.mounted) {
@@ -350,14 +352,10 @@ class _AccionesResidente extends ConsumerWidget {
       TransicionConConflicto() =>
         'Hay un conflicto que un coordinador debe resolver.',
     };
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+    mostrarMensaje(context, msg);
   }
 
   void _mostrarError(BuildContext context, Object e) {
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(itemDetalleMensajeError(e))));
+    mostrarMensaje(context, itemDetalleMensajeError(e));
   }
 }
