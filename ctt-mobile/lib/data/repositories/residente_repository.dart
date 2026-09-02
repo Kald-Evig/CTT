@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/network/red_helpers.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/core/sync/transicion_service.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
@@ -32,7 +33,7 @@ class ResidenteRepository {
   // ── Proyectos ────────────────────────────────────────────────────────────────
 
   Future<List<ProyectoResidente>> listarProyectos() =>
-      _fetchList('/proyectos', ProyectoResidente.fromJson);
+      fetchList(_dio, '/proyectos', ProyectoResidente.fromJson);
 
   // ── Ítems ────────────────────────────────────────────────────────────────────
 
@@ -42,7 +43,12 @@ class ResidenteRepository {
   }) {
     final params = <String, dynamic>{'proyecto_id': proyectoId};
     if (estadoFiltro != null) params['estado'] = estadoFiltro;
-    return _fetchList('/items', ItemResidente.fromJson, queryParameters: params);
+    return fetchList(
+      _dio,
+      '/items',
+      ItemResidente.fromJson,
+      queryParameters: params,
+    );
   }
 
   Future<ItemResidente> obtenerItem(String itemId) async {
@@ -51,13 +57,13 @@ class ResidenteRepository {
   }
 
   Future<List<ComentarioItem>> listarComentarios(String itemId) =>
-      _fetchList('/items/$itemId/comentarios', ComentarioItem.fromJson);
+      fetchList(_dio, '/items/$itemId/comentarios', ComentarioItem.fromJson);
 
   Future<List<EvidenciaItem>> listarEvidencias(String itemId) =>
-      _fetchList('/items/$itemId/evidencias', EvidenciaItem.fromJson);
+      fetchList(_dio, '/items/$itemId/evidencias', EvidenciaItem.fromJson);
 
   Future<List<EntradaHistorial>> listarHistorial(String itemId) =>
-      _fetchList('/items/$itemId/historial', EntradaHistorial.fromJson);
+      fetchList(_dio, '/items/$itemId/historial', EntradaHistorial.fromJson);
 
   // ── Acciones ─────────────────────────────────────────────────────────────────
 
@@ -77,7 +83,8 @@ class ResidenteRepository {
       );
 
   Future<ItemResidente> cerrarProblema(String itemId) async {
-    final resp = await _dio.post<Map<String, dynamic>>('/items/$itemId/cerrar-problema');
+    final resp =
+        await _dio.post<Map<String, dynamic>>('/items/$itemId/cerrar-problema');
     return ItemResidente.fromJson(resp.data!);
   }
 
@@ -92,7 +99,7 @@ class ResidenteRepository {
   // ── Notificaciones ───────────────────────────────────────────────────────────
 
   Future<List<NotificacionResidente>> listarNotificaciones() =>
-      _fetchList('/notificaciones', NotificacionResidente.fromJson);
+      fetchList(_dio, '/notificaciones', NotificacionResidente.fromJson);
 
   Future<void> marcarNotificacionLeida(String notifId) async {
     await _dio.post<void>('/notificaciones/$notifId/leer');
@@ -101,22 +108,12 @@ class ResidenteRepository {
   // ── Usuarios ─────────────────────────────────────────────────────────────────
 
   Future<List<UsuarioEmpresa>> listarUsuarios({List<String>? roles}) =>
-      _fetchList(
+      fetchList(
+        _dio,
         '/usuarios',
         UsuarioEmpresa.fromJson,
         queryParameters: (roles != null && roles.isNotEmpty)
             ? <String, dynamic>{'rol': roles}
             : null,
       );
-
-  // ── Utilidades ───────────────────────────────────────────────────────────────
-
-  Future<List<T>> _fetchList<T>(
-    String url,
-    T Function(Map<String, dynamic>) fromJson, {
-    Map<String, dynamic>? queryParameters,
-  }) async {
-    final resp = await _dio.get<List<dynamic>>(url, queryParameters: queryParameters);
-    return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
-  }
 }

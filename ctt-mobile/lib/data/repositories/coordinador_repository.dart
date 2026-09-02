@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
+import 'package:ctt_mobile/core/network/red_helpers.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
@@ -56,7 +57,8 @@ class CoordinadorRepository {
     if (fechaInicio != null) body['fecha_inicio'] = fechaInicio;
     if (fechaFinEstimada != null) body['fecha_fin_estimada'] = fechaFinEstimada;
 
-    final resp = await _dio.post<Map<String, dynamic>>('/proyectos', data: body);
+    final resp =
+        await _dio.post<Map<String, dynamic>>('/proyectos', data: body);
     return ProyectoCoordinador.fromJson(resp.data!);
   }
 
@@ -94,7 +96,9 @@ class CoordinadorRepository {
       final resp = await _dio.post<Map<String, dynamic>>('/items', data: body);
       return ItemResidente.fromJson(resp.data!);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 400) throw ErrorCoordinador(extraerDetalleBackend(e));
+      if (e.response?.statusCode == 400) {
+        throw ErrorCoordinador(extraerDetalleBackend(e));
+      }
       rethrow;
     }
   }
@@ -147,7 +151,9 @@ class CoordinadorRepository {
           await _dio.put<Map<String, dynamic>>('/items/$id', data: body);
       return ItemResidente.fromJson(resp.data!);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) throw ErrorCoordinador(extraerDetalleBackend(e));
+      if (e.response?.statusCode == 409) {
+        throw ErrorCoordinador(extraerDetalleBackend(e));
+      }
       rethrow;
     }
   }
@@ -171,12 +177,13 @@ class CoordinadorRepository {
   // ── Dashboard (CTT-42) ───────────────────────────────────────────────────────
 
   Future<List<DashboardProyecto>> listarDashboard() =>
-      _fetchList('/proyectos/dashboard', DashboardProyecto.fromJson);
+      fetchList(_dio, '/proyectos/dashboard', DashboardProyecto.fromJson);
 
   Future<List<HistorialProyectoEntrada>> listarHistorialProyecto(
     String proyectoId,
   ) =>
-      _fetchList(
+      fetchList(
+        _dio,
         '/proyectos/$proyectoId/historial',
         HistorialProyectoEntrada.fromJson,
       );
@@ -188,7 +195,8 @@ class CoordinadorRepository {
     int limit = 10,
     int offset = 0,
   }) =>
-      _fetchList(
+      fetchList(
+        _dio,
         '/audit-log',
         AuditLogEntry.fromJson,
         queryParameters: <String, dynamic>{
@@ -201,8 +209,11 @@ class CoordinadorRepository {
 
   // ── Miembros de proyecto (CTT-44) ────────────────────────────────────────────
 
-  Future<List<MiembroProyecto>> getMiembros(String proyectoId) =>
-      _fetchList('/proyectos/$proyectoId/usuarios', MiembroProyecto.fromJson);
+  Future<List<MiembroProyecto>> getMiembros(String proyectoId) => fetchList(
+        _dio,
+        '/proyectos/$proyectoId/usuarios',
+        MiembroProyecto.fromJson,
+      );
 
   Future<MiembroProyecto> asignarMiembro(
     String proyectoId,
@@ -215,7 +226,9 @@ class CoordinadorRepository {
       );
       return MiembroProyecto.fromJson(resp.data!);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) throw ErrorCoordinador(extraerDetalleBackend(e));
+      if (e.response?.statusCode == 409) {
+        throw ErrorCoordinador(extraerDetalleBackend(e));
+      }
       rethrow;
     }
   }
@@ -245,11 +258,12 @@ class CoordinadorRepository {
 
   // ── Conflictos ───────────────────────────────────────────────────────────────
 
-  Future<List<ConflictoSync>> listarConflictos({String? estado}) =>
-      _fetchList(
+  Future<List<ConflictoSync>> listarConflictos({String? estado}) => fetchList(
+        _dio,
         '/sync/conflictos',
         ConflictoSync.fromJson,
-        queryParameters: estado != null ? <String, dynamic>{'estado': estado} : null,
+        queryParameters:
+            estado != null ? <String, dynamic>{'estado': estado} : null,
       );
 
   /// Lanza [ErrorCoordinador] si el servidor devuelve 409 (conflicto ya resuelto
@@ -264,19 +278,10 @@ class CoordinadorRepository {
         data: {'version_ganadora': versionGanadora},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) throw ErrorCoordinador(extraerDetalleBackend(e));
+      if (e.response?.statusCode == 409) {
+        throw ErrorCoordinador(extraerDetalleBackend(e));
+      }
       rethrow;
     }
-  }
-
-  // ── Utilidades ───────────────────────────────────────────────────────────────
-
-  Future<List<T>> _fetchList<T>(
-    String url,
-    T Function(Map<String, dynamic>) fromJson, {
-    Map<String, dynamic>? queryParameters,
-  }) async {
-    final resp = await _dio.get<List<dynamic>>(url, queryParameters: queryParameters);
-    return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
   }
 }

@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
+import 'package:ctt_mobile/core/network/red_helpers.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
 part 'admin_repository.g.dart';
@@ -34,7 +35,8 @@ class AdminRepository {
   Future<List<UsuarioEmpresa>> listarUsuarios({
     bool incluirInactivos = false,
   }) =>
-      _fetchList(
+      fetchList(
+        _dio,
         '/usuarios',
         UsuarioEmpresa.fromJson,
         queryParameters: incluirInactivos
@@ -83,7 +85,9 @@ class AdminRepository {
         data: {'estado': 'inactivo'},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
+      if (e.response?.statusCode != null) {
+        throw ErrorAdmin(extraerDetalleBackend(e));
+      }
       rethrow;
     }
   }
@@ -95,7 +99,9 @@ class AdminRepository {
         data: {'estado': 'activo'},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
+      if (e.response?.statusCode != null) {
+        throw ErrorAdmin(extraerDetalleBackend(e));
+      }
       rethrow;
     }
   }
@@ -107,7 +113,9 @@ class AdminRepository {
         data: {'rol': rol},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
+      if (e.response?.statusCode != null) {
+        throw ErrorAdmin(extraerDetalleBackend(e));
+      }
       rethrow;
     }
   }
@@ -116,20 +124,10 @@ class AdminRepository {
     try {
       await _dio.post<void>('/proyectos/$proyectoId/cerrar');
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
+      if (e.response?.statusCode != null) {
+        throw ErrorAdmin(extraerDetalleBackend(e));
+      }
       rethrow;
     }
-  }
-
-  Future<List<T>> _fetchList<T>(
-    String url,
-    T Function(Map<String, dynamic>) fromJson, {
-    Map<String, dynamic>? queryParameters,
-  }) async {
-    final resp = await _dio.get<List<dynamic>>(
-      url,
-      queryParameters: queryParameters,
-    );
-    return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
   }
 }
