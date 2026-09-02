@@ -175,23 +175,84 @@ enum AccionSync {
 }
 
 // ── Estado de sync local (cola de sincronización) ─────────────────────────────
-/// Estado de un registro en la cola local de sync (no existe en backend,
-/// es gestión interna del dispositivo).
+/// Estado de una entrada en la cola local de sync (no existe en backend, es
+/// gestión interna del dispositivo).
+///
+/// El estado es el CICLO DE VIDA (pocos valores, gobierna transiciones). La RAZÓN
+/// vive aparte, en [MotivoSync] (metadato). Precedente: Azure Service Bus separa
+/// el estado dead-lettered de DeadLetterReason; IBM MQ usa un Reason en el header
+/// de la DLQ. Por eso `conflicto`/`rechazado`/`error` ya NO son estados: son
+/// motivos, o se absorben en `pendiente`/`descartado`/`esperandoResolucion`.
 enum EstadoSyncLocal {
+  /// Encolada o reintentable: el ciclo la enviará.
   pendiente('pendiente'),
+
+  /// Reclamada por un ciclo, POST en vuelo (transitorio).
   enviando('enviando'),
+
+  /// 409 con conflicto_id: parqueada hasta que el Coordinador resuelva. NO se
+  /// re-envía (re-POSTear daría otro 409).
+  ///
+  /// SUMIDERO CONOCIDO hasta el tramo 3: su única salida son las señales
+  /// [SenalSync.resolucionGanoCliente]/[SenalSync.resolucionGanoServidor], que
+  /// las emite el reconciliador de /sync/conflictos/mios (tramo 3 de CTT-117).
+  /// Hasta que ese reconciliador exista, una entrada acá no tiene salida
+  /// ejercida por código de producción.
+  esperandoResolucion('esperando_resolucion'),
+
+  /// TERMINAL — éxito: la intención vive en el servidor (envío directo o
+  /// conflicto ganado por el cliente).
   sincronizado('sincronizado'),
-  error('error'),
-  /// Conflicto detectado — requiere resolución manual por Coordinador/Admin.
-  conflicto('conflicto'),
-  /// Rechazo permanente del backend (403/404). Terminal: no se reintenta.
-  rechazado('rechazado');
+
+  /// TERMINAL — la intención no se aplicará. El [MotivoSync] dice por qué.
+  descartado('descartado');
 
   const EstadoSyncLocal(this.valor);
   final String valor;
 
+  /// Estados terminales: sin transición de salida. Una fila acá no vuelve a
+  /// moverse (la función de decisión lanza StateError si se lo intenta).
+  bool get esTerminal =>
+      this == EstadoSyncLocal.sincronizado || this == EstadoSyncLocal.descartado;
+
   static EstadoSyncLocal fromString(String s) => values.firstWhere(
         (e) => e.valor == s,
         orElse: () => throw ArgumentError('EstadoSyncLocal desconocido: $s'),
+      );
+}
+
+// ── Motivo de sync local (razón, no ciclo de vida) ────────────────────────────
+/// Razón asociada a una entrada de la cola. Metadato, muchos valores posibles;
+/// no gobierna transiciones. Se persiste en la columna `motivo` de
+/// `sync_pendientes`. Complementa a [EstadoSyncLocal].
+enum MotivoSync {
+  /// Último intento falló pero la fila sigue reintentable (diagnóstico).
+  errorTransitorio('error_transitorio'),
+
+  /// 409 con conflicto_id, esperando resolución del Coordinador.
+  conflicto('conflicto'),
+
+  /// Conflicto resuelto a favor del cliente: su cambio es la verdad.
+  conflictoResueltoCliente('conflicto_resuelto_cliente'),
+
+  /// Conflicto resuelto a favor del servidor: el cambio local no se aplica.
+  conflictoResueltoServidor('conflicto_resuelto_servidor'),
+
+  /// 4xx de negocio definitivo: 403/404/422 y 409 sin conflicto_id.
+  rechazoNegocio('rechazo_negocio'),
+
+  /// Falla transitoria que agotó [kMaxReintentosSync] intentos.
+  reintentosAgotados('reintentos_agotados'),
+
+  /// Fila heredada cuyo terminal no pudo determinarse. Fallback del
+  /// reconciliador del tramo 3 cuando /mios no tiene registro del conflicto.
+  heredadoIndeterminado('heredado_indeterminado');
+
+  const MotivoSync(this.valor);
+  final String valor;
+
+  static MotivoSync fromString(String s) => values.firstWhere(
+        (e) => e.valor == s,
+        orElse: () => throw ArgumentError('MotivoSync desconocido: $s'),
       );
 }

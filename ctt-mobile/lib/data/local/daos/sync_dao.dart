@@ -1,18 +1,17 @@
 /// sync_dao.dart — Acceso a la cola de sincronización offline (Drift).
+///
+/// Este DAO es la capa de EFECTO: traduce una [DecisionSync] (calculada por la
+/// función de decisión pura, decision_sync.dart) a una escritura en Drift. No
+/// decide nada por su cuenta.
 library;
 
 import 'package:drift/drift.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'sync_dao.g.dart';
-
-/// Tope de reintentos de una entrada en `error` antes de considerarla agotada.
-/// Fuente única del número: lo usa el guard del ciclo (ciclo_sync.dart) y el
-/// filtro de [SyncDao.reactivarErrores], para no revivir entradas que ya
-/// agotaron sus intentos.
-const kMaxReintentosSync = 5;
 
 @riverpod
 SyncDao syncDao(SyncDaoRef ref) => SyncDao(ref.watch(baseDatosCTTProvider));
@@ -51,94 +50,58 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     return count > 0;
   }
 
-  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
-  Future<void> marcarSincronizado(String id) =>
+  /// Aplica una [DecisionSync] a una entrada, en profundidad: solo escribe si la
+  /// fila sigue en [estadoEsperado] (guarda anti-carrera, igual que marcarEnviando).
+  ///
+  /// Devuelve las filas afectadas (0 si otro ciclo ya la movió). Escribe estado y
+  /// —solo cuando la decisión lo indica— motivo, reintentos y conflicto_id.
+  ///
+  /// TODO(CTT-117): este retorno NO tiene consumidor en producción (ni ciclo_sync
+  /// ni transicion_service lo miran). Si la guarda de [estadoEsperado] se vuelve a
+  /// desalinear con el estado real de la fila, la escritura se convierte en un
+  /// no-op y un 0 inesperado pasa desapercibido — el mismo modo de falla silenciosa
+  /// que el defecto 2 de CTT-115. Falta un chequeo del retorno; se ticketea aparte.
+  Future<int> aplicarDecision(
+    String id, {
+    required EstadoSyncLocal estadoEsperado,
+    required DecisionSync decision,
+    required int reintentosActuales,
+    String? conflictoId,
+  }) =>
       (update(syncPendientesTable)
             ..where(
               (t) =>
                   t.id.equals(id) &
-                  t.estado.equals(EstadoSyncLocal.enviando.valor),
+                  t.estado.equals(estadoEsperado.valor),
             ))
           .write(
         SyncPendientesTableCompanion(
-          estado: Value(EstadoSyncLocal.sincronizado.valor),
-        ),
-      );
-
-  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
-  Future<void> marcarError(String id, String mensaje, int reintentos) =>
-      (update(syncPendientesTable)
-            ..where(
-              (t) =>
-                  t.id.equals(id) &
-                  t.estado.equals(EstadoSyncLocal.enviando.valor),
-            ))
-          .write(
-        SyncPendientesTableCompanion(
-          estado: Value(EstadoSyncLocal.error.valor),
-          ultimoError: Value(mensaje),
-          reintentos: Value(reintentos),
-        ),
-      );
-
-  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
-  /// Si el backend devolvió un conflicto_id, se guarda en ultimoError para diagnóstico.
-  Future<void> marcarConflicto(String id, {String? conflictoId}) =>
-      (update(syncPendientesTable)
-            ..where(
-              (t) =>
-                  t.id.equals(id) &
-                  t.estado.equals(EstadoSyncLocal.enviando.valor),
-            ))
-          .write(
-        SyncPendientesTableCompanion(
-          estado: Value(EstadoSyncLocal.conflicto.valor),
-          ultimoError: conflictoId != null
-              ? Value('conflicto_id:$conflictoId')
+          estado: Value(decision.nuevoEstado.valor),
+          motivo: decision.motivo != null
+              ? Value(decision.motivo!.valor)
               : const Value.absent(),
+          reintentos: decision.incrementaReintentos
+              ? Value(reintentosActuales + 1)
+              : const Value.absent(),
+          conflictoId:
+              conflictoId != null ? Value(conflictoId) : const Value.absent(),
         ),
       );
 
-  /// Marca una entrada como rechazada de forma permanente (403/404 del backend).
-  /// Guarda en profundidad: solo actualiza si la fila sigue en 'enviando'.
-  /// Terminal: NO incrementa reintentos — un permiso denegado o un recurso
-  /// inexistente no se arregla reintentando.
-  Future<void> marcarRechazado(String id, String mensaje) =>
-      (update(syncPendientesTable)
-            ..where(
-              (t) =>
-                  t.id.equals(id) &
-                  t.estado.equals(EstadoSyncLocal.enviando.valor),
-            ))
-          .write(
-        SyncPendientesTableCompanion(
-          estado: Value(EstadoSyncLocal.rechazado.valor),
-          ultimoError: Value(mensaje),
-        ),
-      );
-
-  /// Reactiva entradas en error para que el próximo ciclo las reintente.
-  /// NO toca terminales (`rechazado`/`conflicto`: el filtro es estado='error')
-  /// ni entradas agotadas (reintentos >= [kMaxReintentosSync]): esas deben
-  /// quedar en `error`, que es la verdad, y no volver a `pendiente`.
-  Future<void> reactivarErrores() =>
-      (update(syncPendientesTable)
-            ..where(
-              (t) =>
-                  t.estado.equals(EstadoSyncLocal.error.valor) &
-                  t.reintentos.isSmallerThanValue(kMaxReintentosSync),
-            ))
-          .write(
-        SyncPendientesTableCompanion(
-          estado: Value(EstadoSyncLocal.pendiente.valor),
-        ),
-      );
-
-  /// IDs de entidades con sincronización pendiente (no sincronizadas todavía).
+  /// IDs de entidades con sincronización pendiente (estados NO terminales).
   /// Usado para el indicador visual en la lista de ítems.
+  ///
+  /// Whitelist explícita de no-terminales (no blacklist): si mañana se agrega un
+  /// estado terminal al enum, no se contará por error como pendiente. Incluye
+  /// `esperandoResolucion` porque el cambio del usuario todavía no aterrizó.
   Future<Set<String>> obtenerIdsPendienteSet() async {
+    final noTerminales = [
+      EstadoSyncLocal.pendiente.valor,
+      EstadoSyncLocal.enviando.valor,
+      EstadoSyncLocal.esperandoResolucion.valor,
+    ];
     final rows = await (select(syncPendientesTable)
-          ..where((t) => t.estado.isNotIn([EstadoSyncLocal.sincronizado.valor])))
+          ..where((t) => t.estado.isIn(noTerminales)))
         .get();
     return {for (final r in rows) r.entidadId};
   }

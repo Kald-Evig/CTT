@@ -85,8 +85,9 @@ Future<void> _ejecutarCicloSync() async {
   final db = BaseDatosCTT();
 
   try {
-    // Reactivar errores e ignorar si la cola está vacía antes de leer credenciales.
-    await db.syncDao.reactivarErrores();
+    // Ignorar si la cola está vacía antes de leer credenciales. Ya no se
+    // "reactivan" errores: en el modelo v4 una falla reintentable aterriza
+    // directo en 'pendiente', así que obtenerPendientes ya la trae.
     if ((await db.syncDao.obtenerPendientes()).isEmpty) return;
 
     // Leer credenciales directamente desde SecureStorage (sin Riverpod).

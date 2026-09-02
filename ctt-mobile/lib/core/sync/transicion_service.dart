@@ -15,6 +15,7 @@ import 'package:uuid/uuid.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
+import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -116,12 +117,25 @@ class TransicionService {
     final conflictoId = extraerConflictoId(e);
 
     if (conflictoId != null) {
-      // Conflicto de concurrencia: encolar con estado conflicto para resolución manual.
+      // Conflicto de concurrencia: encolar y parquear en esperando_resolucion
+      // (no se re-envía; lo resuelve el reconciliador del tramo 3). La entrada
+      // nace en 'pendiente'; la decisión pura la mueve al estado de parqueo.
       final entradaId = await _encolar(
         itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
         idempotencyKey,
       );
-      await syncDao.marcarConflicto(entradaId, conflictoId: conflictoId);
+      final decision = decidir(
+        estadoActual: EstadoSyncLocal.pendiente,
+        senal: SenalSync.conflictoDetectado,
+        reintentos: 0,
+      );
+      await syncDao.aplicarDecision(
+        entradaId,
+        estadoEsperado: EstadoSyncLocal.pendiente,
+        decision: decision,
+        reintentosActuales: 0,
+        conflictoId: conflictoId,
+      );
       return TransicionConConflicto(conflictoId);
     }
 

@@ -49,16 +49,43 @@ void main() {
     });
   });
 
-  group('EstadoSyncLocal', () {
-    test('conflicto existe como estado local', () {
-      // EstadoSyncLocal.conflicto NO existe en el backend — es gestión interna.
-      expect(EstadoSyncLocal.conflicto.valor, 'conflicto');
+  group('EstadoSyncLocal (v4 — ciclo de vida)', () {
+    test('el conjunto de estados es exactamente el rediseñado', () {
+      // Gestión interna del dispositivo — no existe en el backend. conflicto,
+      // rechazado y error DEJARON de ser estados (ahora son MotivoSync).
+      expect(
+        EstadoSyncLocal.values.map((e) => e.valor).toSet(),
+        {'pendiente', 'enviando', 'esperando_resolucion', 'sincronizado',
+         'descartado',},
+      );
     });
 
-    test('rechazado existe como estado terminal local', () {
-      // Estado terminal para 403/404 del backend — gestión interna, no existe
-      // en el servidor. Distingue rechazo permanente de error transitorio.
-      expect(EstadoSyncLocal.rechazado.valor, 'rechazado');
+    test('solo sincronizado y descartado son terminales', () {
+      final terminales =
+          EstadoSyncLocal.values.where((e) => e.esTerminal).toSet();
+      expect(terminales,
+          {EstadoSyncLocal.sincronizado, EstadoSyncLocal.descartado},);
+    });
+
+    test('fromString lanza para los valores viejos ya retirados', () {
+      for (final viejo in ['conflicto', 'rechazado', 'error']) {
+        expect(() => EstadoSyncLocal.fromString(viejo), throwsArgumentError,
+            reason: '$viejo ya no es un estado',);
+      }
+    });
+  });
+
+  group('MotivoSync', () {
+    test('valores de los motivos', () {
+      expect(MotivoSync.conflicto.valor, 'conflicto');
+      expect(MotivoSync.conflictoResueltoCliente.valor,
+          'conflicto_resuelto_cliente',);
+      expect(MotivoSync.conflictoResueltoServidor.valor,
+          'conflicto_resuelto_servidor',);
+      expect(MotivoSync.rechazoNegocio.valor, 'rechazo_negocio');
+      expect(MotivoSync.reintentosAgotados.valor, 'reintentos_agotados');
+      expect(MotivoSync.errorTransitorio.valor, 'error_transitorio');
+      expect(MotivoSync.heredadoIndeterminado.valor, 'heredado_indeterminado');
     });
   });
 }
