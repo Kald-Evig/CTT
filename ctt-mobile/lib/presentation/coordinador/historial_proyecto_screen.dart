@@ -3,6 +3,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
@@ -21,7 +22,8 @@ class HistorialProyectoScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => ErrorVista(
           mensaje: 'No se pudo cargar el historial: $e',
-          onReintento: () => ref.invalidate(historialProyectoProvider(proyectoId)),
+          onReintento: () =>
+              ref.invalidate(historialProyectoProvider(proyectoId)),
         ),
         data: (entradas) {
           if (entradas.isEmpty) {
@@ -92,7 +94,7 @@ class _EntradaTile extends StatelessWidget {
                 if (entrada.detalle != null)
                   Text(entrada.detalle!, style: const TextStyle(fontSize: 12)),
                 Text(
-                  '${entrada.nombreUsuario ?? "Sistema"} · ${_formatFecha(entrada.createdAt)}',
+                  '${entrada.nombreUsuario ?? "Sistema"} · ${fechaHora(entrada.createdAt)}',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                 ),
               ],
@@ -109,10 +111,4 @@ class _EntradaTile extends StatelessWidget {
         'reversion_terminado' => 'Reversión de terminado',
         _ => accion,
       };
-
-  String _formatFecha(DateTime dt) {
-    final l = dt.toLocal();
-    return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')}/${l.year} '
-        '${l.hour.toString().padLeft(2, '0')}:${l.minute.toString().padLeft(2, '0')}';
-  }
 }

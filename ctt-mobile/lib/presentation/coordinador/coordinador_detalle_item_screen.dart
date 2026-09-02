@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
@@ -36,7 +37,8 @@ class CoordinadorDetalleItemScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => ErrorVista(
           mensaje: 'No se pudo cargar el ítem: $e',
-          onReintento: () => ref.invalidate(itemResidenteDetalleProvider(itemId)),
+          onReintento: () =>
+              ref.invalidate(itemResidenteDetalleProvider(itemId)),
         ),
         data: (item) => ItemDetalleCuerpo(
           item: item,
@@ -118,7 +120,7 @@ class _MarcaEdicion extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Editado por ${item.ultimaEdicionPor}'
-                  ' el ${_formatFecha(item.ultimaEdicionEn!)}',
+                  ' el ${fechaHora(item.ultimaEdicionEn!)}',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                 ),
               ),
@@ -127,14 +129,6 @@ class _MarcaEdicion extends StatelessWidget {
           ),
         ),
       );
-
-  String _formatFecha(DateTime dt) {
-    final l = dt.toLocal();
-    return '${l.day.toString().padLeft(2, '0')}/'
-        '${l.month.toString().padLeft(2, '0')}/${l.year} '
-        '${l.hour.toString().padLeft(2, '0')}:'
-        '${l.minute.toString().padLeft(2, '0')}';
-  }
 }
 
 // ── Selector de asignatario (bottom sheet) ────────────────────────────────────
@@ -204,7 +198,12 @@ class _SelectorAsignatarioSheetState
         SnackBar(content: Text('Asignado a ${miembro.nombreCompleto}.')),
       );
     } on ErrorCoordinador catch (e) {
-      if (mounted) setState(() { _asignandoId = null; _error = e.mensaje; });
+      if (mounted) {
+        setState(() {
+          _asignandoId = null;
+          _error = e.mensaje;
+        });
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -254,8 +253,10 @@ class _SelectorAsignatarioSheetState
             ),
             data: (miembros) {
               final trabajadores = miembros
-                  .where((m) =>
-                      m.rolEnProyecto == 'trabajador' && m.estado == 'activo',)
+                  .where(
+                    (m) =>
+                        m.rolEnProyecto == 'trabajador' && m.estado == 'activo',
+                  )
                   .toList();
               if (trabajadores.isEmpty) {
                 return const Center(
@@ -369,13 +370,12 @@ class _HistorialEdicionesSheetState
       _error = null;
     });
     try {
-      final nuevas = await ref
-          .read(coordinadorRepositoryProvider)
-          .listarEdicionesItem(
-            widget.itemId,
-            limit: _kLimitEdiciones,
-            offset: _offset,
-          );
+      final nuevas =
+          await ref.read(coordinadorRepositoryProvider).listarEdicionesItem(
+                widget.itemId,
+                limit: _kLimitEdiciones,
+                offset: _offset,
+              );
       setState(() {
         _entradas.addAll(nuevas);
         _offset += nuevas.length;
@@ -515,7 +515,7 @@ class _EntradaEdicionTile extends StatelessWidget {
         children: [
           Text(
             '${entrada.actorNombre} (${entrada.actorRol})'
-            ' · ${_formatFecha(entrada.createdAt)}',
+            ' · ${fechaHora(entrada.createdAt)}',
             style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
           ),
           if (camposDiff.isEmpty)
@@ -528,14 +528,6 @@ class _EntradaEdicionTile extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatFecha(DateTime dt) {
-    final l = dt.toLocal();
-    return '${l.day.toString().padLeft(2, '0')}/'
-        '${l.month.toString().padLeft(2, '0')}/${l.year} '
-        '${l.hour.toString().padLeft(2, '0')}:'
-        '${l.minute.toString().padLeft(2, '0')}';
   }
 }
 

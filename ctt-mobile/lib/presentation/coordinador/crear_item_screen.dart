@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
@@ -62,9 +63,6 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
     super.dispose();
   }
 
-  String _formatFecha(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
   Future<void> _elegirFechaLimite() async {
     final fecha = await showDatePicker(
       context: context,
@@ -84,8 +82,7 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
     final descripcion = _descripcionCtrl.text.trim().isEmpty
         ? null
         : _descripcionCtrl.text.trim();
-    final fechaLimite =
-        _fechaLimite != null ? _formatFecha(_fechaLimite!) : null;
+    final fechaLimite = _fechaLimite != null ? fechaIso(_fechaLimite!) : null;
     final duracion = _duracionCtrl.text.trim().isEmpty
         ? null
         : double.tryParse(_duracionCtrl.text.trim());
@@ -133,12 +130,14 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final items =
-        ref.watch(itemsProyectoProvider(widget.proyectoId, null)).whenOrNull(data: (is_) => is_) ??
-            const <ItemResidente>[];
-    final usuarios =
-        ref.watch(usuariosEmpresaPorRolesProvider(const ['trabajador'])).whenOrNull(data: (us) => us) ??
-            const <UsuarioEmpresa>[];
+    final items = ref
+            .watch(itemsProyectoProvider(widget.proyectoId, null))
+            .whenOrNull(data: (is_) => is_) ??
+        const <ItemResidente>[];
+    final usuarios = ref
+            .watch(usuariosEmpresaPorRolesProvider(const ['trabajador']))
+            .whenOrNull(data: (us) => us) ??
+        const <UsuarioEmpresa>[];
 
     // Ítems que pueden ser padre: nivelProfundidad < 4 (un hijo quedaría en nivel 4, el máximo).
     final itemsParent = items.where((i) => i.nivelProfundidad < 4).toList();
@@ -167,8 +166,9 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
               ),
               maxLength: 255,
               textCapitalization: TextCapitalization.sentences,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'El nombre es requerido' : null,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'El nombre es requerido'
+                  : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -210,7 +210,9 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
               label: 'Fecha límite',
               fecha: _fechaLimite,
               onTap: _elegirFechaLimite,
-              onClear: _fechaLimite != null ? () => setState(() => _fechaLimite = null) : null,
+              onClear: _fechaLimite != null
+                  ? () => setState(() => _fechaLimite = null)
+                  : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -219,11 +221,16 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
                 labelText: 'Duración estimada (horas)',
                 border: OutlineInputBorder(),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
+              ],
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return null;
-                if (double.tryParse(v.trim()) == null) return 'Ingresá un número válido';
+                if (double.tryParse(v.trim()) == null) {
+                  return 'Ingresá un número válido';
+                }
                 return null;
               },
             ),
@@ -352,7 +359,10 @@ class _CampoFecha extends StatelessWidget {
               ? '${fecha!.day.toString().padLeft(2, '0')}/${fecha!.month.toString().padLeft(2, '0')}/${fecha!.year}'
               : 'Sin fecha',
           style: fecha == null
-              ? Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey)
+              ? Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.grey)
               : Theme.of(context).textTheme.bodyMedium,
         ),
       ),

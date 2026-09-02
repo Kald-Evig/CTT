@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
+import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
@@ -79,9 +80,8 @@ class ItemDetalleCuerpo extends StatelessWidget {
                   ? 'Fecha límite: ${_parseFechaLimite(item.fechaLimite!)}'
                   : 'Sin fecha límite',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: item.fechaLimite != null
-                        ? null
-                        : Colors.grey.shade500,
+                    color:
+                        item.fechaLimite != null ? null : Colors.grey.shade500,
                   ),
             ),
             const SizedBox(height: 4),
@@ -128,9 +128,7 @@ class ItemDetalleCuerpo extends StatelessWidget {
 
 String _parseFechaLimite(String s) {
   try {
-    final dt = DateTime.parse(s);
-    return '${dt.day.toString().padLeft(2, '0')}/'
-        '${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    return fecha(DateTime.parse(s));
   } catch (_) {
     return s;
   }
@@ -184,7 +182,8 @@ class ItemDetalleHistorial extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
+              child:
+                  Text('Error: $e', style: const TextStyle(color: Colors.red)),
             ),
             data: (entradas) {
               if (entradas.isEmpty) {
@@ -245,7 +244,7 @@ class ItemDetalleEntradaTile extends StatelessWidget {
                 if (entrada.detalle != null)
                   Text(entrada.detalle!, style: const TextStyle(fontSize: 12)),
                 Text(
-                  '${entrada.nombreUsuario ?? "Sistema"} · ${_formatFecha(entrada.createdAt)}',
+                  '${entrada.nombreUsuario ?? "Sistema"} · ${fechaHora(entrada.createdAt)}',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                 ),
               ],
@@ -262,14 +261,6 @@ class ItemDetalleEntradaTile extends StatelessWidget {
         'reversion_terminado' => 'Reversión de terminado',
         _ => accion,
       };
-
-  String _formatFecha(DateTime dt) {
-    final l = dt.toLocal();
-    return '${l.day.toString().padLeft(2, '0')}/'
-        '${l.month.toString().padLeft(2, '0')}/${l.year} '
-        '${l.hour.toString().padLeft(2, '0')}:'
-        '${l.minute.toString().padLeft(2, '0')}';
-  }
 }
 
 // ── Comentarios ───────────────────────────────────────────────────────────────
@@ -287,7 +278,8 @@ class ItemDetalleComentarios extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
+              child:
+                  Text('Error: $e', style: const TextStyle(color: Colors.red)),
             ),
             data: (comentarios) {
               if (comentarios.isEmpty) {
@@ -340,7 +332,7 @@ class ItemDetalleComentarioTile extends StatelessWidget {
                 ),
                 Text(comentario.texto, style: const TextStyle(fontSize: 13)),
                 Text(
-                  _formatFecha(comentario.createdAt),
+                  fecha(comentario.createdAt),
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                 ),
               ],
@@ -349,12 +341,6 @@ class ItemDetalleComentarioTile extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatFecha(DateTime dt) {
-    final l = dt.toLocal();
-    return '${l.day.toString().padLeft(2, '0')}/'
-        '${l.month.toString().padLeft(2, '0')}/${l.year}';
   }
 }
 
@@ -373,7 +359,8 @@ class ItemDetalleEvidencias extends ConsumerWidget {
             ),
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text('Error: $e', style: const TextStyle(color: Colors.red)),
+              child:
+                  Text('Error: $e', style: const TextStyle(color: Colors.red)),
             ),
             data: (evidencias) {
               if (evidencias.isEmpty) {

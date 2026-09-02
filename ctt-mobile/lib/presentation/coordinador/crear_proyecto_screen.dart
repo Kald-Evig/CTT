@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
@@ -17,7 +18,8 @@ class CrearProyectoScreen extends ConsumerStatefulWidget {
   final ProyectoCoordinador? proyectoParaEditar;
 
   @override
-  ConsumerState<CrearProyectoScreen> createState() => _CrearProyectoScreenState();
+  ConsumerState<CrearProyectoScreen> createState() =>
+      _CrearProyectoScreenState();
 }
 
 class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
@@ -58,9 +60,6 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
     super.dispose();
   }
 
-  String _formatFecha(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
   Future<void> _elegirFecha({required bool esFin}) async {
     final primera = esFin ? (_fechaInicio ?? DateTime.now()) : DateTime.now();
     final inicial = esFin ? (_fechaFin ?? primera) : (_fechaInicio ?? primera);
@@ -89,12 +88,10 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
     final descripcion = _descripcionCtrl.text.trim().isEmpty
         ? null
         : _descripcionCtrl.text.trim();
-    final ubicacion = _ubicacionCtrl.text.trim().isEmpty
-        ? null
-        : _ubicacionCtrl.text.trim();
-    final fechaInicio =
-        _fechaInicio != null ? _formatFecha(_fechaInicio!) : null;
-    final fechaFin = _fechaFin != null ? _formatFecha(_fechaFin!) : null;
+    final ubicacion =
+        _ubicacionCtrl.text.trim().isEmpty ? null : _ubicacionCtrl.text.trim();
+    final fechaInicio = _fechaInicio != null ? fechaIso(_fechaInicio!) : null;
+    final fechaFin = _fechaFin != null ? fechaIso(_fechaFin!) : null;
     try {
       if (_editando) {
         await repo.editarProyecto(
@@ -138,8 +135,8 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
     final usuarios = usuariosAsync.valueOrNull ?? const <UsuarioEmpresa>[];
     final permiteSinAsignar =
         widget.proyectoParaEditar?.coordinadorPrincipalId == null;
-    final coordinadorHuerfano = _coordinadorId != null &&
-        !usuarios.any((u) => u.id == _coordinadorId);
+    final coordinadorHuerfano =
+        _coordinadorId != null && !usuarios.any((u) => u.id == _coordinadorId);
 
     return Scaffold(
       appBar: AppBar(
@@ -165,8 +162,9 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
               ),
               maxLength: 255,
               textCapitalization: TextCapitalization.sentences,
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'El nombre es requerido' : null,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'El nombre es requerido'
+                  : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -194,14 +192,18 @@ class _CrearProyectoScreenState extends ConsumerState<CrearProyectoScreen> {
               label: 'Fecha de inicio',
               fecha: _fechaInicio,
               onTap: () => _elegirFecha(esFin: false),
-              onClear: _fechaInicio != null ? () => setState(() => _fechaInicio = null) : null,
+              onClear: _fechaInicio != null
+                  ? () => setState(() => _fechaInicio = null)
+                  : null,
             ),
             const SizedBox(height: 12),
             _CampoFecha(
               label: 'Fecha fin estimada',
               fecha: _fechaFin,
               onTap: () => _elegirFecha(esFin: true),
-              onClear: _fechaFin != null ? () => setState(() => _fechaFin = null) : null,
+              onClear: _fechaFin != null
+                  ? () => setState(() => _fechaFin = null)
+                  : null,
             ),
             const SizedBox(height: 16),
             if (!usuariosAsync.hasValue)
@@ -330,7 +332,10 @@ class _CampoFecha extends StatelessWidget {
               ? '${fecha!.day.toString().padLeft(2, '0')}/${fecha!.month.toString().padLeft(2, '0')}/${fecha!.year}'
               : 'Sin fecha',
           style: fecha == null
-              ? Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey)
+              ? Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.grey)
               : Theme.of(context).textTheme.bodyMedium,
         ),
       ),
