@@ -198,6 +198,16 @@ def historial_proyecto(
     ]
 
 
+def _miembro_dict(fila, nombre) -> dict:
+    """Serializa un ProyectoUsuario + nombre a la forma de ProyectoUsuarioOut."""
+    return {
+        "usuario_id": fila.usuario_id,
+        "nombre_completo": nombre,
+        "rol_en_proyecto": fila.rol_en_proyecto,
+        "estado": fila.estado,
+    }
+
+
 @router.get("/{proyecto_id}/usuarios", response_model=list[ProyectoUsuarioOut])
 def listar_miembros(
     incluir_inactivos: bool = Query(default=False),
@@ -213,15 +223,7 @@ def listar_miembros(
     if not incluir_inactivos:
         q = q.filter(ProyectoUsuario.estado == UsuarioEstado.ACTIVO)
     filas = q.order_by(Usuario.nombre_completo).all()
-    return [
-        {
-            "usuario_id": pu.usuario_id,
-            "nombre_completo": nombre,
-            "rol_en_proyecto": pu.rol_en_proyecto,
-            "estado": pu.estado,
-        }
-        for pu, nombre in filas
-    ]
+    return [_miembro_dict(pu, nombre) for pu, nombre in filas]
 
 
 @router.post("/{proyecto_id}/usuarios", response_model=ProyectoUsuarioOut, status_code=201)
@@ -281,12 +283,7 @@ def asignar_miembro(
         .filter(Usuario.id == fila.usuario_id)
         .scalar()
     )
-    return {
-        "usuario_id": fila.usuario_id,
-        "nombre_completo": nombre,
-        "rol_en_proyecto": fila.rol_en_proyecto,
-        "estado": fila.estado,
-    }
+    return _miembro_dict(fila, nombre)
 
 
 @router.delete("/{proyecto_id}/usuarios/{usuario_id}", response_model=ProyectoUsuarioOut)
@@ -348,12 +345,7 @@ def desasignar_miembro(
         .filter(Usuario.id == fila.usuario_id)
         .scalar()
     )
-    return {
-        "usuario_id": fila.usuario_id,
-        "nombre_completo": nombre,
-        "rol_en_proyecto": fila.rol_en_proyecto,
-        "estado": fila.estado,
-    }
+    return _miembro_dict(fila, nombre)
 
 
 @router.get("/{proyecto_id}", response_model=ProyectoOut)
