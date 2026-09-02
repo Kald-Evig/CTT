@@ -11,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/badge_notificaciones.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
@@ -46,7 +47,7 @@ class _ListaItemsResidenteScreenState
         leading: const Icon(Icons.fact_check),
         title: const Text('Ítems'),
         actions: [
-          _BadgeNotificaciones(
+          BadgeNotificaciones(
             onTap: () => context.push('/residente/notificaciones'),
           ),
           IconButton(
@@ -181,7 +182,8 @@ class _ListaItems extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final itemsAsync = ref.watch(itemsProyectoProvider(proyectoId, estadoFiltro));
+    final itemsAsync =
+        ref.watch(itemsProyectoProvider(proyectoId, estadoFiltro));
     return itemsAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => ErrorVista(
@@ -245,30 +247,6 @@ class _TarjetaItem extends ConsumerWidget {
         ],
       ),
       onTap: () => context.push('/residente/${item.id}'),
-    );
-  }
-}
-
-// ── Badge de notificaciones ──────────────────────────────────────────────────
-
-class _BadgeNotificaciones extends ConsumerWidget {
-  const _BadgeNotificaciones({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final noLeidas = ref
-            .watch(notificacionesProvider)
-            .whenOrNull(data: (ns) => ns.where((n) => !n.leida).length) ??
-        0;
-    return IconButton(
-      tooltip: 'Notificaciones',
-      onPressed: onTap,
-      icon: Badge(
-        isLabelVisible: noLeidas > 0,
-        label: Text(noLeidas > 9 ? '9+' : '$noLeidas'),
-        child: const Icon(Icons.notifications_outlined),
-      ),
     );
   }
 }

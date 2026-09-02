@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
-import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
+import 'package:ctt_mobile/presentation/shared/badge_notificaciones.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/layout_constants.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
@@ -36,7 +36,7 @@ class _CoordinadorProyectosScreenState
           _BadgeConflictos(
             onTap: () => context.push('/coordinador/conflictos'),
           ),
-          _BadgeNotificaciones(
+          BadgeNotificaciones(
             onTap: () => context.push('/coordinador/notificaciones'),
           ),
           IconButton(
@@ -163,8 +163,7 @@ class _TarjetaProyectoState extends ConsumerState<_TarjetaProyecto> {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () =>
-            context.push('/coordinador/${widget.proyecto.id}/items'),
+        onTap: () => context.push('/coordinador/${widget.proyecto.id}/items'),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
           child: Column(
@@ -276,8 +275,10 @@ class _BadgeConflictos extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final pendientes =
-        ref.watch(conflictosPendientesProvider).whenOrNull(data: (cs) => cs.length) ?? 0;
+    final pendientes = ref
+            .watch(conflictosPendientesProvider)
+            .whenOrNull(data: (cs) => cs.length) ??
+        0;
     return IconButton(
       tooltip: 'Conflictos',
       onPressed: onTap,
@@ -285,29 +286,6 @@ class _BadgeConflictos extends ConsumerWidget {
         isLabelVisible: pendientes > 0,
         label: Text(pendientes > 9 ? '9+' : '$pendientes'),
         child: const Icon(Icons.merge_type_outlined),
-      ),
-    );
-  }
-}
-
-class _BadgeNotificaciones extends ConsumerWidget {
-  const _BadgeNotificaciones({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final noLeidas =
-        ref.watch(notificacionesProvider).whenOrNull(
-              data: (ns) => ns.where((n) => !n.leida).length,
-            ) ??
-        0;
-    return IconButton(
-      tooltip: 'Notificaciones',
-      onPressed: onTap,
-      icon: Badge(
-        isLabelVisible: noLeidas > 0,
-        label: Text(noLeidas > 9 ? '9+' : '$noLeidas'),
-        child: const Icon(Icons.notifications_outlined),
       ),
     );
   }
