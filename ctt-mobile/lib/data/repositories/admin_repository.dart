@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
 part 'admin_repository.g.dart';
@@ -69,7 +70,7 @@ class AdminRepository {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code != null && code >= 400 && code < 500) {
-        throw ErrorAdmin(_extraerDetalle(e));
+        throw ErrorAdmin(extraerDetalleBackend(e));
       }
       rethrow;
     }
@@ -82,7 +83,7 @@ class AdminRepository {
         data: {'estado': 'inactivo'},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(_extraerDetalle(e));
+      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -94,7 +95,7 @@ class AdminRepository {
         data: {'estado': 'activo'},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(_extraerDetalle(e));
+      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -106,7 +107,7 @@ class AdminRepository {
         data: {'rol': rol},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(_extraerDetalle(e));
+      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -115,7 +116,7 @@ class AdminRepository {
     try {
       await _dio.post<void>('/proyectos/$proyectoId/cerrar');
     } on DioException catch (e) {
-      if (e.response?.statusCode != null) throw ErrorAdmin(_extraerDetalle(e));
+      if (e.response?.statusCode != null) throw ErrorAdmin(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -130,14 +131,5 @@ class AdminRepository {
       queryParameters: queryParameters,
     );
     return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
-  }
-
-  static String _extraerDetalle(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final detail = data['detail'];
-      if (detail is String) return detail;
-    }
-    return e.message ?? 'Error desconocido';
   }
 }

@@ -11,6 +11,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
@@ -520,15 +521,11 @@ class ItemDetalleMensajeEstado extends StatelessWidget {
 
 String itemDetalleMensajeError(Object e) {
   if (e is DioException) {
+    // Prioriza el `detail` legible del backend (parseo compartido, CTT-65);
+    // si no hay detail, cae a un mensaje según el status HTTP.
     final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final detail = data['detail'];
-      if (detail is String) return detail;
-      if (detail is Map<String, dynamic>) {
-        final msg = detail['mensaje'];
-        if (msg is String) return msg;
-      }
-    }
+    final tieneDetail = data is Map<String, dynamic> && data['detail'] != null;
+    if (tieneDetail) return extraerDetalleBackend(e);
     final status = e.response?.statusCode;
     return status != null
         ? 'Error $status del servidor'

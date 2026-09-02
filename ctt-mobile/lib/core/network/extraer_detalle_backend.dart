@@ -7,10 +7,9 @@
 /// solo dependen de `package:dio`, así que tanto los repositorios (data/) como
 /// los servicios de core/ pueden importarlos sin riesgo de dependencia circular.
 ///
-/// Deuda (CTT-65): hoy existen cinco copias privadas de esta lógica
-/// (admin_repository, coordinador_repository, transicion_service,
-/// error_interceptor, item_detalle_widgets). Migran a esta función en su
-/// propio ticket; este commit solo la introduce con un consumidor (ciclo_sync).
+/// CTT-65: única fuente del parseo del `detail`. Consumidores: ciclo_sync,
+/// transicion_service, admin_repository, coordinador_repository,
+/// error_interceptor e item_detalle_widgets. Ya no quedan copias privadas.
 library;
 
 import 'package:dio/dio.dart';

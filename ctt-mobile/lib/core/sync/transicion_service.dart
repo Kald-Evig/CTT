@@ -113,7 +113,6 @@ class TransicionService {
     String deviceId,
     String idempotencyKey,
   ) async {
-    final body = e.response?.data;
     final conflictoId = extraerConflictoId(e);
 
     if (conflictoId != null) {
@@ -127,7 +126,7 @@ class TransicionService {
     }
 
     // Rechazo de negocio (transición inválida, estado ya avanzó, etc.).
-    return TransicionRechazada(_extraerDetail(body));
+    return TransicionRechazada(extraerDetalleBackend(e));
   }
 
   /// Encola el cambio en Drift y devuelve el id de la entrada creada.
@@ -165,16 +164,4 @@ class TransicionService {
       e.type == DioExceptionType.receiveTimeout ||
       e.type == DioExceptionType.sendTimeout ||
       e.type == DioExceptionType.connectionError;
-
-  String _extraerDetail(dynamic body) {
-    if (body is Map<String, dynamic>) {
-      final detail = body['detail'];
-      if (detail is String) return detail;
-      if (detail is Map<String, dynamic>) {
-        final msg = detail['mensaje'];
-        if (msg is String) return msg;
-      }
-    }
-    return 'Transición rechazada por el servidor.';
-  }
 }

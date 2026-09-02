@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/errors/exceptions.dart';
+import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 
 class ErrorInterceptor extends Interceptor {
   ErrorInterceptor(this._logger, {required this.alCerrarSesion});
@@ -38,12 +39,11 @@ class ErrorInterceptor extends Interceptor {
       case 403:
         handler.reject(err.copyWith(error: const ExcepcionSinPermiso()));
       case 422:
-        // FastAPI devuelve validación Pydantic en el campo detail.
-        final detalle =
-            (err.response?.data as Map<String, dynamic>?)?['detail']
-                ?.toString() ??
-                'Datos inválidos.';
-        handler.reject(err.copyWith(error: ExcepcionValidacion(detalle)));
+        // FastAPI devuelve validación Pydantic en el campo detail (lista de
+        // errores). El parseo compartido resume los `msg` legibles (CTT-65).
+        handler.reject(err.copyWith(
+          error: ExcepcionValidacion(extraerDetalleBackend(err)),
+        ),);
       case final int code when code >= 500:
         handler.reject(err.copyWith(
           error: ExcepcionServidor(

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
@@ -93,7 +94,7 @@ class CoordinadorRepository {
       final resp = await _dio.post<Map<String, dynamic>>('/items', data: body);
       return ItemResidente.fromJson(resp.data!);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 400) throw ErrorCoordinador(_extraerDetalle(e));
+      if (e.response?.statusCode == 400) throw ErrorCoordinador(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -146,7 +147,7 @@ class CoordinadorRepository {
           await _dio.put<Map<String, dynamic>>('/items/$id', data: body);
       return ItemResidente.fromJson(resp.data!);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) throw ErrorCoordinador(_extraerDetalle(e));
+      if (e.response?.statusCode == 409) throw ErrorCoordinador(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -161,7 +162,7 @@ class CoordinadorRepository {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code != null && code >= 400 && code < 500) {
-        throw ErrorCoordinador(_extraerDetalle(e));
+        throw ErrorCoordinador(extraerDetalleBackend(e));
       }
       rethrow;
     }
@@ -214,7 +215,7 @@ class CoordinadorRepository {
       );
       return MiembroProyecto.fromJson(resp.data!);
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) throw ErrorCoordinador(_extraerDetalle(e));
+      if (e.response?.statusCode == 409) throw ErrorCoordinador(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -236,7 +237,7 @@ class CoordinadorRepository {
             throw ErrorMiembroConItems(blockingItems: items);
           }
         }
-        throw ErrorCoordinador(_extraerDetalle(e));
+        throw ErrorCoordinador(extraerDetalleBackend(e));
       }
       rethrow;
     }
@@ -263,7 +264,7 @@ class CoordinadorRepository {
         data: {'version_ganadora': versionGanadora},
       );
     } on DioException catch (e) {
-      if (e.response?.statusCode == 409) throw ErrorCoordinador(_extraerDetalle(e));
+      if (e.response?.statusCode == 409) throw ErrorCoordinador(extraerDetalleBackend(e));
       rethrow;
     }
   }
@@ -277,14 +278,5 @@ class CoordinadorRepository {
   }) async {
     final resp = await _dio.get<List<dynamic>>(url, queryParameters: queryParameters);
     return (resp.data ?? []).cast<Map<String, dynamic>>().map(fromJson).toList();
-  }
-
-  static String _extraerDetalle(DioException e) {
-    final data = e.response?.data;
-    if (data is Map<String, dynamic>) {
-      final detail = data['detail'];
-      if (detail is String) return detail;
-    }
-    return e.message ?? 'Error desconocido';
   }
 }
