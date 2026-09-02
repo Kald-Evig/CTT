@@ -17,7 +17,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
 from app.audit import a_serializable, record_audit
-from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
+from app.auth import (
+    AuthContext,
+    actor_de,
+    exigir_permiso,
+    get_current_context,
+    requiere_empresa,
+)
 from app.authz import require_item_access, require_project_read
 from app.config import settings
 from app.database import get_db
@@ -27,7 +33,6 @@ from app.models import (
     Proyecto, ProyectoUsuario, SyncConflicto, Usuario,
 )
 from app.notifications import notificar
-from app.permissions import puede
 from app.schemas import (
     AsignarItemIn, ComentarioIn, ComentarioOut, EvidenciaIn, EvidenciaOut,
     HistorialOut, ItemCreate, ItemOut, ItemUpdate, MisItemOut, TransicionIn,
@@ -103,8 +108,7 @@ def crear_item(
 ):
     """Crea un ítem (o sub-ítem) validando la jerarquía (Coordinador/Admin)."""
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "crear_editar_item"):
-        raise HTTPException(403, "Su rol no puede crear ítems.")
+    exigir_permiso(ctx, "crear_editar_item", "Su rol no puede crear ítems.")
 
     proyecto = get_proyecto_de_empresa(db, body.proyecto_id, empresa_id)
 
@@ -331,8 +335,7 @@ def editar_item(
 ):
     """Edita datos de un ítem (Coordinador/Admin). Bloquea con 409 si está terminado."""
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "crear_editar_item"):
-        raise HTTPException(403, "Su rol no puede editar ítems.")
+    exigir_permiso(ctx, "crear_editar_item", "Su rol no puede editar ítems.")
 
     # Bloqueo ANTES de cualquier mutación.
     if item.estado == ItemEstado.TERMINADO:
@@ -379,8 +382,7 @@ def asignar_item(
 ):
     """Asigna el ítem a un trabajador (Residente/Coordinador/Admin)."""
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "asignar_item"):
-        raise HTTPException(403, "Su rol no puede asignar ítems.")
+    exigir_permiso(ctx, "asignar_item", "Su rol no puede asignar ítems.")
     # Validar que el asignatario pertenece a la empresa, tiene rol trabajador y
     # es miembro activo del proyecto (misma regla que crear_item — CTT-96).
     _validar_asignatario_trabajador(db, body.usuario_id, empresa_id)
@@ -510,8 +512,7 @@ def cerrar_problema_item(
 ):
     """Cierra el problema abierto y restaura el estado previo (Sección 6.2)."""
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "cerrar_problema"):
-        raise HTTPException(403, "Su rol no puede cerrar problemas.")
+    exigir_permiso(ctx, "cerrar_problema", "Su rol no puede cerrar problemas.")
     # Capturar estado_previo ANTES de cerrar_problema() — la función lo borra (→ None).
     estado_restaurado = (item.estado_previo or ItemEstado.EN_PROGRESO).value
     try:
@@ -575,8 +576,7 @@ def agregar_comentario(
     db: Session = Depends(get_db),
 ):
     """Agrega un comentario (todos los roles de obra — nunca genera conflicto)."""
-    if not puede(ctx.rol, "agregar_comentario"):
-        raise HTTPException(403, "Su rol no puede comentar.")
+    exigir_permiso(ctx, "agregar_comentario", "Su rol no puede comentar.")
     c = ItemComentario(item_id=item.id, usuario_id=ctx.usuario.id, texto=body.texto)
     db.add(c)
     db.commit()
@@ -623,8 +623,7 @@ def registrar_evidencia(
     La subida binaria real va directo a S3 vía pre-signed URL (Sección 4.4);
     aquí solo se registra el metadato y la clave S3.
     """
-    if not puede(ctx.rol, "subir_foto"):
-        raise HTTPException(403, "Su rol no puede subir fotos.")
+    exigir_permiso(ctx, "subir_foto", "Su rol no puede subir fotos.")
     ev = ItemEvidencia(
         item_id=item.id,
         usuario_id=ctx.usuario.id,
@@ -662,8 +661,7 @@ def historial_item(
     db: Session = Depends(get_db),
 ):
     """Devuelve el log cronológico de cambios del ítem (Sección 10)."""
-    if not puede(ctx.rol, "ver_log_cambios"):
-        raise HTTPException(403, "Su rol no puede ver el log de cambios.")
+    exigir_permiso(ctx, "ver_log_cambios", "Su rol no puede ver el log de cambios.")
     rows = (
         db.query(ItemHistorial, Usuario.nombre_completo)
         .outerjoin(Usuario, ItemHistorial.usuario_id == Usuario.id)

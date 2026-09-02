@@ -16,19 +16,17 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import AuthContext, get_current_context
+from app.auth import AuthContext, exigir_permiso, get_current_context
 from app.authz import require_project_read
 from app.database import get_db
 from app.enums import ItemEstado, ProblemaEstado
 from app.models import Item, ItemProblema, Proyecto, Usuario
-from app.permissions import puede
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
 
 
 def _check_acceso(ctx: AuthContext):
-    if not puede(ctx.rol, "acceso_reportes"):
-        raise HTTPException(403, "Su rol no tiene acceso a reportes.")
+    exigir_permiso(ctx, "acceso_reportes", "Su rol no tiene acceso a reportes.")
 
 
 @router.get("/avance/{proyecto_id}")

@@ -18,11 +18,15 @@ Paginación:
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.auth import (
+    AuthContext,
+    exigir_permiso,
+    get_current_context,
+    requiere_empresa,
+)
 from app.authz import _ids_proyectos_visibles
 from app.database import get_db
 from app.models import AuditLog
-from app.permissions import puede
 from app.schemas import AuditLogOut
 
 router = APIRouter(prefix="/audit-log", tags=["Audit log"])
@@ -44,8 +48,7 @@ def listar_audit_log(
     Orden: más reciente primero (created_at DESC).
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "ver_audit_log"):
-        raise HTTPException(403, "Su rol no tiene acceso al audit log.")
+    exigir_permiso(ctx, "ver_audit_log", "Su rol no tiene acceso al audit log.")
 
     q = db.query(AuditLog).filter(AuditLog.empresa_id == empresa_id)
 

@@ -24,6 +24,7 @@ from app.config import settings
 from app.database import get_db
 from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
+from app.permissions import puede
 
 
 @dataclass
@@ -144,6 +145,18 @@ def requiere_empresa(ctx: AuthContext) -> str:
         raise HTTPException(status_code=400,
                             detail="Se requiere una empresa activa para esta acción.")
     return ctx.empresa_id
+
+
+def exigir_permiso(ctx: AuthContext, accion: str, mensaje: str) -> None:
+    """Lanza 403 con [mensaje] si [ctx] no puede ejecutar [accion].
+
+    Atajo del guard repetido en los routers:
+        `if not puede(ctx.rol, accion): raise HTTPException(403, ...)`.
+    Pasa es_super_admin para respetar el bypass de plataforma (crear_usuarios,
+    gestionar_roles).
+    """
+    if not puede(ctx.rol, accion, ctx.es_super_admin):
+        raise HTTPException(status_code=403, detail=mensaje)
 
 
 def actor_de(ctx: AuthContext) -> dict:

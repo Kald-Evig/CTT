@@ -19,11 +19,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from firebase_admin import auth as fb_auth
 from sqlalchemy.orm import Session
 
-from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.auth import (
+    AuthContext,
+    exigir_permiso,
+    get_current_context,
+    requiere_empresa,
+)
 from app.database import get_db
 from app.enums import Rol, UsuarioEstado
 from app.models import EmpresaUsuario, Usuario
-from app.permissions import puede
 from app.schemas import UsuarioBaseOut, UsuarioCreate, UsuarioCreateOut, UsuarioEstadoUpdate, UsuarioRolUpdate, UsuarioOut
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
@@ -58,8 +62,7 @@ def crear_usuario(
 ):
     """Crea un usuario en Firebase + BD y lo asocia a la empresa activa (Admin / Super Admin)."""
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "crear_usuarios", ctx.es_super_admin):
-        raise HTTPException(403, "Su rol no puede crear usuarios.")
+    exigir_permiso(ctx, "crear_usuarios", "Su rol no puede crear usuarios.")
 
     # Anti-escalación: nunca asignar un rol superior al del actor.
     # Default -1 en el actor: un rol desconocido no hereda privilegio máximo.
@@ -173,8 +176,7 @@ def actualizar_estado_usuario(
     Super Admin (plataforma) y requiere un endpoint separado.
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "crear_usuarios", ctx.es_super_admin):
-        raise HTTPException(403, "Su rol no puede gestionar usuarios.")
+    exigir_permiso(ctx, "crear_usuarios", "Su rol no puede gestionar usuarios.")
 
     if usuario_id == ctx.usuario.id:
         raise HTTPException(409, "No puede modificar su propio estado de acceso.")
@@ -213,8 +215,7 @@ def actualizar_rol_usuario(
     matriz pero no tenía ningún endpoint invocándolo.
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "gestionar_roles", ctx.es_super_admin):
-        raise HTTPException(403, "Su rol no puede gestionar roles.")
+    exigir_permiso(ctx, "gestionar_roles", "Su rol no puede gestionar roles.")
 
     # Anti-escalación: misma regla que en crear_usuario. Default -1 en el actor.
     if ctx.rol is not None and (
@@ -259,8 +260,7 @@ def listar_usuarios(
     incluir_inactivos=true → devuelve activos e inactivos (uso exclusivo de Admin UI).
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "ver_usuarios"):
-        raise HTTPException(403, "Su rol no puede ver el padrón de usuarios.")
+    exigir_permiso(ctx, "ver_usuarios", "Su rol no puede ver el padrón de usuarios.")
     # Ver inactivos es exclusivo de administración (Admin / Super Admin). Para el
     # resto se fuerza a activos, en silencio: es un filtro, no un acceso a recurso.
     if not (ctx.rol == Rol.ADMIN or ctx.es_super_admin):

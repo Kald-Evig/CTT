@@ -16,12 +16,16 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import AuthContext, get_current_context, requiere_empresa
+from app.auth import (
+    AuthContext,
+    exigir_permiso,
+    get_current_context,
+    requiere_empresa,
+)
 from app.authz import scope_orm
 from app.database import get_db
 from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
 from app.models import Item, ItemComentario, ItemProblema, Proyecto, SyncConflicto
-from app.permissions import puede
 from app.schemas import ConflictoResolverIn
 
 router = APIRouter(prefix="/sync", tags=["Sincronización"])
@@ -39,8 +43,9 @@ def listar_conflictos(
     original, para no romper clientes existentes).
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "resolver_conflictos_sync"):
-        raise HTTPException(403, "Su rol no puede ver/resolver conflictos.")
+    exigir_permiso(
+        ctx, "resolver_conflictos_sync", "Su rol no puede ver/resolver conflictos."
+    )
 
     if estado is not None:
         try:
@@ -91,8 +96,9 @@ def resolver_conflicto(
     casos se cierran problemas huérfanos (Fix B) y el conflicto queda resuelto.
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "resolver_conflictos_sync"):
-        raise HTTPException(403, "Su rol no puede resolver conflictos.")
+    exigir_permiso(
+        ctx, "resolver_conflictos_sync", "Su rol no puede resolver conflictos."
+    )
 
     q = (
         db.query(SyncConflicto)

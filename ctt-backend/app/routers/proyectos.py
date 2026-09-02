@@ -10,12 +10,17 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.audit import a_serializable, record_audit
-from app.auth import AuthContext, actor_de, get_current_context, requiere_empresa
+from app.auth import (
+    AuthContext,
+    actor_de,
+    exigir_permiso,
+    get_current_context,
+    requiere_empresa,
+)
 from app.authz import scope_orm, scope_sql, require_project_manage, require_project_read
 from app.database import get_db
 from app.enums import ItemEstado, ProyectoEstado, Rol, UsuarioEstado
 from app.models import Item, ItemHistorial, Proyecto, ProyectoUsuario, Usuario
-from app.permissions import puede
 from app.schemas import (
     AsignarUsuarioProyectoIn, DashboardProyectoOut, ProyectoCreate,
     ProyectoHistorialEntradaOut, ProyectoOut, ProyectoUpdate, ProyectoUsuarioOut,
@@ -33,8 +38,7 @@ def crear_proyecto(
 ):
     """Crea un proyecto en la empresa activa (Coordinador o Admin)."""
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "crear_editar_proyecto"):
-        raise HTTPException(403, "Su rol no puede crear proyectos.")
+    exigir_permiso(ctx, "crear_editar_proyecto", "Su rol no puede crear proyectos.")
 
     # Derivar coordinador_principal_id:
     # body explícito → respetar.  Sin body + Coordinador → auto-asignarse.
@@ -129,8 +133,7 @@ def dashboard_proyectos(
       clásico de NOT IN con NULLs (que daría 0 hojas en proyectos jerárquicos).
     """
     empresa_id = requiere_empresa(ctx)
-    if not puede(ctx.rol, "acceso_reportes"):
-        raise HTTPException(403, "Su rol no tiene acceso al dashboard.")
+    exigir_permiso(ctx, "acceso_reportes", "Su rol no tiene acceso al dashboard.")
 
     scope_clause, scope_params = scope_sql(ctx)
     sql = text(_DASHBOARD_SQL_TMPL.format(scope=scope_clause))
@@ -169,8 +172,7 @@ def historial_proyecto(
     Agrega el historial de cambios de estado de todos los ítems del proyecto,
     incluyendo el nombre del ítem y del usuario que realizó el cambio.
     """
-    if not puede(ctx.rol, "ver_log_cambios"):
-        raise HTTPException(403, "Su rol no puede ver el log de cambios.")
+    exigir_permiso(ctx, "ver_log_cambios", "Su rol no puede ver el log de cambios.")
 
     rows = (
         db.query(ItemHistorial, Item.nombre, Usuario.nombre_completo)
@@ -370,8 +372,7 @@ def editar_proyecto(
     db: Session = Depends(get_db),
 ):
     """Edita datos de un proyecto (Coordinador/Admin). No modifica el estado."""
-    if not puede(ctx.rol, "crear_editar_proyecto"):
-        raise HTTPException(403, "Su rol no puede editar proyectos.")
+    exigir_permiso(ctx, "crear_editar_proyecto", "Su rol no puede editar proyectos.")
 
     empresa_id = proyecto.empresa_id
     cambios = body.model_dump(exclude_unset=True)
@@ -415,8 +416,7 @@ def cerrar_proyecto(
     db: Session = Depends(get_db),
 ):
     """Cierra un proyecto definitivamente (solo Admin — Sección 2.2)."""
-    if not puede(ctx.rol, "cerrar_proyecto"):
-        raise HTTPException(403, "Solo un Admin puede cerrar proyectos.")
+    exigir_permiso(ctx, "cerrar_proyecto", "Solo un Admin puede cerrar proyectos.")
     proyecto.estado = ProyectoEstado.CERRADO
     db.commit()
     db.refresh(proyecto)
