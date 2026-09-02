@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
@@ -39,8 +40,8 @@ class MisItemsScreen extends ConsumerWidget {
       ),
       body: itemsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _ErrorVista(
-          mensaje: e.toString(),
+        error: (_, __) => ErrorVista(
+          mensaje: 'Sin conexión. Mostrando datos en caché.',
           onReintento: () => ref.invalidate(misItemsProvider),
         ),
         data: (items) {
@@ -141,35 +142,3 @@ class _TarjetaItem extends ConsumerWidget {
   }
 }
 
-// ── Vista de error con reintento ─────────────────────────────────────────────
-
-class _ErrorVista extends StatelessWidget {
-  const _ErrorVista({required this.mensaje, required this.onReintento});
-  final String mensaje;
-  final VoidCallback onReintento;
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.wifi_off_outlined, size: 48, color: Colors.grey),
-              const SizedBox(height: 16),
-              Text(
-                'Sin conexión. Mostrando datos en caché.',
-                style: Theme.of(context).textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: onReintento,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Reintentar'),
-              ),
-            ],
-          ),
-        ),
-      );
-}

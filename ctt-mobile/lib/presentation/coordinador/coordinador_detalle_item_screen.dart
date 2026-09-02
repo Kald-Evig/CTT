@@ -13,6 +13,7 @@ import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
+import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart';
 
 class CoordinadorDetalleItemScreen extends ConsumerWidget {
@@ -33,23 +34,9 @@ class CoordinadorDetalleItemScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Detalle del ítem')),
       body: itemAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('No se pudo cargar el ítem: $e'),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () =>
-                      ref.invalidate(itemResidenteDetalleProvider(itemId)),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reintentar'),
-                ),
-              ],
-            ),
-          ),
+        error: (e, _) => ErrorVista(
+          mensaje: 'No se pudo cargar el ítem: $e',
+          onReintento: () => ref.invalidate(itemResidenteDetalleProvider(itemId)),
         ),
         data: (item) => ItemDetalleCuerpo(
           item: item,
@@ -260,23 +247,10 @@ class _SelectorAsignatarioSheetState
         Expanded(
           child: miembrosAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('No se pudo cargar los miembros: $e'),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () => ref.invalidate(
-                          miembrosProyectoProvider(widget.proyectoId),),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Reintentar'),
-                    ),
-                  ],
-                ),
-              ),
+            error: (e, _) => ErrorVista(
+              mensaje: 'No se pudo cargar los miembros: $e',
+              onReintento: () =>
+                  ref.invalidate(miembrosProyectoProvider(widget.proyectoId)),
             ),
             data: (miembros) {
               final trabajadores = miembros

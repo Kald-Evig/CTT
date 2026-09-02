@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
+import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 
 class HistorialProyectoScreen extends ConsumerWidget {
   const HistorialProyectoScreen({super.key, required this.proyectoId});
@@ -18,23 +19,9 @@ class HistorialProyectoScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Historial del proyecto')),
       body: historialAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('No se pudo cargar el historial: $e'),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () =>
-                      ref.invalidate(historialProyectoProvider(proyectoId)),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reintentar'),
-                ),
-              ],
-            ),
-          ),
+        error: (e, _) => ErrorVista(
+          mensaje: 'No se pudo cargar el historial: $e',
+          onReintento: () => ref.invalidate(historialProyectoProvider(proyectoId)),
         ),
         data: (entradas) {
           if (entradas.isEmpty) {
