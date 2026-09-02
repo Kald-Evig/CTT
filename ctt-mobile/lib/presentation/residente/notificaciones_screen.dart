@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctt_mobile/data/repositories/residente_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
+import 'package:ctt_mobile/presentation/shared/error_vista.dart';
+import 'package:ctt_mobile/presentation/shared/vista_vacia.dart';
 
 class NotificacionesResidenteScreen extends ConsumerWidget {
   const NotificacionesResidenteScreen({super.key});
@@ -21,45 +23,15 @@ class NotificacionesResidenteScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Notificaciones')),
       body: notifAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.cloud_off_outlined, size: 48, color: Colors.grey),
-                const SizedBox(height: 16),
-                Text(
-                  'No se pudieron cargar las notificaciones.\n$e',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () => ref.invalidate(notificacionesProvider),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reintentar'),
-                ),
-              ],
-            ),
-          ),
+        error: (e, _) => ErrorVista(
+          mensaje: 'No se pudieron cargar las notificaciones.\n$e',
+          onReintento: () => ref.invalidate(notificacionesProvider),
         ),
         data: (notificaciones) {
           if (notificaciones.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.notifications_none, size: 48, color: Colors.grey),
-                    SizedBox(height: 16),
-                    Text(
-                      'Sin notificaciones.',
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
+            return const VistaVacia(
+              mensaje: 'Sin notificaciones.',
+              icono: Icons.notifications_none,
             );
           }
           return RefreshIndicator(

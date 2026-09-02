@@ -7,6 +7,7 @@ import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
+import 'package:ctt_mobile/presentation/shared/vista_vacia.dart';
 
 class ConflictosScreen extends ConsumerWidget {
   const ConflictosScreen({super.key});
@@ -25,15 +26,10 @@ class ConflictosScreen extends ConsumerWidget {
         ),
         data: (conflictos) {
           if (conflictos.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-                  SizedBox(height: 16),
-                  Text('No hay conflictos pendientes'),
-                ],
-              ),
+            return const VistaVacia(
+              mensaje: 'No hay conflictos pendientes',
+              icono: Icons.check_circle_outline,
+              colorIcono: Colors.green,
             );
           }
           return RefreshIndicator(
@@ -137,7 +133,9 @@ class _CardConflictoState extends ConsumerState<_CardConflicto> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _versionEnProceso != null ? null : () => _resolver('local'),
+                    onPressed: _versionEnProceso != null
+                        ? null
+                        : () => _resolver('local'),
                     child: _versionEnProceso == 'local'
                         ? const SizedBox(
                             height: 16,
@@ -150,7 +148,9 @@ class _CardConflictoState extends ConsumerState<_CardConflicto> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _versionEnProceso != null ? null : () => _resolver('servidor'),
+                    onPressed: _versionEnProceso != null
+                        ? null
+                        : () => _resolver('servidor'),
                     child: _versionEnProceso == 'servidor'
                         ? const SizedBox(
                             height: 16,
@@ -217,7 +217,10 @@ class _Header extends StatelessWidget {
                   ],
                 )
               else
-                Text(nombreItem!, style: Theme.of(context).textTheme.titleSmall),
+                Text(
+                  nombreItem!,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
               const SizedBox(height: 2),
               Text(
                 '$fechaStr · disp: $dispCorto',
@@ -241,8 +244,18 @@ class _Header extends StatelessWidget {
   static String _formatFecha(DateTime dt) {
     final d = dt.toLocal();
     const meses = [
-      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-      'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
     ];
     final h = d.hour.toString().padLeft(2, '0');
     final m = d.minute.toString().padLeft(2, '0');
@@ -279,7 +292,10 @@ class _ColumnaVersion extends StatelessWidget {
           else ...[
             _InfoFila(etiqueta: 'Estado', valor: cambio!.estado),
             if (cambio!.comentario != null)
-              _InfoFila(etiqueta: 'Comentario', valor: '"${cambio!.comentario}"'),
+              _InfoFila(
+                etiqueta: 'Comentario',
+                valor: '"${cambio!.comentario}"',
+              ),
           ],
         ],
       ),
