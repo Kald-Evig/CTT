@@ -172,6 +172,7 @@ def resolver_conflicto(
     conflicto.estado = ConflictoEstado.RESUELTO
     conflicto.resuelto_por = ctx.usuario.id
     conflicto.resuelto_at = datetime.now(timezone.utc)
+    conflicto.version_ganadora = body.version_ganadora
     db.commit()
 
     return {
