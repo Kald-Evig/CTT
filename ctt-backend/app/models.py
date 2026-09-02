@@ -289,6 +289,9 @@ class SyncConflicto(Base):
     estado: Mapped[ConflictoEstado] = mapped_column(SAEnum(ConflictoEstado, native_enum=False, create_constraint=True, name="estado"), default=ConflictoEstado.PENDIENTE)
     resuelto_por: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     resuelto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 'local' | 'servidor' | None. Null = resuelto antes de que se registrara
+    # (filas previas a CTT-117); no se backfillea con un valor inventado.
+    version_ganadora: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
