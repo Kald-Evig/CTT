@@ -11,7 +11,8 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.enums import (
-    EmpresaPlan, EvidenciaSyncStatus, ItemEstado, ProyectoEstado, Rol, UsuarioEstado,
+    ConflictoEstado, EmpresaPlan, EvidenciaSyncStatus, ItemEstado, ProyectoEstado,
+    Rol, UsuarioEstado,
 )
 
 _PATRON_RUT = re.compile(r"^\d{1,3}(?:\.\d{3})*-[\dkK]$")
@@ -263,6 +264,23 @@ class HistorialOut(BaseModel):
 class ConflictoResolverIn(BaseModel):
     """Resolución manual: el Coordinador/Admin elige qué versión gana."""
     version_ganadora: str = Field(pattern="^(local|servidor)$")
+
+
+class ConflictoMioOut(BaseModel):
+    """[TEMPORAL — CTT-117] Conflicto resuelto propio, para que el dispositivo reconcilie.
+
+    Se retira cuando se implemente CTT-104 (version_id_col / If-Match). Excluye
+    cambio_local/cambio_servidor a propósito: el dispositivo ya tiene su cambio y
+    solo necesita saber quién ganó. dispositivo_id permite casar la fila contra la
+    cola local (un mismo usuario puede tener conflictos de varios dispositivos).
+    """
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    item_id: str
+    dispositivo_id: str
+    version_ganadora: str | None
+    resuelto_at: datetime | None
+    estado: ConflictoEstado
 
 
 # ── Notificaciones ───────────────────────────────────────────────────────────

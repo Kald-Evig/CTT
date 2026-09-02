@@ -26,7 +26,7 @@ from app.authz import scope_orm
 from app.database import get_db
 from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
 from app.models import Item, ItemComentario, ItemProblema, Proyecto, SyncConflicto
-from app.schemas import ConflictoResolverIn
+from app.schemas import ConflictoMioOut, ConflictoResolverIn
 
 router = APIRouter(prefix="/sync", tags=["Sincronización"])
 
@@ -87,6 +87,32 @@ def listar_conflictos(
     return [
         {**_conflicto_dict(c), "created_at": c.created_at} for c in conflictos
     ]
+
+
+@router.get("/conflictos/mios", response_model=list[ConflictoMioOut])
+def listar_conflictos_mios(
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+):
+    """[TEMPORAL — CTT-117] Conflictos RESUELTOS originados por el usuario del token.
+
+    Una sola regla de autorización: estado == RESUELTO y usuario_id == sujeto del
+    token. Sin ramas por rol — cualquier rol autenticado ve únicamente los suyos.
+    Permite al dispositivo saber qué versión ganó y reconciliar su cola local
+    (sync_pendientes).
+
+    Se retira cuando se implemente CTT-104 (version_id_col / If-Match), que hará
+    innecesario este canal de reconciliación por pull.
+    """
+    return (
+        db.query(SyncConflicto)
+        .filter(
+            SyncConflicto.usuario_id == ctx.usuario.id,
+            SyncConflicto.estado == ConflictoEstado.RESUELTO,
+        )
+        .order_by(SyncConflicto.resuelto_at.desc())
+        .all()
+    )
 
 
 @router.post("/conflictos/{conflicto_id}/resolver")
