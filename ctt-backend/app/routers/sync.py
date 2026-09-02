@@ -31,6 +31,24 @@ from app.schemas import ConflictoResolverIn
 router = APIRouter(prefix="/sync", tags=["Sincronización"])
 
 
+def _conflicto_dict(c) -> dict:
+    """Campos comunes de un SyncConflicto para las respuestas de sync.
+
+    Cada endpoint agrega su extra: created_at en el listado, version_ganadora
+    en la resolución.
+    """
+    return {
+        "id": c.id,
+        "item_id": c.item_id,
+        "cambio_local": c.cambio_local,
+        "cambio_servidor": c.cambio_servidor,
+        "dispositivo_id": c.dispositivo_id,
+        "estado": c.estado.value,
+        "resuelto_por": c.resuelto_por,
+        "resuelto_at": c.resuelto_at,
+    }
+
+
 @router.get("/conflictos")
 def listar_conflictos(
     estado: str | None = None,
@@ -67,18 +85,7 @@ def listar_conflictos(
     )
     conflictos = scope_orm(q, ctx).all()
     return [
-        {
-            "id": c.id,
-            "item_id": c.item_id,
-            "cambio_local": c.cambio_local,
-            "cambio_servidor": c.cambio_servidor,
-            "dispositivo_id": c.dispositivo_id,
-            "estado": c.estado.value,
-            "resuelto_por": c.resuelto_por,
-            "resuelto_at": c.resuelto_at,
-            "created_at": c.created_at,
-        }
-        for c in conflictos
+        {**_conflicto_dict(c), "created_at": c.created_at} for c in conflictos
     ]
 
 
@@ -168,13 +175,6 @@ def resolver_conflicto(
     db.commit()
 
     return {
-        "id": conflicto.id,
-        "item_id": conflicto.item_id,
-        "estado": conflicto.estado.value,
+        **_conflicto_dict(conflicto),
         "version_ganadora": body.version_ganadora,
-        "cambio_local": conflicto.cambio_local,
-        "cambio_servidor": conflicto.cambio_servidor,
-        "dispositivo_id": conflicto.dispositivo_id,
-        "resuelto_por": conflicto.resuelto_por,
-        "resuelto_at": conflicto.resuelto_at,
     }
