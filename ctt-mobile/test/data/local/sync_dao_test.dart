@@ -8,17 +8,37 @@
 /// estaba probado en la función pura y no en quien lo escribe: el DAO.
 library;
 
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
+import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
+class _MockDio extends Mock implements Dio {}
+
+/// DioException con statusCode y body dados (forma de FastAPI: `{"detail": ...}`).
+DioException _err(int status, Object? data) {
+  final ro = RequestOptions(path: '/items/x/transicion');
+  return DioException(
+    requestOptions: ro,
+    response: Response<dynamic>(
+      requestOptions: ro,
+      statusCode: status,
+      data: data,
+    ),
+    type: DioExceptionType.badResponse,
+  );
+}
+
 void main() {
   late BaseDatosCTT db;
 
+  setUpAll(() => registerFallbackValue(Options()));
   setUp(() => db = BaseDatosCTT.conConexion(NativeDatabase.memory()));
   tearDown(() => db.close());
 
@@ -120,6 +140,62 @@ void main() {
       );
 
       expect((await leer(id)).reintentos, 2);
+    });
+  });
+
+  // ── Camino de la COLA contra Drift real (CTT-115) ────────────────────────────
+  // Se maneja CicloSync con un SyncDao real (no mock) y un Dio mockeado (la red).
+  // Un mock del DAO probaría que se llamó; esto prueba que la fila QUEDÓ escrita
+  // en ultimo_error — que es lo que la regresión perdía.
+  group('(d/e) ciclo_sync persiste el detalle del backend en ultimo_error', () {
+    late _MockDio dio;
+    late CicloSync ciclo;
+
+    setUp(() {
+      dio = _MockDio();
+      ciclo = CicloSync(syncDao: db.syncDao, dio: dio);
+    });
+
+    test('(d) rechazo de negocio (409 con detail string) por la cola: la fila '
+        'termina descartada, motivo rechazo_negocio y ultimo_error con el '
+        'mensaje del backend', () async {
+      const detalle = 'El ítem está en PROBLEMA. Debe cerrarse el problema '
+          'antes de cambiar de estado.';
+      final id = await encolar(estado: 'pendiente');
+      when(() => dio.post<void>(any(),
+              data: any(named: 'data'), options: any(named: 'options'),),)
+          .thenThrow(_err(409, {'detail': detalle}));
+
+      await ciclo.ejecutar();
+
+      final fila = await leer(id);
+      expect(fila.estado, EstadoSyncLocal.descartado.valor);
+      expect(fila.motivo, MotivoSync.rechazoNegocio.valor);
+      expect(fila.ultimoError, detalle);
+    });
+
+    test('(e) falla transitoria: ultimo_error refleja el detalle del ÚLTIMO '
+        'intento, no el del primero', () async {
+      final id = await encolar(estado: 'pendiente', reintentos: 0);
+      // Dos ciclos, dos mensajes distintos. Value(detalle) en aplicarDecision
+      // sobrescribe cuando no es null → debe ganar el segundo.
+      final mensajes = ['503 intento-1', '503 intento-2'];
+      var i = 0;
+      when(() => dio.post<void>(any(),
+              data: any(named: 'data'), options: any(named: 'options'),),)
+          .thenAnswer((_) async {
+        final msg = mensajes[i];
+        i++;
+        throw _err(503, {'detail': msg});
+      });
+
+      await ciclo.ejecutar(); // intento 1 → pendiente, reintentos=1, ultimo=intento-1
+      await ciclo.ejecutar(); // intento 2 → pendiente, reintentos=2, ultimo=intento-2
+
+      final fila = await leer(id);
+      expect(fila.estado, EstadoSyncLocal.pendiente.valor);
+      expect(fila.reintentos, 2);
+      expect(fila.ultimoError, '503 intento-2'); // el último, no 'intento-1'
     });
   });
 }

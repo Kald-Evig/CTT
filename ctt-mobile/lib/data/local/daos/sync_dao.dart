@@ -54,7 +54,9 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// fila sigue en [estadoEsperado] (guarda anti-carrera, igual que marcarEnviando).
   ///
   /// Devuelve las filas afectadas (0 si otro ciclo ya la movió). Escribe estado y
-  /// —solo cuando la decisión lo indica— motivo, reintentos y conflicto_id.
+  /// —según la decisión y el transporte— motivo, reintentos, conflicto_id y
+  /// ultimo_error (el detalle del backend; su ausencia deja el valor previo, así
+  /// que en reintentos gana el ÚLTIMO intento con detalle — CTT-115).
   ///
   /// TODO(CTT-117): este retorno NO tiene consumidor en producción (ni ciclo_sync
   /// ni transicion_service lo miran). Si la guarda de [estadoEsperado] se vuelve a
@@ -67,6 +69,7 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     required DecisionSync decision,
     required int reintentosActuales,
     String? conflictoId,
+    String? detalle,
   }) =>
       (update(syncPendientesTable)
             ..where(
@@ -85,6 +88,8 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
               : const Value.absent(),
           conflictoId:
               conflictoId != null ? Value(conflictoId) : const Value.absent(),
+          ultimoError:
+              detalle != null ? Value(detalle) : const Value.absent(),
         ),
       );
 

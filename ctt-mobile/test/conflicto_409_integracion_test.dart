@@ -93,6 +93,7 @@ void main() {
             decision: any(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
             conflictoId: any(named: 'conflictoId'),
+            detalle: any(named: 'detalle'),
           ),).thenAnswer((_) async => 1);
     });
 
@@ -125,6 +126,7 @@ void main() {
             decision: captureAny(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
             conflictoId: captureAny(named: 'conflictoId'),
+            detalle: any(named: 'detalle'),
           ),).captured;
       expect(args[0], idEncolado);
       expect(args[1], EstadoSyncLocal.pendiente); // estado esperado de la fila recién encolada
@@ -154,6 +156,7 @@ void main() {
             decision: any(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
             conflictoId: any(named: 'conflictoId'),
+            detalle: any(named: 'detalle'),
           ),);
     });
 
@@ -213,6 +216,7 @@ void main() {
             decision: any(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
             conflictoId: any(named: 'conflictoId'),
+            detalle: any(named: 'detalle'),
           ),).thenAnswer((_) async => 1);
     });
 
@@ -224,6 +228,7 @@ void main() {
             decision: captureAny(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
             conflictoId: captureAny(named: 'conflictoId'),
+            detalle: any(named: 'detalle'),
           ),).captured;
       return (args[0] as DecisionSync, args[1] as String?);
     }

@@ -53,6 +53,7 @@ class CicloSync {
 
       SenalSync senal;
       String? conflictoId;
+      String? detalle;
       try {
         await _enviarCambio(
           accion: cambio.accion,
@@ -63,10 +64,12 @@ class CicloSync {
         senal = SenalSync.envioOk;
       } catch (e) {
         // ÚNICO punto que conoce Dio: traduce la excepción de transporte a una
-        // señal de dominio. De acá para abajo no hay HTTP.
+        // señal de dominio y captura el detalle del backend. De acá para abajo
+        // no hay HTTP.
         final clasificado = _clasificar(e);
-        senal = clasificado.$1;
-        conflictoId = clasificado.$2;
+        senal = clasificado.senal;
+        conflictoId = clasificado.conflictoId;
+        detalle = clasificado.detalle;
       }
 
       final decision = decidir(
@@ -80,34 +83,66 @@ class CicloSync {
         decision: decision,
         reintentosActuales: cambio.reintentos,
         conflictoId: conflictoId,
+        detalle: detalle,
       );
     }
   }
 
-  /// Traduce una excepción de envío a una [SenalSync] de dominio y, si es un
-  /// conflicto, su conflicto_id. Es el único método acoplado a Dio.
-  (SenalSync, String?) _clasificar(Object error) {
+  /// Traduce una excepción de envío a una [SenalSync] de dominio y, al lado de
+  /// ella, la metadata de transporte que hay que persistir: el conflicto_id (si
+  /// es un conflicto) y el detalle legible del backend (si es un rechazo o una
+  /// falla). El detalle viaja JUNTO a la señal, no dentro: el dominio nunca lo
+  /// ve. Es el único método acoplado a Dio.
+  ({SenalSync senal, String? conflictoId, String? detalle}) _clasificar(
+    Object error,
+  ) {
     if (error is DioException) {
+      final detalle = extraerDetalleBackend(error);
       final status = error.response?.statusCode;
       if (status == 409) {
         final id = extraerConflictoId(error);
         // 409 con id = conflicto de concurrencia; 409 sin id = rechazo de
         // negocio (transición inválida, estado ya avanzó). Distinguirlos es lo
         // que corrige el defecto de CTT-115.
-        return id != null
-            ? (SenalSync.conflictoDetectado, id)
-            : (SenalSync.rechazoDefinitivo, null);
+        if (id != null) {
+          return (
+            senal: SenalSync.conflictoDetectado,
+            conflictoId: id,
+            detalle: null,
+          );
+        }
+        return (
+          senal: SenalSync.rechazoDefinitivo,
+          conflictoId: null,
+          detalle: detalle,
+        );
       }
       if (status == 403 || status == 404 || status == 422) {
         // Rechazo permanente: no se arregla reintentando el mismo payload.
-        return (SenalSync.rechazoDefinitivo, null);
+        return (
+          senal: SenalSync.rechazoDefinitivo,
+          conflictoId: null,
+          detalle: detalle,
+        );
       }
-      // Transitorio: red, timeout, 5xx.
-      return (SenalSync.fallaTransitoria, null);
+      // Transitorio: red, timeout, 5xx. Se captura el detalle igual (CTT-115):
+      // si agota reintentos y cae en descartado/reintentos_agotados, el usuario
+      // ve el motivo real del último intento en la bandeja del tramo 4, no un
+      // "se agotaron los reintentos" sin pista.
+      return (
+        senal: SenalSync.fallaTransitoria,
+        conflictoId: null,
+        detalle: detalle,
+      );
     }
     // Excepción no-Dio (p.ej. el stub UnimplementedError de subir_foto): tratar
     // como transitoria — agotará reintentos y terminará en descartado, sin limbo.
-    return (SenalSync.fallaTransitoria, null);
+    // Sin DioException no hay detalle de backend que extraer.
+    return (
+      senal: SenalSync.fallaTransitoria,
+      conflictoId: null,
+      detalle: null,
+    );
   }
 
   Future<void> _enviarCambio({
