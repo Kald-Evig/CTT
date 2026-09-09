@@ -182,14 +182,14 @@ void main() {
     });
   });
 
-  // ── Condición de alcance CTT-117 (tramo 2) ─────────────────────────────────
+  // ── Condición de alcance CTT-117 (tramo 3) ─────────────────────────────────
   //
-  // esperando_resolucion es no terminal, pero su ÚNICA salida son las señales
-  // resolucionGanoCliente/resolucionGanoServidor, que hasta el tramo 3 NINGÚN
-  // código de producción emite. El test del grafo de arriba NO detecta esto:
-  // verifica que decidir() tiene arista de salida, no que alguien la ejerza.
-  // Este caso lo verifica y DEBE fallar hoy; el skip se auto-limpia porque el
-  // tramo 3 no puede cerrarse con él puesto (mismo patrón que el skip de CTT-115).
+  // esperando_resolucion es no terminal; su ÚNICA salida son las señales
+  // resolucionGanoCliente/resolucionGanoServidor. El test del grafo de arriba NO
+  // detecta si alguien las EJERCE: verifica que decidir() tiene arista de salida,
+  // no que un caller la emita. Este candado verifica el emisor real. En el tramo 2
+  // estaba en skip (nadie emitía); el tramo 3 agregó el reconciliador (que emite
+  // ambas), así que ahora corre y debe pasar — el DoD no cierra con el skip puesto.
   test('existe código de producción que emite las señales de resolución', () {
     final fuentes = Directory('lib')
         .listSync(recursive: true)
@@ -207,7 +207,6 @@ void main() {
 
     expect(emiteCliente && emiteServidor, isTrue,
         reason: 'Nadie emite las señales de resolución: esperando_resolucion '
-            'es un sumidero hasta el tramo 3.',);
-  }, skip: 'Se habilita en el tramo 3 de CTT-117 — hasta entonces '
-      'esperando_resolucion no tiene salida ejercida',);
+            'volvería a ser un sumidero.',);
+  });
 }
