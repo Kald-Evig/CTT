@@ -71,6 +71,17 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// ultimo_error (el detalle del backend; su ausencia deja el valor previo, así
   /// que en reintentos gana el ÚLTIMO intento con detalle — CTT-115).
   ///
+  /// ESCRITOR ÚNICO del flag `items_cache.tiene_conflicto` (CTT-117 tramo 3), en
+  /// la MISMA transacción que el estado de la cola, de forma simétrica:
+  ///   - la decisión entra a esperandoResolucion            → flag = true
+  ///   - sale de esperandoResolucion hacia un terminal      → flag = false
+  ///   - cualquier otra transición                          → no toca el flag
+  /// El id del ítem (`entidadId`) no viaja como parámetro: se lee de la fila recién
+  /// escrita y pasa por Dart a propósito (opción A2) — si alguna vez `entidadId`
+  /// dejara de ser el id del ítem, el update fallaría de forma visible en vez de
+  /// esconderse en un subquery SQL. Si el ítem no está en caché, el update es un
+  /// no-op y la fila de la cola se cierra igual.
+  ///
   /// TODO(CTT-117): este retorno NO tiene consumidor en producción (ni ciclo_sync
   /// ni transicion_service lo miran). Si la guarda de [estadoEsperado] se vuelve a
   /// desalinear con el estado real de la fila, la escritura se convierte en un
@@ -84,27 +95,56 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     String? conflictoId,
     String? detalle,
   }) =>
-      (update(syncPendientesTable)
-            ..where(
-              (t) =>
-                  t.id.equals(id) &
-                  t.estado.equals(estadoEsperado.valor),
-            ))
-          .write(
-        SyncPendientesTableCompanion(
-          estado: Value(decision.nuevoEstado.valor),
-          motivo: decision.motivo != null
-              ? Value(decision.motivo!.valor)
-              : const Value.absent(),
-          reintentos: decision.incrementaReintentos
-              ? Value(reintentosActuales + 1)
-              : const Value.absent(),
-          conflictoId:
-              conflictoId != null ? Value(conflictoId) : const Value.absent(),
-          ultimoError:
-              detalle != null ? Value(detalle) : const Value.absent(),
-        ),
-      );
+      transaction(() async {
+        final afectadas = await (update(syncPendientesTable)
+              ..where(
+                (t) =>
+                    t.id.equals(id) &
+                    t.estado.equals(estadoEsperado.valor),
+              ))
+            .write(
+          SyncPendientesTableCompanion(
+            estado: Value(decision.nuevoEstado.valor),
+            motivo: decision.motivo != null
+                ? Value(decision.motivo!.valor)
+                : const Value.absent(),
+            reintentos: decision.incrementaReintentos
+                ? Value(reintentosActuales + 1)
+                : const Value.absent(),
+            conflictoId:
+                conflictoId != null ? Value(conflictoId) : const Value.absent(),
+            ultimoError:
+                detalle != null ? Value(detalle) : const Value.absent(),
+          ),
+        );
+        // Guarda anti-carrera: si la fila ya no estaba en estadoEsperado, no se
+        // movió nada y tampoco se toca el flag.
+        if (afectadas == 0) return 0;
+
+        final bool? nuevoFlag;
+        if (decision.nuevoEstado == EstadoSyncLocal.esperandoResolucion) {
+          nuevoFlag = true;
+        } else if (estadoEsperado == EstadoSyncLocal.esperandoResolucion &&
+            decision.nuevoEstado.esTerminal) {
+          nuevoFlag = false;
+        } else {
+          nuevoFlag = null;
+        }
+
+        if (nuevoFlag != null) {
+          final fila = await (select(syncPendientesTable)
+                ..where((t) => t.id.equals(id)))
+              .getSingleOrNull();
+          if (fila != null) {
+            await (update(attachedDatabase.itemsCacheTable)
+                  ..where((t) => t.id.equals(fila.entidadId)))
+                .write(ItemsCacheTableCompanion(
+                  tieneConflicto: Value(nuevoFlag),
+                ),);
+          }
+        }
+        return afectadas;
+      });
 
   /// IDs de entidades con sincronización pendiente (estados NO terminales).
   /// Usado para el indicador visual en la lista de ítems.

@@ -47,17 +47,20 @@ void main() {
     String id = 'e1',
     String estado = 'pendiente',
     int reintentos = 0,
+    String entidadId = 'item-1',
+    String? conflictoId,
   }) async {
     await db.syncDao.encolar(SyncPendientesTableCompanion.insert(
       id: id,
       tipoEntidad: 'item',
-      entidadId: 'item-1',
+      entidadId: entidadId,
       accion: 'cambio_estado_item',
       payload: '{}',
       timestampDispositivo: DateTime.utc(2026, 1, 1),
       dispositivoId: 'dev-1',
       estado: Value(estado),
       reintentos: Value(reintentos),
+      conflictoId: Value(conflictoId),
     ),);
     return id;
   }
@@ -65,6 +68,21 @@ void main() {
   Future<SyncPendientesTableData> leer(String id) =>
       (db.select(db.syncPendientesTable)..where((t) => t.id.equals(id)))
           .getSingle();
+
+  /// Inserta un ítem en caché con el flag de conflicto en el valor dado.
+  Future<void> insertarItem(String id, {required bool conflicto}) =>
+      db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+        id: id,
+        proyectoId: 'p1',
+        nombre: 'Tarea $id',
+        estado: 'abierto',
+        updatedAt: DateTime.utc(2026, 1, 1),
+        cachadoEn: DateTime.utc(2026, 1, 1),
+        tieneConflicto: Value(conflicto),
+      ),);
+
+  Future<bool> flag(String itemId) async =>
+      (await db.itemsCacheDao.obtenerPorId(itemId))!.tieneConflicto;
 
   test('(a) guarda coincide: retorna 1, mueve la fila y escribe motivo + '
       'conflicto_id', () async {
@@ -143,6 +161,98 @@ void main() {
     });
   });
 
+  group('(f) aplicarDecision es el escritor único de tiene_conflicto (CTT-117 t3)',
+      () {
+    test('entra a esperando_resolucion → enciende el flag del ítem, en la '
+        'MISMA corrida', () async {
+      await insertarItem('item-1', conflicto: false);
+      final id = await encolar(estado: 'pendiente'); // entidadId por defecto: item-1
+      final decision = decidir(
+        estadoActual: EstadoSyncLocal.pendiente,
+        senal: SenalSync.conflictoDetectado,
+        reintentos: 0,
+      );
+
+      await db.syncDao.aplicarDecision(
+        id,
+        estadoEsperado: EstadoSyncLocal.pendiente,
+        decision: decision,
+        reintentosActuales: 0,
+        conflictoId: 'c-1',
+      );
+
+      final fila = await leer(id);
+      expect(fila.estado, EstadoSyncLocal.esperandoResolucion.valor);
+      expect(await flag('item-1'), isTrue);
+    });
+
+    test('sale de esperando_resolucion a terminal → apaga el flag', () async {
+      await insertarItem('item-2', conflicto: true);
+      final id = await encolar(
+        id: 'e2',
+        estado: 'esperando_resolucion',
+        entidadId: 'item-2',
+        conflictoId: 'c-2',
+      );
+      final decision = decidir(
+        estadoActual: EstadoSyncLocal.esperandoResolucion,
+        senal: SenalSync.resolucionGanoServidor,
+        reintentos: 0,
+      );
+
+      await db.syncDao.aplicarDecision(
+        id,
+        estadoEsperado: EstadoSyncLocal.esperandoResolucion,
+        decision: decision,
+        reintentosActuales: 0,
+      );
+
+      expect((await leer(id)).estado, EstadoSyncLocal.descartado.valor);
+      expect(await flag('item-2'), isFalse);
+    });
+
+    test('entidadId ausente de items_cache: la fila de la cola se cierra igual '
+        '(update del flag no-op)', () async {
+      final id = await encolar(estado: 'pendiente', entidadId: 'item-fantasma');
+      final decision = decidir(
+        estadoActual: EstadoSyncLocal.pendiente,
+        senal: SenalSync.conflictoDetectado,
+        reintentos: 0,
+      );
+
+      await db.syncDao.aplicarDecision(
+        id,
+        estadoEsperado: EstadoSyncLocal.pendiente,
+        decision: decision,
+        reintentosActuales: 0,
+        conflictoId: 'c-3',
+      );
+
+      expect((await leer(id)).estado, EstadoSyncLocal.esperandoResolucion.valor);
+      expect(await db.itemsCacheDao.obtenerPorId('item-fantasma'), isNull);
+    });
+
+    test('transición que no toca esperando_resolucion NO altera el flag', () async {
+      await insertarItem('item-4', conflicto: true); // centinela
+      final id = await encolar(id: 'e4', estado: 'enviando', entidadId: 'item-4');
+      final decision = decidir(
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.rechazoDefinitivo,
+        reintentos: 0,
+      );
+
+      await db.syncDao.aplicarDecision(
+        id,
+        estadoEsperado: EstadoSyncLocal.enviando,
+        decision: decision,
+        reintentosActuales: 0,
+      );
+
+      expect((await leer(id)).estado, EstadoSyncLocal.descartado.valor);
+      expect(await flag('item-4'), isTrue); // intacto
+    });
+  });
+
   // ── Camino de la COLA contra Drift real (CTT-115) ────────────────────────────
   // Se maneja CicloSync con un SyncDao real (no mock) y un Dio mockeado (la red).
   // Un mock del DAO probaría que se llamó; esto prueba que la fila QUEDÓ escrita
@@ -153,11 +263,7 @@ void main() {
 
     setUp(() {
       dio = _MockDio();
-      ciclo = CicloSync(
-        syncDao: db.syncDao,
-        dio: dio,
-        itemsCacheDao: db.itemsCacheDao,
-      );
+      ciclo = CicloSync(syncDao: db.syncDao, dio: dio);
     });
 
     test('(d) rechazo de negocio (409 con detail string) por la cola: la fila '

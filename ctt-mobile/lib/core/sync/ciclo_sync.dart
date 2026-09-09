@@ -20,7 +20,6 @@ import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
-import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
@@ -32,23 +31,18 @@ part 'ciclo_sync.g.dart';
 CicloSync cicloSync(CicloSyncRef ref) => CicloSync(
       syncDao: ref.watch(syncDaoProvider),
       dio: ref.watch(dioClientProvider),
-      itemsCacheDao: ref.watch(itemsCacheDaoProvider),
     );
 
 /// Ciclo de sincronización reutilizable.
-/// No crea instancias propias — el caller provee [SyncDao], [Dio] e [ItemsCacheDao].
-/// El [ItemsCacheDao] lo usa el reconciliador del pull (CTT-117 tramo 3) para
-/// apagar el flag de conflicto de los ítems cuyas operaciones llegan a terminal.
+/// No crea instancias propias — el caller provee [SyncDao] y [Dio].
 class CicloSync {
   const CicloSync({
     required this.syncDao,
     required this.dio,
-    required this.itemsCacheDao,
   });
 
   final SyncDao syncDao;
   final Dio dio;
-  final ItemsCacheDao itemsCacheDao;
 
   /// Lee la cola, envía cada cambio al API (push) y después reconcilia los
   /// conflictos ya resueltos server-side (pull, CTT-117 tramo 3, disparador d).
@@ -102,7 +96,6 @@ class CicloSync {
     try {
       await ReconciliadorConflictos(
         syncDao: syncDao,
-        itemsCacheDao: itemsCacheDao,
         dio: dio,
       ).reconciliarSiCorresponde();
     } catch (_) {

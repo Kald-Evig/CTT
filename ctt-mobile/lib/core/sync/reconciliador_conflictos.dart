@@ -15,31 +15,27 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
-import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'reconciliador_conflictos.g.dart';
 
-/// Provider foreground: usa el Dio autenticado y los DAOs del ProviderScope.
+/// Provider foreground: usa el Dio autenticado y el DAO del ProviderScope.
 /// El isolate headless de WorkManager arma el suyo a mano (sync_service.dart).
 @riverpod
 ReconciliadorConflictos reconciliadorConflictos(ReconciliadorConflictosRef ref) =>
     ReconciliadorConflictos(
       syncDao: ref.watch(syncDaoProvider),
-      itemsCacheDao: ref.watch(itemsCacheDaoProvider),
       dio: ref.watch(dioClientProvider),
     );
 
 class ReconciliadorConflictos {
   const ReconciliadorConflictos({
     required this.syncDao,
-    required this.itemsCacheDao,
     required this.dio,
   });
 
   final SyncDao syncDao;
-  final ItemsCacheDao itemsCacheDao;
   final Dio dio;
 
   /// Ventana de debounce entre reconciliaciones efectivas. El intervalo mínimo de
@@ -104,14 +100,14 @@ class ReconciliadorConflictos {
         senal: senal,
         reintentos: fila.reintentos,
       );
+      // aplicarDecision cierra la fila Y apaga items_cache.tiene_conflicto en la
+      // misma transacción (escritor único del flag, CTT-117 tramo 3).
       await syncDao.aplicarDecision(
         fila.id,
         estadoEsperado: EstadoSyncLocal.esperandoResolucion,
         decision: decision,
         reintentosActuales: fila.reintentos,
       );
-      // La operación llegó a terminal → apagar el flag de conflicto del ítem.
-      await itemsCacheDao.marcarSinConflicto(fila.entidadId);
     }
     return true;
   }

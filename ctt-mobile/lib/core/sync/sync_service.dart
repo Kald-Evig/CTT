@@ -110,11 +110,7 @@ Future<void> _ejecutarCicloSync() async {
       },
     ),);
 
-    await CicloSync(
-      syncDao: db.syncDao,
-      dio: dioHeadless,
-      itemsCacheDao: db.itemsCacheDao,
-    ).ejecutar();
+    await CicloSync(syncDao: db.syncDao, dio: dioHeadless).ejecutar();
   } finally {
     await db.close();
   }

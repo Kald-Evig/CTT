@@ -32,7 +32,6 @@ void main() {
     dio = _MockDio();
     reconciliador = ReconciliadorConflictos(
       syncDao: db.syncDao,
-      itemsCacheDao: db.itemsCacheDao,
       dio: dio,
     );
   });
