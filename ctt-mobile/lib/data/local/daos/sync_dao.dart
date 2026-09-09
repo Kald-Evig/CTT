@@ -16,10 +16,13 @@ part 'sync_dao.g.dart';
 @riverpod
 SyncDao syncDao(SyncDaoRef ref) => SyncDao(ref.watch(baseDatosCTTProvider));
 
-@DriftAccessor(tables: [SyncPendientesTable])
+@DriftAccessor(tables: [SyncPendientesTable, SyncReconciliacionTable])
 class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     with _$SyncDaoMixin {
   SyncDao(super.db);
+
+  /// Id de la fila única de estado del reconciliador (CTT-117 tramo 3).
+  static const _idReconciliacion = 'singleton';
 
   /// Encola un nuevo cambio. Nunca falla si no hay conexión — ese es el punto.
   Future<void> encolar(SyncPendientesTableCompanion entrada) =>
@@ -120,6 +123,24 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         .get();
     return {for (final r in rows) r.entidadId};
   }
+
+  /// Momento de la última reconciliación (o null si nunca corrió). Persistido en
+  /// Drift para que el debounce coordine entre el isolate de UI y el headless.
+  Future<DateTime?> ultimaReconciliacion() async {
+    final row = await (select(syncReconciliacionTable)
+          ..where((t) => t.id.equals(_idReconciliacion)))
+        .getSingleOrNull();
+    return row?.ultimaReconciliacion;
+  }
+
+  /// Registra el instante de una reconciliación efectiva (upsert de la fila única).
+  Future<void> registrarReconciliacion(DateTime cuando) =>
+      into(syncReconciliacionTable).insertOnConflictUpdate(
+        SyncReconciliacionTableCompanion.insert(
+          id: _idReconciliacion,
+          ultimaReconciliacion: Value(cuando),
+        ),
+      );
 
   Future<int> contarPendientes() async {
     final count = syncPendientesTable.id.count();

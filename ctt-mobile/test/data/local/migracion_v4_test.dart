@@ -215,4 +215,25 @@ void main() {
     expect(filas.firstWhere((f) => f['id'] == 'c')['motivo'],
         'error_transitorio',);
   });
+
+  // ── v4→v5: tabla del debounce del reconciliador (CTT-117 tramo 3) ────────────
+  test('v3 → v5 crea sync_reconciliacion y el debounce persiste', () async {
+    final path = '${tmp.path}/v3_recon.db';
+    final seed = raw.sqlite3.open(path);
+    _crearEsquema(seed, 3); // BD sin la tabla de reconciliación
+    seed.dispose();
+
+    final db = BaseDatosCTT.conConexion(NativeDatabase(File(path)));
+    try {
+      // _migrarV4aV5 creó la tabla; arranca vacía (nunca reconció).
+      expect(await db.syncDao.ultimaReconciliacion(), isNull);
+
+      final t = DateTime.utc(2026, 6, 1, 9, 0, 0);
+      await db.syncDao.registrarReconciliacion(t);
+      // Drift devuelve el DateTime en hora local; se compara el instante.
+      expect((await db.syncDao.ultimaReconciliacion())!.toUtc(), t);
+    } finally {
+      await db.close();
+    }
+  });
 }

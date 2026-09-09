@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
+import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
@@ -266,11 +267,45 @@ String _rutaPorRol(String? rol) {
 
 // ── Widget raíz ───────────────────────────────────────────────────────────────
 
-class AppCTT extends ConsumerWidget {
+class AppCTT extends ConsumerStatefulWidget {
   const AppCTT({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppCTT> createState() => _AppCTTState();
+}
+
+class _AppCTTState extends ConsumerState<AppCTT> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Disparador (a) de reconciliación (CTT-117 tramo 3): una vez al arrancar.
+    // Post-frame para no bloquear el primer render; el debounce persistido evita
+    // solaparse con los otros disparadores.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reconciliar());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Disparador (b): al volver a primer plano. Cubre el caso en que el Coordinador
+    // resolvió el conflicto mientras la app estaba en background.
+    if (state == AppLifecycleState.resumed) _reconciliar();
+  }
+
+  /// Best-effort y debounced: no bloquea la UI y tolera la falta de sesión al
+  /// arranque (sin JWT el GET falla y se ignora; sin filas parqueadas no hay red).
+  void _reconciliar() {
+    ref.read(reconciliadorConflictosProvider).reconciliarSiCorresponde().ignore();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     // Activa el listener de conectividad para flush inmediato al recuperar señal.
     ref.watch(conectividadListenerProvider);
     final goRouter = ref.watch(routerProvider);

@@ -111,6 +111,22 @@ class UsuarioActivoTable extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// Estado del reconciliador de conflictos (CTT-117 tramo 3). Fila única (id fijo).
+/// Guarda cuándo corrió la última reconciliación, para el DEBOUNCE compartido entre
+/// el isolate de UI (arranque, resumed, conectividad) y el headless de WorkManager.
+/// Ambos abren el mismo archivo SQLite (CTT-105): una variable en memoria no
+/// coordinaría entre los dos isolates.
+class SyncReconciliacionTable extends Table {
+  @override
+  String get tableName => 'sync_reconciliacion';
+
+  TextColumn get id => text()();
+  DateTimeColumn get ultimaReconciliacion => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 // ── Base de datos ─────────────────────────────────────────────────────────────
 
 @riverpod
@@ -124,6 +140,7 @@ BaseDatosCTT baseDatosCTT(BaseDatosCTTRef ref) {
   SyncPendientesTable,
   ItemsCacheTable,
   UsuarioActivoTable,
+  SyncReconciliacionTable,
 ], daos: [
   SyncDao,
   ItemsCacheDao,
@@ -138,7 +155,7 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT.conConexion(super.executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -153,6 +170,9 @@ class BaseDatosCTT extends _$BaseDatosCTT {
           }
           if (desde < 4) {
             await _migrarV3aV4(m);
+          }
+          if (desde < 5) {
+            await _migrarV4aV5(m);
           }
         },
       );
@@ -228,6 +248,12 @@ class BaseDatosCTT extends _$BaseDatosCTT {
     // 'pendiente' y 'sincronizado' siguen siendo válidos: no se tocan.
     // acknowledged queda en su default (false) para TODAS las filas heredadas:
     // marcar como reconocido afirmaría que el usuario ya vio el desenlace.
+  }
+
+  /// Migración v4→v5 (CTT-117 tramo 3): agrega la tabla del debounce persistido
+  /// del reconciliador. Tabla nueva y vacía — no hay datos que mover.
+  Future<void> _migrarV4aV5(Migrator m) async {
+    await m.createTable(syncReconciliacionTable);
   }
 }
 

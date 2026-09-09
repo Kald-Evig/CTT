@@ -15,6 +15,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
+import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
 
 part 'conectividad_listener.g.dart';
@@ -48,6 +49,19 @@ class ConectividadListener extends _$ConectividadListener {
             existingWorkPolicy: ExistingWorkPolicy.replace,
             constraints: Constraints(networkType: NetworkType.connected),
           );
+        }
+
+        // Disparador (c) de reconciliación (CTT-117 tramo 3): cerrar los conflictos
+        // que el Coordinador resolvió mientras el dispositivo estaba offline. El
+        // debounce persistido evita que se solape con los otros disparadores.
+        // Best-effort: si /mios falla, el periódico y los demás disparadores lo
+        // reintentan.
+        try {
+          await ref
+              .read(reconciliadorConflictosProvider)
+              .reconciliarSiCorresponde();
+        } catch (_) {
+          // Silencio deliberado: la reconciliación no debe tumbar el flush.
         }
       }
     });

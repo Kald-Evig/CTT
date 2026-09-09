@@ -172,6 +172,52 @@ void main() {
     verifyNever(() => dio.get<List<dynamic>>(any()));
   });
 
+  group('debounce persistido (reconciliarSiCorresponde)', () {
+    final t0 = DateTime.utc(2026, 5, 1, 12, 0, 0);
+
+    test('corrida efectiva registra el reloj; una 2da dentro de la ventana NO '
+        'vuelve a consultar /mios', () async {
+      // Fila en rama 2 (no en /mios): la corrida es "efectiva" (había parqueadas)
+      // pero deja la fila intacta. Sirve para observar el debounce sin agotar la
+      // cola entre llamadas.
+      await itemConConflicto('item-X');
+      await parquear(id: 'x1', entidadId: 'item-X', conflictoId: 'c-X');
+      mockMios([]);
+
+      await reconciliador.reconciliarSiCorresponde(ahora: t0);
+      await reconciliador.reconciliarSiCorresponde(
+        ahora: t0.add(const Duration(minutes: 1)), // < 2 min
+      );
+
+      // Solo la primera consultó el servidor.
+      verify(() => dio.get<List<dynamic>>('/sync/conflictos/mios')).called(1);
+      // Drift devuelve DateTime en hora LOCAL (guarda epoch); se compara el
+      // instante, que es lo que usa el debounce (difference() es absoluto).
+      expect((await db.syncDao.ultimaReconciliacion())!.toUtc(), t0);
+    });
+
+    test('pasada la ventana, vuelve a reconciliar', () async {
+      await itemConConflicto('item-Y');
+      await parquear(id: 'y1', entidadId: 'item-Y', conflictoId: 'c-Y');
+      mockMios([]);
+
+      await reconciliador.reconciliarSiCorresponde(ahora: t0);
+      await reconciliador.reconciliarSiCorresponde(
+        ahora: t0.add(const Duration(minutes: 3)), // > 2 min
+      );
+
+      verify(() => dio.get<List<dynamic>>('/sync/conflictos/mios')).called(2);
+    });
+
+    test('corrida VACÍA no consume la ventana: no registra reloj ni consulta',
+        () async {
+      await reconciliador.reconciliarSiCorresponde(ahora: t0);
+
+      expect(await db.syncDao.ultimaReconciliacion(), isNull);
+      verifyNever(() => dio.get<List<dynamic>>(any()));
+    });
+  });
+
   test('mezcla: una fila casa y otra sigue pendiente en la misma corrida',
       () async {
     await itemConConflicto('item-F');

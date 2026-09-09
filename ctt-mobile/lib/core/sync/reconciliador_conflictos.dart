@@ -42,6 +42,24 @@ class ReconciliadorConflictos {
   final ItemsCacheDao itemsCacheDao;
   final Dio dio;
 
+  /// Ventana de debounce entre reconciliaciones efectivas. El intervalo mínimo de
+  /// WorkManager es un piso, no una garantía, y hay cuatro disparadores (arranque,
+  /// resumed, conectividad, periódico) que pueden solaparse; el debounce evita
+  /// reconciliar en cada uno. Persistido en Drift (ver [SyncDao]).
+  static const ventanaDebounce = Duration(minutes: 2);
+
+  /// Reconcilia solo si pasó la [ventanaDebounce] desde la última corrida efectiva.
+  /// El reloj se guarda en Drift para coordinar entre el isolate de UI y el
+  /// headless de WorkManager. Una corrida VACÍA (sin filas parqueadas) no consume
+  /// la ventana: [reconciliar] devuelve false y no se registra.
+  Future<void> reconciliarSiCorresponde({DateTime? ahora}) async {
+    final now = ahora ?? DateTime.now().toUtc();
+    final ultima = await syncDao.ultimaReconciliacion();
+    if (ultima != null && now.difference(ultima) < ventanaDebounce) return;
+    final consulto = await reconciliar();
+    if (consulto) await syncDao.registrarReconciliacion(now);
+  }
+
   /// Cierra las filas locales en `esperandoResolucion` cuyo conflicto ya resolvió
   /// el servidor. Devuelve `true` si consultó el servidor (había filas parqueadas)
   /// y `false` si no había nada que reconciliar — el llamador usa ese dato para no
