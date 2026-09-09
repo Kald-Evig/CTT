@@ -11,6 +11,7 @@ library;
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -212,7 +213,13 @@ void main() {
     });
 
     test('entidadId ausente de items_cache: la fila de la cola se cierra igual '
-        '(update del flag no-op)', () async {
+        'Y el no-op deja rastro observable', () async {
+      // Capturar el rastro de debugPrint (restaurado en tearDown).
+      final trazas = <String>[];
+      final debugPrintAnterior = debugPrint;
+      debugPrint = (message, {wrapWidth}) => trazas.add(message ?? '');
+      addTearDown(() => debugPrint = debugPrintAnterior);
+
       final id = await encolar(estado: 'pendiente', entidadId: 'item-fantasma');
       final decision = decidir(
         estadoActual: EstadoSyncLocal.pendiente,
@@ -228,8 +235,17 @@ void main() {
         conflictoId: 'c-3',
       );
 
+      // La fila de la cola se cerró igual.
       expect((await leer(id)).estado, EstadoSyncLocal.esperandoResolucion.valor);
       expect(await db.itemsCacheDao.obtenerPorId('item-fantasma'), isNull);
+      // Y el no-op del flag dejó rastro (no pasó en silencio).
+      expect(
+        trazas.any(
+          (t) => t.contains('item-fantasma') && t.contains('items_cache'),
+        ),
+        isTrue,
+        reason: 'El update no-op de tiene_conflicto debe loguearse, trazas=$trazas',
+      );
     });
 
     test('transición que no toca esperando_resolucion NO altera el flag', () async {

@@ -6,6 +6,7 @@
 library;
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -79,10 +80,10 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// El id del ítem (`entidadId`) no viaja como parámetro: se lee de la fila recién
   /// escrita y pasa por Dart a propósito (opción A2) — si alguna vez `entidadId`
   /// dejara de ser el id del ítem, el update fallaría de forma visible en vez de
-  /// esconderse en un subquery SQL. Si el ítem no está en caché, el update es un
-  /// no-op y la fila de la cola se cierra igual.
+  /// esconderse en un subquery SQL. Si el ítem no está en caché, el update del flag
+  /// es un no-op (se deja rastro observable) y la fila de la cola se cierra igual.
   ///
-  /// TODO(CTT-117): este retorno NO tiene consumidor en producción (ni ciclo_sync
+  /// TODO(CTT-120): este retorno NO tiene consumidor en producción (ni ciclo_sync
   /// ni transicion_service lo miran). Si la guarda de [estadoEsperado] se vuelve a
   /// desalinear con el estado real de la fila, la escritura se convierte en un
   /// no-op y un 0 inesperado pasa desapercibido — el mismo modo de falla silenciosa
@@ -96,6 +97,27 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     String? detalle,
   }) =>
       transaction(() async {
+        // El flag depende solo de (estadoEsperado, decisión); se resuelve antes de
+        // escribir para saber si hay que leer el ítem.
+        final bool? nuevoFlag;
+        if (decision.nuevoEstado == EstadoSyncLocal.esperandoResolucion) {
+          nuevoFlag = true;
+        } else if (estadoEsperado == EstadoSyncLocal.esperandoResolucion &&
+            decision.nuevoEstado.esTerminal) {
+          nuevoFlag = false;
+        } else {
+          nuevoFlag = null;
+        }
+
+        // entidadId se lee ANTES del update: ninguna decisión lo modifica. Solo se
+        // lee si el flag cambia. Si la guarda matchea (afectadas > 0), la fila
+        // existía, así que su entidadId no es null cuando se usa abajo.
+        final entidadId = nuevoFlag == null
+            ? null
+            : (await (select(syncPendientesTable)..where((t) => t.id.equals(id)))
+                    .getSingleOrNull())
+                ?.entidadId;
+
         final afectadas = await (update(syncPendientesTable)
               ..where(
                 (t) =>
@@ -121,26 +143,24 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         // movió nada y tampoco se toca el flag.
         if (afectadas == 0) return 0;
 
-        final bool? nuevoFlag;
-        if (decision.nuevoEstado == EstadoSyncLocal.esperandoResolucion) {
-          nuevoFlag = true;
-        } else if (estadoEsperado == EstadoSyncLocal.esperandoResolucion &&
-            decision.nuevoEstado.esTerminal) {
-          nuevoFlag = false;
-        } else {
-          nuevoFlag = null;
-        }
-
         if (nuevoFlag != null) {
-          final fila = await (select(syncPendientesTable)
-                ..where((t) => t.id.equals(id)))
-              .getSingleOrNull();
-          if (fila != null) {
-            await (update(attachedDatabase.itemsCacheTable)
-                  ..where((t) => t.id.equals(fila.entidadId)))
-                .write(ItemsCacheTableCompanion(
-                  tieneConflicto: Value(nuevoFlag),
-                ),);
+          final filasFlag = await (update(attachedDatabase.itemsCacheTable)
+                ..where((t) => t.id.equals(entidadId!)))
+              .write(ItemsCacheTableCompanion(
+                tieneConflicto: Value(nuevoFlag),
+              ),);
+          if (filasFlag == 0) {
+            // Ítem no cacheado: la fila de la cola se cerró igual, pero el flag no
+            // tuvo dónde escribirse. NO es necesariamente anómalo: el full-replace
+            // del pull puede sacar un ítem de items_cache mientras su fila sigue
+            // encolada, así que este no-op es un caso esperable, no un error.
+            // OJO: debugPrint es no-op en release (flutter/foundation), así que en
+            // el dispositivo del trabajador este rastro NO se observa. La
+            // observabilidad real de producción queda fuera del alcance del tramo 3.
+            debugPrint(
+              'CTT-117: tiene_conflicto=$nuevoFlag no aplicado — ítem $entidadId '
+              'no está en items_cache (fila de cola $id cerrada igual).',
+            );
           }
         }
         return afectadas;
