@@ -153,7 +153,11 @@ void main() {
 
     setUp(() {
       dio = _MockDio();
-      ciclo = CicloSync(syncDao: db.syncDao, dio: dio);
+      ciclo = CicloSync(
+        syncDao: db.syncDao,
+        dio: dio,
+        itemsCacheDao: db.itemsCacheDao,
+      );
     });
 
     test('(d) rechazo de negocio (409 con detail string) por la cola: la fila '

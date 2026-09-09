@@ -22,6 +22,7 @@ import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/core/sync/transicion_service.dart';
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -29,6 +30,8 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 class _MockDio extends Mock implements Dio {}
 
 class _MockSyncDao extends Mock implements SyncDao {}
+
+class _MockItemsCacheDao extends Mock implements ItemsCacheDao {}
 
 class _MockDeviceIdService extends Mock implements DeviceIdService {}
 
@@ -181,6 +184,7 @@ void main() {
   group('camino cola — ciclo_sync', () {
     late _MockDio dio;
     late _MockSyncDao syncDao;
+    late _MockItemsCacheDao itemsCacheDao;
     late CicloSync ciclo;
 
     SyncPendientesTableData entrada() => SyncPendientesTableData(
@@ -207,7 +211,12 @@ void main() {
     setUp(() {
       dio = _MockDio();
       syncDao = _MockSyncDao();
-      ciclo = CicloSync(syncDao: syncDao, dio: dio);
+      itemsCacheDao = _MockItemsCacheDao();
+      ciclo = CicloSync(
+        syncDao: syncDao,
+        dio: dio,
+        itemsCacheDao: itemsCacheDao,
+      );
       when(() => syncDao.obtenerPendientes()).thenAnswer((_) async => [entrada()]);
       when(() => syncDao.marcarEnviando(any())).thenAnswer((_) async => true);
       when(() => syncDao.aplicarDecision(
@@ -218,6 +227,12 @@ void main() {
             conflictoId: any(named: 'conflictoId'),
             detalle: any(named: 'detalle'),
           ),).thenAnswer((_) async => 1);
+      // El ciclo ahora reconcilia (pull) al final de ejecutar (CTT-117 tramo 3).
+      // Con la cola de espera vacía, el pull es un no-op (no consulta /mios): estos
+      // tests solo ejercen la clasificación del push.
+      when(() => syncDao.ultimaReconciliacion()).thenAnswer((_) async => null);
+      when(() => syncDao.obtenerEnEsperaResolucion())
+          .thenAnswer((_) async => []);
     });
 
     /// Captura la DecisionSync (y el conflicto_id) con que se aplicó la entrada.
