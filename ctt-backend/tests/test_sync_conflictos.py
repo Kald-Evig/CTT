@@ -10,7 +10,7 @@ cierre de problema huérfano (Fix B), y estado obsoleto (Fix C).
 import pytest
 
 from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
-from app.models import ItemComentario, ItemProblema, SyncConflicto
+from app.models import AuditLog, ItemComentario, ItemProblema, SyncConflicto
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -34,6 +34,17 @@ def _conflicto(db, seeded, *, cambio_local=None, cambio_servidor=None,
 
 def _h(seeded, uid):
     return seeded.headers(uid, seeded.emp_a)
+
+
+def _audit_resolucion(db, item_id) -> AuditLog | None:
+    return (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.entidad_id == item_id,
+            AuditLog.accion == "resolucion_conflicto",
+        )
+        .first()
+    )
 
 
 # ── GET /sync/conflictos ──────────────────────────────────────────────────────
@@ -269,6 +280,64 @@ def test_resolver_a_problema_no_cierra_problemas(client, seeded, db):
     db.expire_all()
     problema_db = db.query(ItemProblema).filter(ItemProblema.id == problema.id).first()
     assert problema_db.estado == ProblemaEstado.ABIERTO
+
+
+# ── CTT-117 tramo 3 — audit de la resolución (ambos desenlaces) ──────────────
+
+def test_resolver_local_deja_audit_con_diff_de_estado(client, seeded, db):
+    """Ganó local: audit_log con accion 'resolucion_conflicto', el diff de la
+    transición que SÍ ocurrió, y el trabajador/dispositivo afectados en meta."""
+    c = _conflicto(db, seeded,
+                   cambio_local={"estado": "en_progreso", "comentario": None},
+                   cambio_servidor={"estado": "abierto"})
+
+    r = client.post(
+        f"/sync/conflictos/{c.id}/resolver",
+        json={"version_ganadora": "local"},
+        headers=_h(seeded, seeded.coord),
+    )
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    audit = _audit_resolucion(db, seeded.item)
+    assert audit is not None
+    assert audit.accion == "resolucion_conflicto"
+    assert audit.entidad_tipo == "item"
+    assert audit.entidad_id == seeded.item
+    # Actor = el Coordinador que resolvió (no el trabajador).
+    assert audit.actor_id == seeded.coord_id
+    # Desenlace y afectado en meta (consultable), leídos del hecho.
+    assert audit.meta["version_ganadora"] == "local"
+    assert audit.meta["trabajador_afectado_id"] == seeded.trab_id
+    assert audit.meta["dispositivo_afectado_id"] == "test-device"
+    assert audit.meta["conflicto_id"] == c.id
+    # Ganó local → transición aplicada: abierto (servidor) → en_progreso (local).
+    assert audit.diff == {"estado": ["abierto", "en_progreso"]}
+
+
+def test_resolver_servidor_deja_audit_sin_diff(client, seeded, db):
+    """Ganó servidor: misma accion, pero diff=None — el cambio local se descartó y
+    item.estado no cambió. El desenlace vive en meta, no en el diff."""
+    c = _conflicto(db, seeded,
+                   cambio_local={"estado": "en_progreso", "comentario": None},
+                   cambio_servidor={"estado": "abierto"})
+
+    r = client.post(
+        f"/sync/conflictos/{c.id}/resolver",
+        json={"version_ganadora": "servidor"},
+        headers=_h(seeded, seeded.coord),
+    )
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    audit = _audit_resolucion(db, seeded.item)
+    assert audit is not None
+    assert audit.accion == "resolucion_conflicto"
+    assert audit.actor_id == seeded.coord_id
+    assert audit.meta["version_ganadora"] == "servidor"
+    assert audit.meta["trabajador_afectado_id"] == seeded.trab_id
+    # Ganó servidor → ninguna transición ocurrió.
+    assert audit.diff is None
 
 
 # ── Fix C — estado obsoleto ───────────────────────────────────────────────────

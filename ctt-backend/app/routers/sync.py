@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.audit import record_audit
 from app.auth import (
     AuthContext,
+    actor_de,
     exigir_permiso,
     get_current_context,
     requiere_empresa,
@@ -199,6 +201,41 @@ def resolver_conflicto(
     conflicto.resuelto_por = ctx.usuario.id
     conflicto.resuelto_at = datetime.now(timezone.utc)
     conflicto.version_ganadora = body.version_ganadora
+
+    # Audit de la resolución (CTT-117 tramo 3). Misma transacción que la resolución:
+    # record_audit hace db.add, no commit; el db.commit() de abajo es el único.
+    # Se audita SIEMPRE, no solo el descarte (auditar solo los descartes sesga el
+    # log). El desenlace vive en meta (accion es una sola para poder filtrar todas
+    # las resoluciones sin conocer las variantes). Se lee version_ganadora de la
+    # COLUMNA ya asignada (el hecho), no de body (la intención). Dos actores: quien
+    # resolvió (Coordinador, actor_de) y de quién era el cambio en disputa
+    # (trabajador + dispositivo, en meta para que sea consultable). El diff solo
+    # existe cuando ganó local, que es el único desenlace que cambia item.estado.
+    gano_local = conflicto.version_ganadora == "local"
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        **actor_de(ctx),
+        accion="resolucion_conflicto",
+        entidad_tipo="item",
+        entidad_id=conflicto.item_id,
+        proyecto_id=item.proyecto_id,
+        diff={
+            "estado": [
+                (conflicto.cambio_servidor or {}).get("estado"),
+                (conflicto.cambio_local or {}).get("estado"),
+            ]
+        }
+        if gano_local
+        else None,
+        detalle=f"Conflicto {conflicto.id}: ganó {conflicto.version_ganadora}.",
+        metadata={
+            "conflicto_id": conflicto.id,
+            "version_ganadora": conflicto.version_ganadora,
+            "trabajador_afectado_id": conflicto.usuario_id,
+            "dispositivo_afectado_id": conflicto.dispositivo_id,
+        },
+    )
     db.commit()
 
     return {
