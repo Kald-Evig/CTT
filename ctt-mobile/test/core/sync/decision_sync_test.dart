@@ -51,6 +51,28 @@ void main() {
       expect(d.registraDescarte, isFalse);
     });
 
+    test('resolución indeterminada → descartado/heredado_indeterminado', () {
+      final d = decidir(
+        estadoActual: EstadoSyncLocal.esperandoResolucion,
+        senal: SenalSync.resolucionIndeterminada,
+        reintentos: 0,
+      );
+      expect(d.nuevoEstado, EstadoSyncLocal.descartado);
+      expect(d.motivo, MotivoSync.heredadoIndeterminado);
+      expect(d.registraDescarte, isTrue);
+    });
+
+    test('resolución indeterminada es inválida en enviando (solo espera)', () {
+      expect(
+        () => decidir(
+          estadoActual: EstadoSyncLocal.enviando,
+          senal: SenalSync.resolucionIndeterminada,
+          reintentos: 0,
+        ),
+        throwsStateError,
+      );
+    });
+
     test('rechazo de negocio 4xx definitivo → descartado', () {
       final d = decidir(
         estadoActual: EstadoSyncLocal.enviando,

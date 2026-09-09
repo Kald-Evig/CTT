@@ -46,6 +46,15 @@ enum SenalSync {
   /// El Coordinador resolvió el conflicto a favor del servidor: el cambio local
   /// no se aplica. Emitida por el reconciliador del tramo 3.
   resolucionGanoServidor,
+
+  /// El conflicto se resolvió pero el desenlace no puede determinarse a favor de
+  /// una versión concreta. Dos orígenes, ambos del reconciliador del tramo 3:
+  ///   - fila heredada por la migración v3→v4 sin conflicto_id casable, o
+  ///   - conflicto resuelto ANTES de que el servidor persistiera version_ganadora
+  ///     (queda null; la migración Alembic la agregó nullable sin backfill).
+  /// Termina en `descartado`/`heredadoIndeterminado`: no se puede afirmar que el
+  /// cambio del cliente ganó, así que no se marca como sincronizado.
+  resolucionIndeterminada,
 }
 
 /// Resultado puro de [decidir]: qué escribir, sin escribir nada.
@@ -147,6 +156,7 @@ DecisionSync _desdeEnvio(
 
     case SenalSync.resolucionGanoCliente:
     case SenalSync.resolucionGanoServidor:
+    case SenalSync.resolucionIndeterminada:
       throw StateError(
         'Señal de resolución ($senal) inválida en estado $desde: solo aplica a '
         'esperandoResolucion.',
@@ -167,6 +177,13 @@ DecisionSync _desdeEspera(SenalSync senal, EstadoSyncLocal desde) {
       return const DecisionSync(
         nuevoEstado: EstadoSyncLocal.descartado,
         motivo: MotivoSync.conflictoResueltoServidor,
+        registraDescarte: true,
+      );
+
+    case SenalSync.resolucionIndeterminada:
+      return const DecisionSync(
+        nuevoEstado: EstadoSyncLocal.descartado,
+        motivo: MotivoSync.heredadoIndeterminado,
         registraDescarte: true,
       );
 

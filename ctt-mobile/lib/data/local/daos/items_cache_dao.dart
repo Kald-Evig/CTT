@@ -61,6 +61,15 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
     );
   }
 
+  /// Apaga el flag de conflicto de un ítem. Lo llama el reconciliador del tramo 3
+  /// (CTT-117) cuando la operación en conflicto llega a un estado terminal. No-op
+  /// si el ítem no está en caché (una fila de la cola puede referir a un ítem que
+  /// ya no está cacheado localmente).
+  Future<void> marcarSinConflicto(String itemId) =>
+      (update(itemsCacheTable)..where((t) => t.id.equals(itemId))).write(
+        const ItemsCacheTableCompanion(tieneConflicto: Value(false)),
+      );
+
   /// Revierte al estado anterior guardado en estadoPrevio.
   /// No-op si no hay estado previo registrado.
   Future<void> revertirEstado(String itemId) async {

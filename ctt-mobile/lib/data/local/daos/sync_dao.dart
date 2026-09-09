@@ -32,6 +32,16 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
             ..orderBy([(t) => OrderingTerm.asc(t.timestampDispositivo)]))
           .get();
 
+  /// Filas parqueadas esperando resolución de conflicto. Las consume el
+  /// reconciliador del tramo 3 (CTT-117) para casarlas contra
+  /// GET /sync/conflictos/mios por su `conflictoId`.
+  Future<List<SyncPendientesTableData>> obtenerEnEsperaResolucion() =>
+      (select(syncPendientesTable)
+            ..where(
+              (t) => t.estado.equals(EstadoSyncLocal.esperandoResolucion.valor),
+            ))
+          .get();
+
   /// Intenta transicionar de 'pendiente' → 'enviando'.
   /// Devuelve true si esta llamada ganó la entrada (1 fila afectada),
   /// false si otro ciclo ya la tomó primero (0 filas afectadas).
