@@ -36,6 +36,7 @@ void _crearEsquema(raw.Database db, int version) {
       estado TEXT NOT NULL DEFAULT 'pendiente',
       ultimo_error TEXT
       ${version >= 3 ? ", idempotency_key TEXT" : ""}
+      ${version >= 4 ? ", motivo TEXT, conflicto_id TEXT, acknowledged INTEGER NOT NULL DEFAULT 0" : ""}
     )''');
 
   // items_cache — proyecto_nombre llega en v2.
@@ -51,6 +52,7 @@ void _crearEsquema(raw.Database db, int version) {
       asignado_a TEXT,
       estado TEXT NOT NULL,
       estado_previo TEXT,
+      ${version >= 4 ? "tiene_conflicto INTEGER NOT NULL DEFAULT 0, " : ""}
       updated_at INTEGER NOT NULL,
       cachado_en INTEGER NOT NULL
     )''');
@@ -79,20 +81,58 @@ void _insertarSync(
   int reintentos = 0,
   String? ultimoError,
   String entidadId = 'item-x',
+  String payload = '{}',
+  String? motivo,
+  String? conflictoId,
+  int? acknowledged,
+  String? idempotencyKey,
 }) {
+  // Columnas base (v1). Las de v3/v4 se agregan SOLO si el caller las provee, para no
+  // referenciar columnas que la tabla de una versión vieja todavía no tiene.
+  final cols = <String>[
+    'id', 'tipo_entidad', 'entidad_id', 'accion', 'payload',
+    'timestamp_dispositivo', 'dispositivo_id', 'reintentos', 'estado', 'ultimo_error',
+  ];
+  final vals = <Object?>[
+    id, 'item', entidadId, 'cambio_estado_item', payload,
+    0, 'dev', reintentos, estado, ultimoError,
+  ];
+  if (idempotencyKey != null) {
+    cols.add('idempotency_key');
+    vals.add(idempotencyKey);
+  }
+  if (motivo != null) {
+    cols.add('motivo');
+    vals.add(motivo);
+  }
+  if (conflictoId != null) {
+    cols.add('conflicto_id');
+    vals.add(conflictoId);
+  }
+  if (acknowledged != null) {
+    cols.add('acknowledged');
+    vals.add(acknowledged);
+  }
+  final marcadores = List.filled(cols.length, '?').join(', ');
   db.execute(
-    "INSERT INTO sync_pendientes (id, tipo_entidad, entidad_id, accion, payload, "
-    "timestamp_dispositivo, dispositivo_id, reintentos, estado, ultimo_error) "
-    "VALUES (?, 'item', ?, 'cambio_estado_item', '{}', 0, 'dev', ?, ?, ?)",
-    [id, entidadId, reintentos, estado, ultimoError],
+    'INSERT INTO sync_pendientes (${cols.join(', ')}) VALUES ($marcadores)',
+    vals,
   );
 }
 
-void _insertarItem(raw.Database db, String id) {
+void _insertarItem(raw.Database db, String id, {int? tieneConflicto}) {
+  final cols = <String>[
+    'id', 'proyecto_id', 'nombre', 'estado', 'updated_at', 'cachado_en',
+  ];
+  final vals = <Object?>[id, 'p1', 'Tarea', 'abierto', 0, 0];
+  if (tieneConflicto != null) {
+    cols.add('tiene_conflicto');
+    vals.add(tieneConflicto);
+  }
+  final marcadores = List.filled(cols.length, '?').join(', ');
   db.execute(
-    "INSERT INTO items_cache (id, proyecto_id, nombre, estado, updated_at, cachado_en) "
-    "VALUES (?, 'p1', 'Tarea', 'abierto', 0, 0)",
-    [id],
+    'INSERT INTO items_cache (${cols.join(', ')}) VALUES ($marcadores)',
+    vals,
   );
 }
 
@@ -232,6 +272,83 @@ void main() {
       await db.syncDao.registrarReconciliacion(t);
       // Drift devuelve el DateTime en hora local; se compara el instante.
       expect((await db.syncDao.ultimaReconciliacion())!.toUtc(), t);
+    } finally {
+      await db.close();
+    }
+  });
+
+  test('desde v4 → v5 preserva la cola en todos los estados', () async {
+    final path = '${tmp.path}/v4_v5.db';
+    final seed = raw.sqlite3.open(path);
+    _crearEsquema(seed, 4); // esquema v4 completo (motivo, conflicto_id, acknowledged, tiene_conflicto)
+
+    // Una fila por CADA estado de v4, con campos no-default a preservar.
+    _insertarSync(seed,
+        id: 'a', estado: 'pendiente',
+        payload: '{"nuevo_estado":"en_progreso"}', idempotencyKey: 'idem-a',);
+    _insertarSync(seed,
+        id: 'b', estado: 'enviando', reintentos: 2, // reintentos > 0
+        payload: '{"nuevo_estado":"pendiente_revision"}', idempotencyKey: 'idem-b',);
+    _insertarSync(seed,
+        id: 'c', estado: 'esperando_resolucion', motivo: 'conflicto', // motivo no nulo
+        conflictoId: 'conf-c',
+        payload: '{"nuevo_estado":"terminado"}', idempotencyKey: 'idem-c',);
+    _insertarSync(seed,
+        id: 'd', estado: 'sincronizado', acknowledged: 1, // acknowledged no-default
+        payload: '{"nuevo_estado":"problema"}', idempotencyKey: 'idem-d',);
+    _insertarSync(seed,
+        id: 'e', estado: 'descartado', motivo: 'reintentos_agotados', reintentos: 5,
+        payload: '{"nuevo_estado":"abierto"}', idempotencyKey: 'idem-e',);
+    _insertarItem(seed, 'item-conf', tieneConflicto: 1);
+    seed.dispose();
+
+    // Abrir con Drift dispara SOLO v4→v5 (user_version=4): _migrarV4aV5 no toca
+    // sync_pendientes; se verifica que ninguna fila ni campo se pierda.
+    final db = BaseDatosCTT.conConexion(NativeDatabase(File(path)));
+    try {
+      final filas = await db
+          .customSelect('SELECT id, estado, motivo, reintentos, conflicto_id, '
+              'acknowledged, idempotency_key, payload FROM sync_pendientes')
+          .get();
+      final byId = {for (final f in filas) f.data['id'] as String: f.data};
+      expect(byId.length, 5, reason: 'se perdieron filas de la cola en v4→v5');
+
+      // Fila por fila, TODOS los campos (no alcanza con contar).
+      expect(byId['a']!['estado'], 'pendiente');
+      expect(byId['a']!['idempotency_key'], 'idem-a');
+      expect(byId['a']!['payload'], '{"nuevo_estado":"en_progreso"}');
+
+      expect(byId['b']!['estado'], 'enviando');
+      expect(byId['b']!['reintentos'], 2);
+      expect(byId['b']!['idempotency_key'], 'idem-b');
+      expect(byId['b']!['payload'], '{"nuevo_estado":"pendiente_revision"}');
+
+      expect(byId['c']!['estado'], 'esperando_resolucion');
+      expect(byId['c']!['motivo'], 'conflicto');
+      expect(byId['c']!['conflicto_id'], 'conf-c');
+      expect(byId['c']!['idempotency_key'], 'idem-c');
+      expect(byId['c']!['payload'], '{"nuevo_estado":"terminado"}');
+
+      expect(byId['d']!['estado'], 'sincronizado');
+      expect(byId['d']!['acknowledged'], 1);
+      expect(byId['d']!['idempotency_key'], 'idem-d');
+      expect(byId['d']!['payload'], '{"nuevo_estado":"problema"}');
+
+      expect(byId['e']!['estado'], 'descartado');
+      expect(byId['e']!['motivo'], 'reintentos_agotados');
+      expect(byId['e']!['reintentos'], 5);
+      expect(byId['e']!['idempotency_key'], 'idem-e');
+      expect(byId['e']!['payload'], '{"nuevo_estado":"abierto"}');
+
+      // items_cache.tiene_conflicto preservado.
+      final item = await db
+          .customSelect("SELECT tiene_conflicto FROM items_cache "
+              "WHERE id = 'item-conf'")
+          .getSingle();
+      expect(item.data['tiene_conflicto'], 1);
+
+      // La tabla del debounce existe y arranca vacía.
+      expect(await db.syncDao.ultimaReconciliacion(), isNull);
     } finally {
       await db.close();
     }
