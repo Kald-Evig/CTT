@@ -21,6 +21,7 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
+import 'package:ctt_mobile/data/local/migracion_atomica.dart';
 
 part 'database.g.dart';
 
@@ -181,26 +182,32 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
         onUpgrade: (m, desde, hasta) async {
-          // Línea base v6 (CTT-130 fase 3): NO hay migración desde v1–v5.
-          // La transacción, el respaldo con VACUUM INTO y la pantalla de
-          // recuperación son fase 4; acá solo se falla ruidosamente.
           if (desde > hasta) {
             throw StateError(
               'Downgrade de esquema no soportado (from=$desde > to=$hasta): '
-              'la base es más nueva que la app. El guard robusto '
-              'pre-instanciación (PRAGMA user_version con sqlite3 crudo) es fase 4.',
+              'la base es más nueva que la app.',
             );
           }
-          // Cualquier from < 6 es una instalación pre-baseline: un dispositivo
-          // olvidado en v5 debe fallar, NO bajar de versión por pasos que ya no
-          // existen (CTT-130).
-          throw StateError(
-            'Migración desde el esquema v$desde no soportada. La línea base es '
-            'v6 (CTT-130); las versiones v1–v5 se aplanaron. Requiere '
-            'reinstalación de la app.',
-          );
+          if (desde < 6) {
+            // Instalación pre-baseline (v1–v5): un dispositivo olvidado en v5
+            // debe fallar, NO bajar de versión por pasos que ya no existen.
+            throw StateError(
+              'Migración desde el esquema v$desde no soportada. La línea base es '
+              'v6 (CTT-130); las versiones v1–v5 se aplanaron. Requiere '
+              'reinstalación de la app.',
+            );
+          }
+          // desde >= 6: migración real por pasos (v7 en adelante), ATÓMICA —
+          // pasos + user_version en una sola transacción (CTT-130 fase 4). Hoy no
+          // hay pasos: v6 es la línea base.
+          await migrarAtomico(this, from: desde, to: hasta,
+              pasos: _pasosMigracion(desde, hasta),);
         },
       );
+
+  /// Pasos de migración por rango de versiones (v7 en adelante). Hoy vacío: v6 es
+  /// la línea base. Se llenará con los pasos que genere `make-migrations`.
+  List<PasoMigracion> _pasosMigracion(int desde, int hasta) => const [];
 }
 
 /// Top-level para que sea enviable al isolate de background de createInBackground.
