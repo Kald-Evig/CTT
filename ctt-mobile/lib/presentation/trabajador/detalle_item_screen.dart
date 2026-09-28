@@ -182,7 +182,7 @@ class _AccionesEstado extends ConsumerWidget {
       // El repositorio ya revirtió la caché; solo refrescar la UI.
       ref.invalidate(itemDetalleProvider(item.id));
       if (context.mounted) {
-        mostrarMensaje(context, 'Error al guardar: $e');
+        mostrarMensaje(context, itemDetalleMensajeError(e));
       }
     }
   }
@@ -236,7 +236,7 @@ class _AccionesEstado extends ConsumerWidget {
     } catch (e) {
       ref.invalidate(itemDetalleProvider(item.id));
       if (context.mounted) {
-        mostrarMensaje(context, 'Error al reportar: $e');
+        mostrarMensaje(context, itemDetalleMensajeError(e));
       }
     }
   }

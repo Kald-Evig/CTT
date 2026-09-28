@@ -12,6 +12,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
+import 'package:ctt_mobile/core/sync/transicion_service.dart'
+    show SesionNoDisponibleException;
 import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
@@ -507,6 +509,11 @@ class ItemDetalleMensajeEstado extends StatelessWidget {
 // ── Helper de error ───────────────────────────────────────────────────────────
 
 String itemDetalleMensajeError(Object e) {
+  // Sin sesión activa al encolar (v6: usuario_id/empresa_id NOT NULL, CTT-130).
+  // El cambio NO se guardó: el trabajador debe verlo, no un fallo silencioso.
+  if (e is SesionNoDisponibleException) {
+    return 'Tu sesión no está activa. Iniciá sesión de nuevo para guardar el cambio.';
+  }
   if (e is DioException) {
     // Prioriza el `detail` legible del backend (parseo compartido, CTT-65);
     // si no hay detail, cae a un mensaje según el status HTTP.
