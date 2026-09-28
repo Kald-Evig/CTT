@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
+import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
@@ -31,6 +32,8 @@ class _MockDio extends Mock implements Dio {}
 class _MockSyncDao extends Mock implements SyncDao {}
 
 class _MockDeviceIdService extends Mock implements DeviceIdService {}
+
+class _MockSecureStorage extends Mock implements SecureStorageService {}
 
 /// Body 409 de concurrencia con la forma REAL que emite FastAPI:
 /// detail es un objeto con conflicto_id anidado.
@@ -52,14 +55,18 @@ DioException _err409(Object? data) {
 void main() {
   setUpAll(() {
     registerFallbackValue(
-      SyncPendientesTableCompanion.insert(
+      SyncPendientesCompanion.insert(
         id: 'fallback',
+        idempotencyKey: 'idem-fallback',
+        empresaId: 'emp',
+        usuarioId: 'user',
+        instalacionId: 'inst',
         tipoEntidad: 'item',
         entidadId: 'x',
         accion: 'cambio_estado_item',
         payload: '{}',
-        timestampDispositivo: DateTime.utc(2020),
-        dispositivoId: 'x',
+        payloadVersion: 1,
+        creadoEnDispositivo: DateTime.utc(2020),
       ),
     );
     registerFallbackValue(Options());
@@ -74,18 +81,25 @@ void main() {
     late _MockDio dio;
     late _MockSyncDao syncDao;
     late _MockDeviceIdService deviceIdService;
+    late _MockSecureStorage secureStorage;
     late TransicionService service;
 
     setUp(() {
       dio = _MockDio();
       syncDao = _MockSyncDao();
       deviceIdService = _MockDeviceIdService();
+      secureStorage = _MockSecureStorage();
       service = TransicionService(
         dio: dio,
         syncDao: syncDao,
         deviceIdService: deviceIdService,
+        secureStorage: secureStorage,
       );
       when(() => deviceIdService.obtener()).thenAnswer((_) async => 'device-test');
+      when(() => secureStorage.obtenerUsuarioId())
+          .thenAnswer((_) async => 'user-1');
+      when(() => secureStorage.obtenerEmpresaId())
+          .thenAnswer((_) async => 'emp-1');
       when(() => syncDao.encolar(any())).thenAnswer((_) async {});
       when(() => syncDao.aplicarDecision(
             any(),
@@ -116,7 +130,7 @@ void main() {
       // (2) El cambio QUEDÓ ENCOLADO (criterio anti-pérdida-de-trabajo).
       final capturado = verify(() => syncDao.encolar(captureAny())).captured;
       expect(capturado, hasLength(1));
-      final companion = capturado.single as SyncPendientesTableCompanion;
+      final companion = capturado.single as SyncPendientesCompanion;
       final idEncolado = companion.id.value;
 
       // (3) aplicarDecision movió esa entrada a esperando_resolucion con el id.
@@ -183,8 +197,13 @@ void main() {
     late _MockSyncDao syncDao;
     late CicloSync ciclo;
 
-    SyncPendientesTableData entrada() => SyncPendientesTableData(
+    SyncPendiente entrada() => SyncPendiente(
+          secuencia: 1,
           id: 'entry-1',
+          idempotencyKey: 'idem-1',
+          empresaId: 'emp-1',
+          usuarioId: 'user-1',
+          instalacionId: 'inst-1',
           tipoEntidad: 'item',
           entidadId: '82893973',
           accion: 'cambio_estado_item',
@@ -193,15 +212,12 @@ void main() {
             'device_timestamp': '2026-08-28T22:38:44.000Z',
             'dispositivo_id': 'dev-1',
           }),
-          timestampDispositivo: DateTime.utc(2026, 8, 28, 22, 38, 44),
-          dispositivoId: 'dev-1',
-          reintentos: 0,
+          payloadVersion: 1,
+          creadoEnDispositivo: DateTime.utc(2026, 8, 28, 22, 38, 44),
           estado: 'pendiente',
-          ultimoError: null,
-          idempotencyKey: 'idem-1',
-          motivo: null,
-          conflictoId: null,
           acknowledged: false,
+          intentosRed: 0,
+          intentosServidor: 0,
         );
 
     setUp(() {

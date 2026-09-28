@@ -51,23 +51,27 @@ void main() {
     String entidadId = 'item-1',
     String? conflictoId,
   }) async {
-    await db.syncDao.encolar(SyncPendientesTableCompanion.insert(
+    await db.syncDao.encolar(SyncPendientesCompanion.insert(
       id: id,
+      idempotencyKey: 'idem-$id',
+      empresaId: 'emp-1',
+      usuarioId: 'user-1',
+      instalacionId: 'inst-1',
       tipoEntidad: 'item',
       entidadId: entidadId,
       accion: 'cambio_estado_item',
       payload: '{}',
-      timestampDispositivo: DateTime.utc(2026, 1, 1),
-      dispositivoId: 'dev-1',
+      payloadVersion: 1,
+      creadoEnDispositivo: DateTime.utc(2026, 1, 1),
       estado: Value(estado),
-      reintentos: Value(reintentos),
+      intentosRed: Value(reintentos),
       conflictoId: Value(conflictoId),
     ),);
     return id;
   }
 
-  Future<SyncPendientesTableData> leer(String id) =>
-      (db.select(db.syncPendientesTable)..where((t) => t.id.equals(id)))
+  Future<SyncPendiente> leer(String id) =>
+      (db.select(db.syncPendientes)..where((t) => t.id.equals(id)))
           .getSingle();
 
   /// Inserta un ítem en caché con el flag de conflicto en el valor dado.
@@ -145,7 +149,7 @@ void main() {
         reintentosActuales: 2,
       );
 
-      expect((await leer(id)).reintentos, 3);
+      expect((await leer(id)).intentosRed, 3);
     });
 
     test('incrementaReintentos: false deja los reintentos intactos', () async {
@@ -158,7 +162,7 @@ void main() {
         reintentosActuales: 2,
       );
 
-      expect((await leer(id)).reintentos, 2);
+      expect((await leer(id)).intentosRed, 2);
     });
   });
 
@@ -320,7 +324,7 @@ void main() {
 
       final fila = await leer(id);
       expect(fila.estado, EstadoSyncLocal.pendiente.valor);
-      expect(fila.reintentos, 2);
+      expect(fila.intentosRed, 2);
       expect(fila.ultimoError, '503 intento-2'); // el último, no 'intento-1'
     });
   });

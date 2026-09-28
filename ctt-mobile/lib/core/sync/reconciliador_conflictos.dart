@@ -98,7 +98,7 @@ class ReconciliadorConflictos {
       final decision = decidir(
         estadoActual: EstadoSyncLocal.esperandoResolucion,
         senal: senal,
-        reintentos: fila.reintentos,
+        reintentos: fila.intentosRed,
       );
       // aplicarDecision cierra la fila Y apaga items_cache.tiene_conflicto en la
       // misma transacción (escritor único del flag, CTT-117 tramo 3).
@@ -106,7 +106,7 @@ class ReconciliadorConflictos {
         fila.id,
         estadoEsperado: EstadoSyncLocal.esperandoResolucion,
         decision: decision,
-        reintentosActuales: fila.reintentos,
+        reintentosActuales: fila.intentosRed,
       );
     }
     return true;

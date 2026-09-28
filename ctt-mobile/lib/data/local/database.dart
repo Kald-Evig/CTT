@@ -1,11 +1,14 @@
 /// database.dart — Configuración de la base de datos local (Drift/SQLite).
 ///
-/// Tablas iniciales del MVP. Todas las escrituras van primero a SyncPendientes
-/// (offline-first) antes de intentar sincronizar con el servidor.
+/// Línea base de esquema **v6** (CTT-130 fase 3): se aplanaron v1–v5. Desde v6,
+/// todo cambio de esquema sigue el flujo oficial de Drift (make-migrations →
+/// stepByStep → tests con SchemaVerifier). Las fechas se guardan como TEXTO
+/// (ISO-8601) por `store_date_time_values_as_text: true` en build.yaml.
 ///
-/// TODO Fase 1.5: integrar SQLCipher cuando se almacenen RUT y ubicación
-/// de trabajadores — datos personales que exigen cifrado en reposo (Ley 19.628).
-/// Ver: https://drift.simonbinder.eu/docs/platforms/encryption/
+/// La cola `sync_pendientes` ordena su envío por `secuencia` (autoincremental
+/// monótona), no por reloj del dispositivo (CTT-130: el reloj no es monótono).
+///
+/// El cifrado en reposo (RUT/ubicación, Ley 19.628) es CTT-132, bloqueado por CTT-133.
 library;
 
 import 'dart:io';
@@ -15,7 +18,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:sqlite3/sqlite3.dart' show Database;
-import 'package:ctt_mobile/core/sync/decision_sync.dart' show kMaxReintentosSync;
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
@@ -25,39 +27,62 @@ part 'database.g.dart';
 // ── Tablas ────────────────────────────────────────────────────────────────────
 
 /// Cola de operaciones pendientes de sincronizar con el servidor (Sección 8).
-/// Orden de envío: timestampDispositivo ASC (FIFO estricto).
-class SyncPendientesTable extends Table {
+///
+/// Diseño v6 (CTT-130). Este ticket crea las columnas; el comportamiento de cada
+/// grupo vive en otros tickets (CTT-103 backoff, CTT-127 lease de huérfanos,
+/// CTT-123 dueño/tenant, CTT-121 instalación, CTT-131/CTT-104 versión de entidad).
+///
+/// - `secuencia` (autoincremental) es el ORDEN de envío monótono dentro de un
+///   archivo. `creado_en_dispositivo` queda solo como dato de auditoría.
+/// - Tabla STRICT: tipos rígidos de SQLite.
+/// - `idempotency_key`, `empresa_id`, `usuario_id`, `instalacion_id`,
+///   `payload_version` son NOT NULL: toda fila nace con dueño y contrato.
+@DataClassName('SyncPendiente')
+@TableIndex(name: 'ux_sync_idempotency', columns: {#idempotencyKey}, unique: true)
+@TableIndex(name: 'ix_sync_envio', columns: {#estado, #secuencia})
+@TableIndex(name: 'ix_sync_entidad', columns: {#tipoEntidad, #entidadId, #secuencia})
+@TableIndex(name: 'ix_sync_usuario', columns: {#usuarioId, #estado})
+class SyncPendientes extends Table {
   @override
   String get tableName => 'sync_pendientes';
-
-  TextColumn get id => text()();
-  TextColumn get tipoEntidad => text()();
-  TextColumn get entidadId => text()();
-  TextColumn get accion => text()();
-  /// Payload JSON del cambio — lo que se enviará al endpoint.
-  TextColumn get payload => text()();
-  DateTimeColumn get timestampDispositivo => dateTime()();
-  TextColumn get dispositivoId => text()();
-  IntColumn get reintentos => integer().withDefault(const Constant(0))();
-  /// EstadoSyncLocal.valor — ver enums_ctt.dart.
-  TextColumn get estado => text().withDefault(const Constant('pendiente'))();
-  TextColumn get ultimoError => text().nullable()();
-  /// Clave de idempotencia (CTT-105). Nullable: las filas encoladas antes de
-  /// esta versión no la tienen y no se puede inventar una retroactivamente.
-  TextColumn get idempotencyKey => text().nullable()();
-  /// MotivoSync.valor — razón asociada al estado (ver enums_ctt.dart). Nullable:
-  /// null en el camino feliz (pendiente/enviando/sincronizado directo).
-  TextColumn get motivo => text().nullable()();
-  /// conflicto_id del backend para las filas en conflicto (CTT-117 tramo 2).
-  /// Lo consume el reconciliador del tramo 3 para casar con /sync/conflictos/mios.
-  /// Antes vivía string-encodeado en ultimoError; ahora tiene columna propia.
-  TextColumn get conflictoId => text().nullable()();
-  /// El usuario ya vio el desenlace terminal de esta entrada (para la bandeja
-  /// del tramo 4). Default false: un terminal recién escrito aún no se mostró.
-  BoolColumn get acknowledged => boolean().withDefault(const Constant(false))();
-
   @override
-  Set<Column> get primaryKey => {id};
+  bool get isStrict => true;
+
+  IntColumn get secuencia => integer().autoIncrement()();
+  TextColumn get id => text().unique()();
+  TextColumn get idempotencyKey => text().named('idempotency_key')();
+  TextColumn get empresaId => text().named('empresa_id')();
+  TextColumn get usuarioId => text().named('usuario_id')();
+  TextColumn get instalacionId => text().named('instalacion_id')();
+  TextColumn get tipoEntidad => text().named('tipo_entidad')();
+  TextColumn get entidadId => text().named('entidad_id')();
+  TextColumn get accion => text()();
+  TextColumn get payload => text()();
+  IntColumn get payloadVersion => integer().named('payload_version')();
+  IntColumn get versionBase => integer().named('version_base').nullable()();
+  DateTimeColumn get creadoEnDispositivo =>
+      dateTime().named('creado_en_dispositivo')();
+  TextColumn get estado => text().withDefault(const Constant('pendiente'))();
+  TextColumn get motivo => text().nullable()();
+  TextColumn get conflictoId => text().named('conflicto_id').nullable()();
+  BoolColumn get acknowledged => boolean().withDefault(const Constant(false))();
+  IntColumn get intentosRed =>
+      integer().named('intentos_red').withDefault(const Constant(0))();
+  IntColumn get intentosServidor =>
+      integer().named('intentos_servidor').withDefault(const Constant(0))();
+  DateTimeColumn get proximoIntentoEn =>
+      dateTime().named('proximo_intento_en').nullable()();
+  DateTimeColumn get ultimoIntentoEn =>
+      dateTime().named('ultimo_intento_en').nullable()();
+  IntColumn get ultimoErrorCodigo =>
+      integer().named('ultimo_error_codigo').nullable()();
+  TextColumn get ultimoError => text().named('ultimo_error').nullable()();
+  TextColumn get tomadoPor => text().named('tomado_por').nullable()();
+  DateTimeColumn get tomadoHasta => dateTime().named('tomado_hasta').nullable()();
+  DateTimeColumn get sincronizadoEn =>
+      dateTime().named('sincronizado_en').nullable()();
+  IntColumn get versionResultante =>
+      integer().named('version_resultante').nullable()();
 }
 
 /// Caché local de ítems descargados del servidor.
@@ -77,9 +102,7 @@ class ItemsCacheTable extends Table {
   /// EstadoItem.valor — ver enums_ctt.dart.
   TextColumn get estado => text()();
   TextColumn get estadoPrevio => text().nullable()();
-  /// El ítem tiene un conflicto de sync sin resolver (CTT-117 tramo 2). La
-  /// migración lo puebla para los ítems con fila en conflicto; el runtime que lo
-  /// pone/limpia en caliente es del tramo 3 (disparadores) / tramo 4 (UI).
+  /// El ítem tiene un conflicto de sync sin resolver (CTT-117 tramo 2).
   BoolColumn get tieneConflicto =>
       boolean().withDefault(const Constant(false))();
   DateTimeColumn get updatedAt => dateTime()();
@@ -113,9 +136,7 @@ class UsuarioActivoTable extends Table {
 
 /// Estado del reconciliador de conflictos (CTT-117 tramo 3). Fila única (id fijo).
 /// Guarda cuándo corrió la última reconciliación, para el DEBOUNCE compartido entre
-/// el isolate de UI (arranque, resumed, conectividad) y el headless de WorkManager.
-/// Ambos abren el mismo archivo SQLite (CTT-105): una variable en memoria no
-/// coordinaría entre los dos isolates.
+/// el isolate de UI y el headless de WorkManager (ambos abren el mismo archivo).
 class SyncReconciliacionTable extends Table {
   @override
   String get tableName => 'sync_reconciliacion';
@@ -137,7 +158,7 @@ BaseDatosCTT baseDatosCTT(BaseDatosCTTRef ref) {
 }
 
 @DriftDatabase(tables: [
-  SyncPendientesTable,
+  SyncPendientes,
   ItemsCacheTable,
   UsuarioActivoTable,
   SyncReconciliacionTable,
@@ -150,111 +171,36 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT() : super(_abrirConexion());
 
   /// Constructor para tests: inyecta un [QueryExecutor] (p.ej. una BD in-memory)
-  /// en vez de abrir el archivo real vía path_provider. Permite ejercer las
-  /// migraciones sin dispositivo.
+  /// en vez de abrir el archivo real vía path_provider.
   BaseDatosCTT.conConexion(super.executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
         onUpgrade: (m, desde, hasta) async {
-          if (desde < 2) {
-            await m.addColumn(itemsCacheTable, itemsCacheTable.proyectoNombre);
+          // Línea base v6 (CTT-130 fase 3): NO hay migración desde v1–v5.
+          // La transacción, el respaldo con VACUUM INTO y la pantalla de
+          // recuperación son fase 4; acá solo se falla ruidosamente.
+          if (desde > hasta) {
+            throw StateError(
+              'Downgrade de esquema no soportado (from=$desde > to=$hasta): '
+              'la base es más nueva que la app. El guard robusto '
+              'pre-instanciación (PRAGMA user_version con sqlite3 crudo) es fase 4.',
+            );
           }
-          if (desde < 3) {
-            await m.addColumn(
-                syncPendientesTable, syncPendientesTable.idempotencyKey,);
-          }
-          if (desde < 4) {
-            await _migrarV3aV4(m);
-          }
-          if (desde < 5) {
-            await _migrarV4aV5(m);
-          }
+          // Cualquier from < 6 es una instalación pre-baseline: un dispositivo
+          // olvidado en v5 debe fallar, NO bajar de versión por pasos que ya no
+          // existen (CTT-130).
+          throw StateError(
+            'Migración desde el esquema v$desde no soportada. La línea base es '
+            'v6 (CTT-130); las versiones v1–v5 se aplanaron. Requiere '
+            'reinstalación de la app.',
+          );
         },
       );
-
-  /// Migración v3→v4 (CTT-117 tramo 2 + CTT-103 pto 4).
-  ///
-  /// Separa estado de motivo: `error`/`conflicto`/`rechazado` dejan de ser
-  /// estados. Mapea el CASO GENERAL de las filas heredadas —este código corre en
-  /// dispositivos reales, no solo en dev—, sin afirmar falsamente que se descartó
-  /// trabajo del usuario.
-  Future<void> _migrarV3aV4(Migrator m) async {
-    // 1. Columnas nuevas.
-    await m.addColumn(itemsCacheTable, itemsCacheTable.tieneConflicto);
-    await m.addColumn(syncPendientesTable, syncPendientesTable.motivo);
-    await m.addColumn(syncPendientesTable, syncPendientesTable.conflictoId);
-    await m.addColumn(syncPendientesTable, syncPendientesTable.acknowledged);
-
-    // 2. Rescatar el conflicto_id que vivía string-encodeado en ultimo_error
-    //    ('conflicto_id:<uuid>', 13 chars de prefijo) a su columna propia.
-    await customStatement(
-      "UPDATE sync_pendientes "
-      "SET conflicto_id = substr(ultimo_error, length('conflicto_id:') + 1) "
-      "WHERE estado = 'conflicto' AND ultimo_error LIKE 'conflicto_id:%'",
-    );
-
-    // 3. Marcar el flag en los ítems que tienen una fila en conflicto.
-    await customStatement(
-      "UPDATE items_cache SET tiene_conflicto = 1 "
-      "WHERE id IN (SELECT entidad_id FROM sync_pendientes "
-      "WHERE estado = 'conflicto')",
-    );
-
-    // 4. Mapeo de estados viejos → (estado nuevo, motivo). De lo específico a lo
-    //    general para que las condiciones no se pisen.
-    // 4a. error AGOTADO (reintentos >= max) → descartado/reintentos_agotados.
-    //     Este es el fix del limbo de CTT-103: la fila deja de quedar atrapada.
-    await customStatement(
-      "UPDATE sync_pendientes "
-      "SET estado = 'descartado', motivo = 'reintentos_agotados' "
-      "WHERE estado = 'error' AND reintentos >= $kMaxReintentosSync",
-    );
-    // 4b. error reintentable → pendiente/error_transitorio.
-    await customStatement(
-      "UPDATE sync_pendientes "
-      "SET estado = 'pendiente', motivo = 'error_transitorio' "
-      "WHERE estado = 'error'",
-    );
-    // 4c. rechazado → descartado/rechazo_negocio.
-    await customStatement(
-      "UPDATE sync_pendientes "
-      "SET estado = 'descartado', motivo = 'rechazo_negocio' "
-      "WHERE estado = 'rechazado'",
-    );
-    // 4d. conflicto → esperando_resolucion/conflicto. NO se decide el terminal
-    //     acá: version_ganadora vive en el backend y esta migración corre
-    //     offline. El reconciliador del tramo 3 (pull de /mios) lo resolverá a
-    //     sincronizado (ganó cliente) o descartado (ganó servidor); si /mios no
-    //     tiene registro, cae en heredado_indeterminado. Mapear todo a descartado
-    //     acá afirmaría falsamente que se descartó trabajo del usuario.
-    await customStatement(
-      "UPDATE sync_pendientes "
-      "SET estado = 'esperando_resolucion', motivo = 'conflicto' "
-      "WHERE estado = 'conflicto'",
-    );
-    // 4e. enviando huérfano (app muerta a mitad de POST) → pendiente. Hoy queda
-    //     atascado porque marcarEnviando exige 'pendiente'. Re-encolar es lo
-    //     seguro; el Idempotency-Key (CTT-105) mitiga el doble-apply, y una 2da
-    //     aplicación sobre un estado ya cambiado la rechaza la máquina de estados.
-    await customStatement(
-      "UPDATE sync_pendientes SET estado = 'pendiente' WHERE estado = 'enviando'",
-    );
-
-    // 'pendiente' y 'sincronizado' siguen siendo válidos: no se tocan.
-    // acknowledged queda en su default (false) para TODAS las filas heredadas:
-    // marcar como reconocido afirmaría que el usuario ya vio el desenlace.
-  }
-
-  /// Migración v4→v5 (CTT-117 tramo 3): agrega la tabla del debounce persistido
-  /// del reconciliador. Tabla nueva y vacía — no hay datos que mover.
-  Future<void> _migrarV4aV5(Migrator m) async {
-    await m.createTable(syncReconciliacionTable);
-  }
 }
 
 /// Top-level para que sea enviable al isolate de background de createInBackground.

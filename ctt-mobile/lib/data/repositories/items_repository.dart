@@ -8,12 +8,9 @@
 /// Lecturas: intenta la API; si falla, devuelve la caché local.
 library;
 
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-import 'package:uuid/uuid.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
@@ -120,26 +117,6 @@ class ItemsRepository {
         nuevoEstado: EstadoItem.problema,
         descripcionProblema: descripcion,
       );
-
-  /// Encola el registro de una foto tomada offline.
-  Future<void> registrarFotoLocal({
-    required String itemId,
-    required String rutaLocalFoto,
-  }) async {
-    final deviceId = await deviceIdService.obtener();
-    await syncDao.encolar(SyncPendientesTableCompanion.insert(
-      id: const Uuid().v4(),
-      tipoEntidad: TipoEntidad.evidencia.valor,
-      entidadId: itemId,
-      accion: AccionSync.subirFoto.valor,
-      payload: jsonEncode({
-        'ruta_local': rutaLocalFoto,
-        'device_timestamp': DateTime.now().toUtc().toIso8601String(),
-      }),
-      timestampDispositivo: DateTime.now().toUtc(),
-      dispositivoId: deviceId,
-    ),);
-  }
 
   // ── Helpers de conversión ────────────────────────────────────────────────────
 

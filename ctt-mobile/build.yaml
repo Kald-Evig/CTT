@@ -1,0 +1,16 @@
+# CTT-130 fase 3 — línea base de esquema local v6.
+#
+# - store_date_time_values_as_text: las fechas se guardan como texto ISO-8601
+#   (recomendación oficial de Drift para proyectos nuevos; decidido en CTT-130).
+# - databases / schema_dir / test_dir: config para `dart run drift_dev make-migrations`
+#   (flujo oficial de migraciones desde v6).
+targets:
+  $default:
+    builders:
+      drift_dev:
+        options:
+          store_date_time_values_as_text: true
+          schema_dir: drift_schemas
+          test_dir: test/drift
+          databases:
+            app_db: lib/data/local/database.dart

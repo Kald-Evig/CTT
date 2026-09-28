@@ -8,13 +8,13 @@ library;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
+import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
@@ -26,11 +26,23 @@ part 'transicion_service.g.dart';
 /// Timeout para el intento online. Si el servidor no responde, se encola offline.
 const _kTimeoutTransicion = Duration(seconds: 4);
 
+/// Se lanza cuando se intenta encolar un cambio sin sesión activa (sin usuario_id
+/// o empresa_id en SecureStorage). En v6 esas columnas son NOT NULL: una fila de
+/// la cola no puede existir sin dueño. NO se encola y la UI debe mostrar el fallo
+/// — nunca se traga un error al capturar trabajo (CTT-130).
+class SesionNoDisponibleException implements Exception {
+  const SesionNoDisponibleException(this.mensaje);
+  final String mensaje;
+  @override
+  String toString() => 'SesionNoDisponibleException: $mensaje';
+}
+
 @riverpod
 TransicionService transicionService(TransicionServiceRef ref) => TransicionService(
       dio: ref.watch(dioClientProvider),
       syncDao: ref.watch(syncDaoProvider),
       deviceIdService: ref.watch(deviceIdServiceProvider),
+      secureStorage: ref.watch(secureStorageProvider),
     );
 
 class TransicionService {
@@ -38,11 +50,13 @@ class TransicionService {
     required this.dio,
     required this.syncDao,
     required this.deviceIdService,
+    required this.secureStorage,
   });
 
   final Dio dio;
   final SyncDao syncDao;
   final DeviceIdService deviceIdService;
+  final SecureStorageService secureStorage;
 
   /// Ejecuta una transición de estado online-first con fallback a cola offline.
   ///
@@ -144,6 +158,11 @@ class TransicionService {
   }
 
   /// Encola el cambio en Drift y devuelve el id de la entrada creada.
+  ///
+  /// Completa TODOS los campos NOT NULL de v6: dueño (`usuario_id`/`empresa_id`
+  /// desde SecureStorage), `instalacion_id` (DeviceIdService), `idempotency_key`,
+  /// `payload_version` = 1 y `creado_en_dispositivo`. Si no hay sesión activa,
+  /// lanza [SesionNoDisponibleException] y NO encola (nunca una fila sin dueño).
   Future<String> _encolar(
     String itemId,
     String nuevoEstado,
@@ -153,9 +172,21 @@ class TransicionService {
     String deviceId,
     String idempotencyKey,
   ) async {
+    final usuarioId = await secureStorage.obtenerUsuarioId();
+    final empresaId = await secureStorage.obtenerEmpresaId();
+    if (usuarioId == null || empresaId == null) {
+      throw const SesionNoDisponibleException(
+        'No hay sesión activa (usuario_id/empresa_id nulos) al encolar el cambio.',
+      );
+    }
+
     final id = const Uuid().v4();
-    await syncDao.encolar(SyncPendientesTableCompanion.insert(
+    await syncDao.encolar(SyncPendientesCompanion.insert(
       id: id,
+      idempotencyKey: idempotencyKey,
+      empresaId: empresaId,
+      usuarioId: usuarioId,
+      instalacionId: deviceId,
       tipoEntidad: TipoEntidad.item.valor,
       entidadId: itemId,
       accion: AccionSync.cambioEstadoItem.valor,
@@ -164,11 +195,12 @@ class TransicionService {
         if (comentario != null) 'comentario': comentario,
         if (descripcionProblema != null) 'descripcion_problema': descripcionProblema,
         'device_timestamp': ahora.toIso8601String(),
+        // El contrato con el servidor sigue usando 'dispositivo_id'; cambiarlo es
+        // CTT-131. Acá solo se renombró la COLUMNA local a instalacion_id.
         'dispositivo_id': deviceId,
       }),
-      timestampDispositivo: ahora,
-      dispositivoId: deviceId,
-      idempotencyKey: Value(idempotencyKey),
+      payloadVersion: 1,
+      creadoEnDispositivo: ahora,
     ),);
     return id;
   }

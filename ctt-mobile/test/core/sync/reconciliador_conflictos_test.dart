@@ -43,14 +43,18 @@ void main() {
     required String entidadId,
     String? conflictoId,
   }) =>
-      db.syncDao.encolar(SyncPendientesTableCompanion.insert(
+      db.syncDao.encolar(SyncPendientesCompanion.insert(
         id: id,
+        idempotencyKey: 'idem-$id',
+        empresaId: 'emp-1',
+        usuarioId: 'user-1',
+        instalacionId: 'inst-1',
         tipoEntidad: 'item',
         entidadId: entidadId,
         accion: 'cambio_estado_item',
         payload: '{}',
-        timestampDispositivo: DateTime.utc(2026, 1, 1),
-        dispositivoId: 'dev-1',
+        payloadVersion: 1,
+        creadoEnDispositivo: DateTime.utc(2026, 1, 1),
         estado: const Value('esperando_resolucion'),
         motivo: const Value('conflicto'),
         conflictoId: Value(conflictoId),
@@ -68,8 +72,8 @@ void main() {
         tieneConflicto: const Value(true),
       ),);
 
-  Future<SyncPendientesTableData> leer(String id) =>
-      (db.select(db.syncPendientesTable)..where((t) => t.id.equals(id)))
+  Future<SyncPendiente> leer(String id) =>
+      (db.select(db.syncPendientes)..where((t) => t.id.equals(id)))
           .getSingle();
 
   Future<bool> flag(String itemId) async {

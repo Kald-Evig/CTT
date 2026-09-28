@@ -78,13 +78,13 @@ class CicloSync {
       final decision = decidir(
         estadoActual: EstadoSyncLocal.enviando,
         senal: senal,
-        reintentos: cambio.reintentos,
+        reintentos: cambio.intentosRed,
       );
       await syncDao.aplicarDecision(
         cambio.id,
         estadoEsperado: EstadoSyncLocal.enviando,
         decision: decision,
-        reintentosActuales: cambio.reintentos,
+        reintentosActuales: cambio.intentosRed,
         conflictoId: conflictoId,
         detalle: detalle,
       );

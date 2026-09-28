@@ -17,7 +17,7 @@ part 'sync_dao.g.dart';
 @riverpod
 SyncDao syncDao(SyncDaoRef ref) => SyncDao(ref.watch(baseDatosCTTProvider));
 
-@DriftAccessor(tables: [SyncPendientesTable, SyncReconciliacionTable])
+@DriftAccessor(tables: [SyncPendientes, SyncReconciliacionTable])
 class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     with _$SyncDaoMixin {
   SyncDao(super.db);
@@ -26,21 +26,23 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   static const _idReconciliacion = 'singleton';
 
   /// Encola un nuevo cambio. Nunca falla si no hay conexión — ese es el punto.
-  Future<void> encolar(SyncPendientesTableCompanion entrada) =>
-      into(syncPendientesTable).insert(entrada);
+  Future<void> encolar(SyncPendientesCompanion entrada) =>
+      into(syncPendientes).insert(entrada);
 
-  /// Pendientes ordenados por timestamp (FIFO). Excluye los que están enviándose.
-  Future<List<SyncPendientesTableData>> obtenerPendientes() =>
-      (select(syncPendientesTable)
+  /// Pendientes ordenados por `secuencia` ASC (FIFO por orden de encolado, no por
+  /// reloj del dispositivo — CTT-130: `secuencia` es monótona, el reloj no).
+  /// Excluye los que están enviándose.
+  Future<List<SyncPendiente>> obtenerPendientes() =>
+      (select(syncPendientes)
             ..where((t) => t.estado.equals(EstadoSyncLocal.pendiente.valor))
-            ..orderBy([(t) => OrderingTerm.asc(t.timestampDispositivo)]))
+            ..orderBy([(t) => OrderingTerm.asc(t.secuencia)]))
           .get();
 
   /// Filas parqueadas esperando resolución de conflicto. Las consume el
   /// reconciliador del tramo 3 (CTT-117) para casarlas contra
   /// GET /sync/conflictos/mios por su `conflictoId`.
-  Future<List<SyncPendientesTableData>> obtenerEnEsperaResolucion() =>
-      (select(syncPendientesTable)
+  Future<List<SyncPendiente>> obtenerEnEsperaResolucion() =>
+      (select(syncPendientes)
             ..where(
               (t) => t.estado.equals(EstadoSyncLocal.esperandoResolucion.valor),
             ))
@@ -50,14 +52,14 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// Devuelve true si esta llamada ganó la entrada (1 fila afectada),
   /// false si otro ciclo ya la tomó primero (0 filas afectadas).
   Future<bool> marcarEnviando(String id) async {
-    final count = await (update(syncPendientesTable)
+    final count = await (update(syncPendientes)
           ..where(
             (t) =>
                 t.id.equals(id) &
                 t.estado.equals(EstadoSyncLocal.pendiente.valor),
           ))
         .write(
-      SyncPendientesTableCompanion(
+      SyncPendientesCompanion(
         estado: Value(EstadoSyncLocal.enviando.valor),
       ),
     );
@@ -68,26 +70,21 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// fila sigue en [estadoEsperado] (guarda anti-carrera, igual que marcarEnviando).
   ///
   /// Devuelve las filas afectadas (0 si otro ciclo ya la movió). Escribe estado y
-  /// —según la decisión y el transporte— motivo, reintentos, conflicto_id y
+  /// —según la decisión y el transporte— motivo, `intentos_red`, conflicto_id y
   /// ultimo_error (el detalle del backend; su ausencia deja el valor previo, así
   /// que en reintentos gana el ÚLTIMO intento con detalle — CTT-115).
+  ///
+  /// `intentos_servidor` NO se toca acá: su tope y su semántica son de CTT-103.
   ///
   /// ESCRITOR ÚNICO del flag `items_cache.tiene_conflicto` (CTT-117 tramo 3), en
   /// la MISMA transacción que el estado de la cola, de forma simétrica:
   ///   - la decisión entra a esperandoResolucion            → flag = true
   ///   - sale de esperandoResolucion hacia un terminal      → flag = false
   ///   - cualquier otra transición                          → no toca el flag
-  /// El id del ítem (`entidadId`) no viaja como parámetro: se lee de la fila recién
-  /// escrita y pasa por Dart a propósito (opción A2) — si alguna vez `entidadId`
-  /// dejara de ser el id del ítem, el update fallaría de forma visible en vez de
-  /// esconderse en un subquery SQL. Si el ítem no está en caché, el update del flag
-  /// es un no-op (se deja rastro observable) y la fila de la cola se cierra igual.
   ///
-  /// TODO(CTT-120): este retorno NO tiene consumidor en producción (ni ciclo_sync
-  /// ni transicion_service lo miran). Si la guarda de [estadoEsperado] se vuelve a
-  /// desalinear con el estado real de la fila, la escritura se convierte en un
-  /// no-op y un 0 inesperado pasa desapercibido — el mismo modo de falla silenciosa
-  /// que el defecto 2 de CTT-115. Falta un chequeo del retorno; se ticketea aparte.
+  /// TODO(CTT-120): este retorno NO tiene consumidor en producción. Si la guarda
+  /// de [estadoEsperado] se desalinea, la escritura se vuelve un no-op y un 0
+  /// inesperado pasa desapercibido. Falta un chequeo del retorno; se ticketea aparte.
   Future<int> aplicarDecision(
     String id, {
     required EstadoSyncLocal estadoEsperado,
@@ -114,23 +111,23 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         // existía, así que su entidadId no es null cuando se usa abajo.
         final entidadId = nuevoFlag == null
             ? null
-            : (await (select(syncPendientesTable)..where((t) => t.id.equals(id)))
+            : (await (select(syncPendientes)..where((t) => t.id.equals(id)))
                     .getSingleOrNull())
                 ?.entidadId;
 
-        final afectadas = await (update(syncPendientesTable)
+        final afectadas = await (update(syncPendientes)
               ..where(
                 (t) =>
                     t.id.equals(id) &
                     t.estado.equals(estadoEsperado.valor),
               ))
             .write(
-          SyncPendientesTableCompanion(
+          SyncPendientesCompanion(
             estado: Value(decision.nuevoEstado.valor),
             motivo: decision.motivo != null
                 ? Value(decision.motivo!.valor)
                 : const Value.absent(),
-            reintentos: decision.incrementaReintentos
+            intentosRed: decision.incrementaReintentos
                 ? Value(reintentosActuales + 1)
                 : const Value.absent(),
             conflictoId:
@@ -151,12 +148,8 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
               ),);
           if (filasFlag == 0) {
             // Ítem no cacheado: la fila de la cola se cerró igual, pero el flag no
-            // tuvo dónde escribirse. NO es necesariamente anómalo: el full-replace
-            // del pull puede sacar un ítem de items_cache mientras su fila sigue
-            // encolada, así que este no-op es un caso esperable, no un error.
-            // OJO: debugPrint es no-op en release (flutter/foundation), así que en
-            // el dispositivo del trabajador este rastro NO se observa. La
-            // observabilidad real de producción queda fuera del alcance del tramo 3.
+            // tuvo dónde escribirse. Caso esperable (el full-replace del pull puede
+            // sacar un ítem mientras su fila sigue encolada), no un error.
             debugPrint(
               'CTT-117: tiene_conflicto=$nuevoFlag no aplicado — ítem $entidadId '
               'no está en items_cache (fila de cola $id cerrada igual).',
@@ -168,17 +161,13 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
 
   /// IDs de entidades con sincronización pendiente (estados NO terminales).
   /// Usado para el indicador visual en la lista de ítems.
-  ///
-  /// Whitelist explícita de no-terminales (no blacklist): si mañana se agrega un
-  /// estado terminal al enum, no se contará por error como pendiente. Incluye
-  /// `esperandoResolucion` porque el cambio del usuario todavía no aterrizó.
   Future<Set<String>> obtenerIdsPendienteSet() async {
     final noTerminales = [
       EstadoSyncLocal.pendiente.valor,
       EstadoSyncLocal.enviando.valor,
       EstadoSyncLocal.esperandoResolucion.valor,
     ];
-    final rows = await (select(syncPendientesTable)
+    final rows = await (select(syncPendientes)
           ..where((t) => t.estado.isIn(noTerminales)))
         .get();
     return {for (final r in rows) r.entidadId};
@@ -203,10 +192,9 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
       );
 
   Future<int> contarPendientes() async {
-    final count = syncPendientesTable.id.count();
-    final q = selectOnly(syncPendientesTable)..addColumns([count]);
+    final count = syncPendientes.id.count();
+    final q = selectOnly(syncPendientes)..addColumns([count]);
     final row = await q.getSingle();
     return row.read(count) ?? 0;
   }
-
 }
