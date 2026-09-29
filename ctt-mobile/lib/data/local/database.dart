@@ -184,8 +184,11 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   /// en vez de abrir el archivo real vía path_provider.
   BaseDatosCTT.conConexion(super.executor);
 
+  // Literal a propósito: drift_dev (make-migrations) lee schemaVersion por análisis
+  // estático y NO resuelve una referencia a const. Debe coincidir con
+  // kSchemaVersionApp (lo garantiza un test). Ver CTT-130 fase 7.
   @override
-  int get schemaVersion => kSchemaVersionApp;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(

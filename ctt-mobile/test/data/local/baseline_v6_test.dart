@@ -68,6 +68,11 @@ void main() {
   Future<SyncPendiente> leer(String id) =>
       (db.select(db.syncPendientes)..where((t) => t.id.equals(id))).getSingle();
 
+  test('schemaVersion (literal, para make-migrations) coincide con kSchemaVersionApp',
+      () {
+    expect(db.schemaVersion, kSchemaVersionApp);
+  });
+
   group('fixture dorado — una fila por estado, campo por campo', () {
     test('pendiente (defaults) preserva todos los campos', () async {
       await db.syncDao.encolar(fila('r-pend', 'pendiente'));
