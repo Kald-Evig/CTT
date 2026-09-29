@@ -107,6 +107,27 @@ Future<AccionApertura> preAbrir({
   }
 }
 
+/// Cuenta los cambios sin sincronizar (estados NO terminales) leyendo con SQL crudo,
+/// sin depender del esquema de Drift. Para la pantalla de recuperación: mostrarle al
+/// trabajador cuánto trabajo tiene guardado y a salvo. 0 si la tabla no existe.
+int contarPendientesCrudo(String path) {
+  final db = raw.sqlite3.open(path);
+  try {
+    final existe = db
+        .select("SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='sync_pendientes'")
+        .isNotEmpty;
+    if (!existe) return 0;
+    final rs = db.select(
+      "SELECT COUNT(*) AS n FROM sync_pendientes "
+      "WHERE estado IN ('pendiente', 'enviando', 'esperando_resolucion')",
+    );
+    return (rs.first['n'] as int?) ?? 0;
+  } finally {
+    db.dispose();
+  }
+}
+
 /// Exporta las filas de `sync_pendientes` a JSON leyendo con SQL crudo (sin
 /// depender del esquema de Drift). Sirve para la pantalla de recuperación: el
 /// trabajador puede sacar su trabajo sin subir aunque Drift no pueda abrir.

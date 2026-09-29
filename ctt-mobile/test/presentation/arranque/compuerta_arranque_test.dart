@@ -1,8 +1,9 @@
 /// compuerta_arranque_test.dart — CTT-130 fase 4.
 ///
-/// T6: si la compuerta de arranque falla (la base no abre/migra), la app muestra la
-/// pantalla de recuperación — NUNCA el login. Es el hueco que se corrige: hoy el
-/// router enmascara el fallo con valueOrNull y manda al login.
+/// T6: si la compuerta de arranque falla, la app muestra la pantalla de recuperación
+/// — NUNCA el login (el router enmascaraba el fallo con valueOrNull).
+/// + contenido de la pantalla: conteo de cambios + aviso de no desinstalar, sin
+/// botón de exportar (decisión: el trabajador no maneja archivos; rescate = fase 4b).
 library;
 
 import 'package:flutter/material.dart';
@@ -19,25 +20,43 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          // La compuerta de arranque falla (p.ej. base más nueva que la app, o
-          // migración fallida): el provider queda en error.
           arranqueProvider.overrideWith(
-            (ref) => Future<void>.error(
-              StateError('base no pudo abrir'),
-            ),
+            (ref) => Future<void>.error(StateError('base no pudo abrir')),
           ),
+          conteoPendientesRescateProvider.overrideWith((ref) async => 0),
         ],
         child: const AppCTT(),
       ),
     );
     await tester.pumpAndSettle();
 
-    // Se ve la pantalla de recuperación, con sus acciones.
     expect(find.byType(PantallaRecuperacion), findsOneWidget);
     expect(find.text('Reintentar'), findsOneWidget);
-    expect(find.text('Exportar cambios pendientes'), findsOneWidget);
-    // Y NO el login: no aparece ningún campo de texto de credenciales.
+    // NO el login.
     expect(find.byType(TextField), findsNothing);
     expect(find.textContaining('Iniciar sesión'), findsNothing);
+  });
+
+  testWidgets('pantalla de recuperación: muestra el conteo y el aviso de no '
+      'desinstalar; NO hay botón de exportar', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          conteoPendientesRescateProvider.overrideWith((ref) async => 3),
+        ],
+        child: const MaterialApp(
+          home: PantallaRecuperacion(error: 'x'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Conteo de cambios en juego.
+    expect(find.textContaining('3 cambios'), findsOneWidget);
+    // Aviso de NO desinstalar / borrar datos.
+    expect(find.textContaining('NO desinstales'), findsOneWidget);
+    // Reintentar sí; exportar NO.
+    expect(find.text('Reintentar'), findsOneWidget);
+    expect(find.textContaining('Exportar'), findsNothing);
   });
 }

@@ -30,3 +30,11 @@ Future<void> arranque(ArranqueRef ref) async {
   final db = ref.read(baseDatosCTTProvider);
   await db.customSelect('SELECT 1').get();
 }
+
+/// Cantidad de cambios sin sincronizar, leída con SQL crudo (sin Drift) para la
+/// pantalla de recuperación: se muestra aunque Drift no pueda abrir la base.
+@riverpod
+Future<int> conteoPendientesRescate(ConteoPendientesRescateRef ref) async {
+  final path = await rutaBase();
+  return contarPendientesCrudo(path);
+}
