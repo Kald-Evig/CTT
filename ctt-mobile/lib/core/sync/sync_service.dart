@@ -18,6 +18,7 @@ import 'package:workmanager/workmanager.dart';
 
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
+import 'package:ctt_mobile/data/local/apertura_base.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 
 // Identificadores de tareas WorkManager (públicos para el listener de conectividad).
@@ -81,6 +82,18 @@ void _callbackDispatcher() {
 /// de SecureStorage, y delega la lógica del ciclo a [CicloSync].
 Future<void> _ejecutarCicloSync() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Pre-apertura cruda (CTT-130 fase 4): el isolate headless NO migra. Si la base
+  // necesita migración, devuelve reintentar y se sale sin abrir Drift — solo migra
+  // el isolate de UI, para no tener dos transacciones de migración compitiendo.
+  // WorkManager reintenta en su próxima ventana, cuando la UI ya migró.
+  final rutaDb = await rutaBase();
+  final accion = await preAbrir(
+    path: rutaDb,
+    schemaVersion: kSchemaVersionApp,
+    esIsolateUI: false,
+  );
+  if (accion == AccionApertura.reintentar) return;
 
   final db = BaseDatosCTT();
 
