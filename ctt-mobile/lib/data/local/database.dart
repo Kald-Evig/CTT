@@ -25,6 +25,11 @@ import 'package:ctt_mobile/data/local/migracion_atomica.dart';
 
 part 'database.g.dart';
 
+/// Versión del esquema local. Línea base v6 (CTT-130). Fuente única: la usan el
+/// getter [BaseDatosCTT.schemaVersion] y la pre-apertura con sqlite3 crudo
+/// (apertura_base.dart) para decidir si hay que migrar.
+const kSchemaVersionApp = 6;
+
 // ── Tablas ────────────────────────────────────────────────────────────────────
 
 /// Cola de operaciones pendientes de sincronizar con el servidor (Sección 8).
@@ -176,7 +181,7 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   BaseDatosCTT.conConexion(super.executor);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => kSchemaVersionApp;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(

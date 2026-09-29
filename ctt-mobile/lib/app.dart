@@ -10,6 +10,8 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
+import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
+import 'package:ctt_mobile/presentation/arranque/pantalla_recuperacion.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
@@ -306,6 +308,32 @@ class _AppCTTState extends ConsumerState<AppCTT> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Compuerta de arranque (CTT-130 fase 4): la base tiene que abrir/migrar ANTES
+    // de llegar al router. Si falla, pantalla de recuperación — NUNCA el login (el
+    // router enmascara el fallo con valueOrNull y mandaría al login).
+    final arranqueAsync = ref.watch(arranqueProvider);
+
+    return arranqueAsync.when(
+      loading: () => const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      ),
+      error: (e, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: _temaCTT(),
+        home: PantallaRecuperacion(error: e),
+      ),
+      data: (_) => _AppConRouter(),
+    );
+  }
+}
+
+/// La app "real" una vez que la base abrió: activa el listener de conectividad y
+/// monta el router. Separada de la compuerta para que el router (que depende de
+/// providers que tocan la base) solo se construya tras un arranque exitoso.
+class _AppConRouter extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     // Activa el listener de conectividad para flush inmediato al recuperar señal.
     ref.watch(conectividadListenerProvider);
     final goRouter = ref.watch(routerProvider);
