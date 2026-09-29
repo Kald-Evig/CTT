@@ -156,7 +156,11 @@ class SyncReconciliacionTable extends Table {
 
 // ── Base de datos ─────────────────────────────────────────────────────────────
 
-@riverpod
+/// keepAlive: la base vive toda la sesión (todos los DAOs dependen de ella). Así la
+/// instancia que abrió/migró en la compuerta de arranque es la MISMA que usa el
+/// router. El reintento de la pantalla de recuperación la invalida explícitamente
+/// para obtener una instancia fresca sin el `_migrationError` cacheado de Drift.
+@Riverpod(keepAlive: true)
 BaseDatosCTT baseDatosCTT(BaseDatosCTTRef ref) {
   final db = BaseDatosCTT();
   ref.onDispose(db.close);

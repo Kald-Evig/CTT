@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:ctt_mobile/data/local/apertura_base.dart';
+import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
 import 'package:ctt_mobile/presentation/shared/mensajes.dart';
 
@@ -76,7 +77,14 @@ class PantallaRecuperacion extends ConsumerWidget {
               FilledButton.icon(
                 icon: const Icon(Icons.refresh),
                 label: const Text('Reintentar'),
-                onPressed: () => ref.invalidate(arranqueProvider),
+                // Instancia FRESCA de la base: Drift cachea _migrationError en la
+                // instancia y lo relanza en cada apertura del mismo proceso
+                // (engines.dart:462-479). Sin invalidar baseDatosCTTProvider, el
+                // reintento reusaría la instancia rota y no serviría hasta reiniciar.
+                onPressed: () {
+                  ref.invalidate(baseDatosCTTProvider);
+                  ref.invalidate(arranqueProvider);
+                },
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
