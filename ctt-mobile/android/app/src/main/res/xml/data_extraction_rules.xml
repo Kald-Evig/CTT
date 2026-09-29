@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CTT-130 fase 6 — exclusión de la base local del Auto Backup (API 31+).
+  Cubre CTT-121 entregable 2 (el GUID de instalación vive en secure storage).
+
+  Se excluye tanto de cloud-backup (Google Drive) como de device-transfer
+  (traspaso a un teléfono nuevo). Motivos:
+    - app_flutter/: la base Drift (ctt_local.db + -wal/-shm), los respaldos que
+      genera preAbrir (ctt_local.db.bak_v*) y el JSON de exportación
+      (ctt_local.db.export.json). Restaurar la cola de trabajo sin sincronizar en
+      otro dispositivo/momento reintroduciría cambios viejos como nuevos.
+    - shared_prefs FlutterSecureStorage / FlutterSecureKeyStorage: valores cifrados
+      + el GUID de instalación. La master key de EncryptedSharedPreferences vive en
+      el Android Keystore, que NO se respalda; restaurar el .xml sin su clave lo deja
+      indescifrable.
+
+  getApplicationDocumentsDirectory() resuelve a context.getDir("flutter") =
+  /data/data/<pkg>/app_flutter/  → dominio "root", path "app_flutter/".
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="app_flutter/" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="app_flutter/" />
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+    </device-transfer>
+</data-extraction-rules>

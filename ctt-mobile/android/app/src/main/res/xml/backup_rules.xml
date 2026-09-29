@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CTT-130 fase 6 — exclusión de la base local del Auto Backup (API 30 e inferiores).
+  Equivalente a data_extraction_rules.xml para el mecanismo viejo (fullBackupContent).
+  Mismos objetivos: app_flutter/ (base Drift + respaldos + export) y las
+  SharedPreferences de flutter_secure_storage.
+-->
+<full-backup-content>
+    <exclude domain="root" path="app_flutter/" />
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+</full-backup-content>
