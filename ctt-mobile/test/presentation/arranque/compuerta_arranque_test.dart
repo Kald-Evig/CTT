@@ -26,7 +26,8 @@ void main() {
   testWidgets('T6 — arranque falla → pantalla de recuperación, NO login',
       (tester) async {
     final rescate = _MockRescate();
-    when(rescate.rescatar).thenAnswer((_) async => ResultadoRescate.sinSesion);
+    when(rescate.rescatar)
+        .thenAnswer((_) async => const RescateResultado(ResultadoRescate.sinSesion));
 
     await tester.pumpWidget(
       ProviderScope(
@@ -51,7 +52,8 @@ void main() {
   testWidgets('contenido: conteo + aviso de no desinstalar; sin botón exportar',
       (tester) async {
     final rescate = _MockRescate();
-    when(rescate.rescatar).thenAnswer((_) async => ResultadoRescate.sinSesion);
+    when(rescate.rescatar)
+        .thenAnswer((_) async => const RescateResultado(ResultadoRescate.sinSesion));
 
     await tester.pumpWidget(
       ProviderScope(
@@ -73,7 +75,8 @@ void main() {
   testWidgets('rescate se dispara al entrar; sin sesión avisa y NO reintenta en loop',
       (tester) async {
     final rescate = _MockRescate();
-    when(rescate.rescatar).thenAnswer((_) async => ResultadoRescate.sinSesion);
+    when(rescate.rescatar)
+        .thenAnswer((_) async => const RescateResultado(ResultadoRescate.sinSesion));
 
     await tester.pumpWidget(
       ProviderScope(
@@ -104,7 +107,9 @@ void main() {
     var n = 0;
     when(rescate.rescatar).thenAnswer((_) async {
       n++;
-      return n == 1 ? ResultadoRescate.sinRed : ResultadoRescate.enviado;
+      return n == 1
+          ? const RescateResultado(ResultadoRescate.sinRed)
+          : const RescateResultado(ResultadoRescate.enviado);
     });
 
     await tester.pumpWidget(
@@ -126,5 +131,86 @@ void main() {
     await tester.pumpAndSettle();
     verify(rescate.rescatar).called(2);
     expect(find.textContaining('se enviaron'), findsOneWidget);
+  });
+
+  testWidgets('error de servidor (5xx) reintenta con backoff', (tester) async {
+    final rescate = _MockRescate();
+    var n = 0;
+    when(rescate.rescatar).thenAnswer((_) async {
+      n++;
+      return n == 1
+          ? const RescateResultado(ResultadoRescate.errorServidor)
+          : const RescateResultado(ResultadoRescate.enviado);
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          conteoPendientesRescateProvider.overrideWith((ref) async => 1),
+          rescateOverride(rescate),
+        ],
+        child: const MaterialApp(home: PantallaRecuperacion(error: 'x')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 1er intento: servidor no disponible → avisa (nunca silencio).
+    expect(find.textContaining('servidor no está disponible'), findsOneWidget);
+
+    // Pasado el backoff, reintenta y confirma el envío.
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pumpAndSettle();
+    verify(rescate.rescatar).called(2);
+    expect(find.textContaining('se enviaron'), findsOneWidget);
+  });
+
+  testWidgets('rescate parcial: avisa cuántas quedaron sin enviar',
+      (tester) async {
+    final rescate = _MockRescate();
+    when(rescate.rescatar).thenAnswer(
+      (_) async =>
+          const RescateResultado(ResultadoRescate.enviado, enviadas: 1, sinRescatar: 2),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          conteoPendientesRescateProvider.overrideWith((ref) async => 3),
+          rescateOverride(rescate),
+        ],
+        child: const MaterialApp(home: PantallaRecuperacion(error: 'x')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('2 sin enviar'), findsOneWidget);
+    // No debe decir "se enviaron" a secas: el mensaje parcial es distinto.
+    expect(find.textContaining('Quedaron'), findsOneWidget);
+  });
+
+  testWidgets('4xx: avisa que no se pudo enviar y NO reintenta',
+      (tester) async {
+    final rescate = _MockRescate();
+    when(rescate.rescatar).thenAnswer(
+      (_) async => const RescateResultado(ResultadoRescate.errorCliente),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          conteoPendientesRescateProvider.overrideWith((ref) async => 1),
+          rescateOverride(rescate),
+        ],
+        child: const MaterialApp(home: PantallaRecuperacion(error: 'x')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    verify(rescate.rescatar).called(1);
+    expect(find.textContaining('No se pudieron enviar'), findsOneWidget);
+
+    // No reintenta en loop.
+    await tester.pump(const Duration(seconds: 20));
+    verifyNever(rescate.rescatar);
   });
 }

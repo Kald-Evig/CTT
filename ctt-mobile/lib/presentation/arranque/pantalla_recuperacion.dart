@@ -33,9 +33,8 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
   /// pantalla esté abierta).
   static const _backoff = Duration(seconds: 15);
 
-  ResultadoRescate? _resultado;
+  RescateResultado? _resultado;
   bool _rescatando = false;
-  bool _falloNoReintentable = false;
   Timer? _reintento;
 
   @override
@@ -54,15 +53,16 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
   Future<void> _intentarRescate() async {
     if (!mounted) return;
     setState(() => _rescatando = true);
-    ResultadoRescate resultado;
+    RescateResultado resultado;
     try {
       resultado = await ref.read(rescateServiceProvider).rescatar();
     } catch (_) {
-      // 4xx/5xx u otro: no es falta de red. No reintentar en loop.
+      // Falla inesperada (no es un DioException que el servicio ya clasifica):
+      // no reintentar en loop, pero avisar (nunca silencio).
       if (!mounted) return;
       setState(() {
+        _resultado = const RescateResultado(ResultadoRescate.errorCliente);
         _rescatando = false;
-        _falloNoReintentable = true;
       });
       return;
     }
@@ -71,26 +71,38 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
       _resultado = resultado;
       _rescatando = false;
     });
-    // Solo la falta de red reintenta (con backoff, mientras la pantalla viva).
-    if (resultado == ResultadoRescate.sinRed) {
+    // Reintentan (con backoff, mientras la pantalla viva) la falta de red y las
+    // fallas transitorias del servidor (5xx/429). Los 4xx NO reintentan.
+    if (resultado.estado == ResultadoRescate.sinRed ||
+        resultado.estado == ResultadoRescate.errorServidor) {
       _reintento = Timer(_backoff, _intentarRescate);
     }
   }
 
   String _mensajeRescate() {
     if (_rescatando) return 'Enviando tus cambios a tu supervisor…';
-    if (_falloNoReintentable) {
-      return 'Tus cambios siguen guardados en el teléfono. Avisá a tu supervisor.';
-    }
-    return switch (_resultado) {
+    final r = _resultado;
+    if (r == null) return '';
+    return switch (r.estado) {
+      // Rescate parcial: si el servidor dejó filas sin rescatar, decir cuántas y
+      // que siguen guardadas — nunca un "se enviaron" a secas.
+      ResultadoRescate.enviado when r.sinRescatar > 0 =>
+        'Se enviaron ${r.enviadas} cambio${r.enviadas == 1 ? '' : 's'}. '
+            'Quedaron ${r.sinRescatar} sin enviar; siguen guardados en el teléfono. '
+            'Avisá a tu supervisor.',
       ResultadoRescate.enviado =>
         'Listo: tus cambios se enviaron a tu supervisor.',
       ResultadoRescate.nadaQueEnviar => 'No hay cambios sin enviar.',
       ResultadoRescate.sinRed =>
-        'Sin señal. Tus cambios están guardados y se enviarán cuando haya conexión.',
+        'Sin señal. Tus cambios están guardados y se reintentará solo.',
+      ResultadoRescate.errorServidor =>
+        'El servidor no está disponible ahora. Tus cambios están guardados y se '
+            'reintentará solo.',
+      ResultadoRescate.errorCliente =>
+        'No se pudieron enviar tus cambios. Siguen guardados en el teléfono. '
+            'Avisá a tu supervisor.',
       ResultadoRescate.sinSesion =>
         'Tus cambios siguen guardados en el teléfono. Avisá a tu supervisor.',
-      null => '',
     };
   }
 

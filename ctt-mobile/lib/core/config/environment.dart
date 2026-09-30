@@ -16,6 +16,15 @@ class Entorno {
     defaultValue: 'http://10.0.2.2:8000',
   );
 
+  /// Modo de autenticación. Determina de dónde sale el token (incluido el del
+  /// rescate CTT-130 4b): 'mock' → el UID guardado en SecureStorage; 'firebase' →
+  /// token fresco vía getIdToken(true). Sobreescribir con:
+  ///   flutter run --dart-define=AUTH_MODE=firebase
+  static const String modoAuth = String.fromEnvironment(
+    'AUTH_MODE',
+    defaultValue: 'mock',
+  );
+
   /// Tiempo máximo de conexión y recepción para requests HTTP.
   static const Duration timeoutConexion = Duration(seconds: 30);
   static const Duration timeoutRecepcion = Duration(seconds: 30);
