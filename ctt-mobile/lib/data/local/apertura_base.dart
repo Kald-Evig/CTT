@@ -128,6 +128,31 @@ int contarPendientesCrudo(String path) {
   }
 }
 
+/// Lee las filas NO terminales (`pendiente`, `enviando`, `esperando_resolucion`) de
+/// `sync_pendientes` con SQL crudo, como lista de mapas — sin depender del esquema de
+/// Drift. Es lo que el rescate automático (fase 4b) envía al servidor. Lista vacía si
+/// la tabla no existe.
+List<Map<String, Object?>> leerFilasNoTerminalesCrudo(String path) {
+  final db = raw.sqlite3.open(path);
+  try {
+    final existe = db
+        .select("SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='sync_pendientes'")
+        .isNotEmpty;
+    if (!existe) return const [];
+    final rs = db.select(
+      "SELECT * FROM sync_pendientes "
+      "WHERE estado IN ('pendiente', 'enviando', 'esperando_resolucion') "
+      "ORDER BY secuencia",
+    );
+    return [
+      for (final row in rs) {for (final c in rs.columnNames) c: row[c]},
+    ];
+  } finally {
+    db.dispose();
+  }
+}
+
 /// Exporta las filas de `sync_pendientes` a JSON leyendo con SQL crudo (sin
 /// depender del esquema de Drift). Sirve para la pantalla de recuperación: el
 /// trabajador puede sacar su trabajo sin subir aunque Drift no pueda abrir.
