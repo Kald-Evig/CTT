@@ -376,3 +376,42 @@ class AuditLogOut(BaseModel):
     device_ts: datetime | None
     synced_offline: bool
     created_at: datetime
+
+
+# ── Rescate de cola offline a cuarentena (CTT-130 fase 4b) ────────────────────
+
+# Máx filas por request: la cola de un teléfono realista tiene decenas de filas;
+# 500 da holgura amplia y acota el trabajo del endpoint y del revisor. Body máx 1 MB:
+# cada fila es JSON chico; 500 filas entran de sobra en 1 MB. Exceder = error claro.
+MAX_FILAS_RESCATE = 500
+MAX_BODY_BYTES_RESCATE = 1_000_000
+
+
+class FilaRescateIn(BaseModel):
+    """Una fila cruda de sync_pendientes del cliente. Se validan los campos que usa
+    el endpoint (tenant, idempotencia, entidad); el resto viaja en el dict (extra)
+    y se guarda completo en cuarentena."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    idempotency_key: str
+    empresa_id: str
+    usuario_id: str
+    instalacion_id: str
+    tipo_entidad: str
+    entidad_id: str
+    accion: str
+    secuencia: int | None = None
+
+
+class RescateColaIn(BaseModel):
+    instalacion_id: str
+    filas: list[FilaRescateIn] = Field(..., max_length=MAX_FILAS_RESCATE)
+
+
+class RescateColaOut(BaseModel):
+    recibidas: int
+    aceptadas: int          # guardadas para revisión (pendiente_revision)
+    ya_aplicadas: int       # guardadas, pero su idempotency_key ya se aplicó
+    duplicadas: int         # ya estaban en cuarentena (reenvío idempotente)
+    rechazadas_tenant: int  # empresa ajena al usuario: NO se guardan

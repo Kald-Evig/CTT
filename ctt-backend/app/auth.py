@@ -136,6 +136,23 @@ def get_usuario_actual(
     return usuario
 
 
+def membresias_activas(db: Session, usuario: Usuario) -> dict[str, Rol]:
+    """Empresas donde el usuario tiene membresía ACTIVA → {empresa_id: rol}.
+
+    Fuente centralizada de resolución de tenant (regla de contención CTT-114): los
+    endpoints que validan filas contra TODAS las empresas del usuario (p.ej. el
+    rescate de cola, CTT-130 fase 4b) usan esta función en vez de consultar
+    EmpresaUsuario directamente en el router.
+    """
+    filas = (
+        db.query(EmpresaUsuario)
+        .filter(EmpresaUsuario.usuario_id == usuario.id,
+                EmpresaUsuario.estado == UsuarioEstado.ACTIVO)
+        .all()
+    )
+    return {m.empresa_id: m.rol for m in filas}
+
+
 def requiere_empresa(ctx: AuthContext) -> str:
     """Helper: asegura que hay una empresa activa y devuelve su id.
 

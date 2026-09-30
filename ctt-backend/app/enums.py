@@ -74,3 +74,9 @@ class IdempotenciaEstado(str, Enum):
     """Estado de una clave de idempotencia (CTT-105)."""
     EN_PROCESO = "en_proceso"   # reserva tomada, endpoint todavía en ejecución
     COMPLETADO = "completado"   # respuesta definitiva persistida, lista para replay
+
+
+class RescateEstado(str, Enum):
+    """Estado de revisión de una fila rescatada a cuarentena (CTT-130 fase 4b)."""
+    PENDIENTE_REVISION = "pendiente_revision"  # esperando revisión de un coordinador
+    YA_APLICADA = "ya_aplicada"                # su idempotency_key ya se aplicó (CTT-105); no reaplicar

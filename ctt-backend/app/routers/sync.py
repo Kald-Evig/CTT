@@ -13,7 +13,7 @@ modela la cola y la resolución, que es la parte que vive 100% en el backend.
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.audit import record_audit
@@ -22,13 +22,37 @@ from app.auth import (
     actor_de,
     exigir_permiso,
     get_current_context,
+    get_usuario_actual,
+    membresias_activas,
     requiere_empresa,
 )
 from app.authz import scope_orm
 from app.database import get_db
-from app.enums import ConflictoEstado, ItemEstado, ProblemaEstado
-from app.models import Item, ItemComentario, ItemProblema, Proyecto, SyncConflicto
-from app.schemas import ConflictoMioOut, ConflictoResolverIn
+from app.enums import (
+    ConflictoEstado,
+    IdempotenciaEstado,
+    ItemEstado,
+    ProblemaEstado,
+    RescateEstado,
+    UsuarioEstado,
+)
+from app.models import (
+    ClaveIdempotencia,
+    ColaRescate,
+    Item,
+    ItemComentario,
+    ItemProblema,
+    Proyecto,
+    SyncConflicto,
+    Usuario,
+)
+from app.schemas import (
+    ConflictoMioOut,
+    ConflictoResolverIn,
+    MAX_BODY_BYTES_RESCATE,
+    RescateColaIn,
+    RescateColaOut,
+)
 
 router = APIRouter(prefix="/sync", tags=["Sincronización"])
 
@@ -242,3 +266,125 @@ def resolver_conflicto(
         **_conflicto_dict(conflicto),
         "version_ganadora": body.version_ganadora,
     }
+
+
+@router.post("/rescate", response_model=RescateColaOut)
+def rescatar_cola(
+    body: RescateColaIn,
+    request: Request,
+    usuario: Usuario = Depends(get_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    """Rescate automático de la cola offline a CUARENTENA (CTT-130 fase 4b).
+
+    Recibe las filas no terminales que el cliente no pudo sincronizar (su app no
+    abría) y las guarda SIN aplicarlas, para que un coordinador las revise. El
+    trabajador no maneja archivos: el cliente sube esto solo.
+
+    Aislamiento de tenant (regla dura): cada fila trae su empresa_id; solo se guardan
+    las de empresas donde el usuario del token tiene membresía activa (vía
+    membresias_activas, CTT-114). Las de empresa ajena se rechazan y NO se guardan.
+    Idempotente: reenviar la misma fila no la duplica (UNIQUE idempotency_key). Si el
+    idempotency_key ya se aplicó (CTT-105), se marca ya_aplicada para no reaplicarla.
+    """
+    # A4: límite de tamaño de body (además del máximo de filas del schema).
+    largo = request.headers.get("content-length")
+    if largo is not None and int(largo) > MAX_BODY_BYTES_RESCATE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Body demasiado grande (máx {MAX_BODY_BYTES_RESCATE} bytes).",
+        )
+
+    if usuario.estado != UsuarioEstado.ACTIVO:
+        raise HTTPException(status_code=403, detail="Usuario inactivo.")
+
+    # Fuente centralizada de tenant (A1): {empresa_id: rol} de membresías activas.
+    memb = membresias_activas(db, usuario)
+    if not memb:
+        raise HTTPException(
+            status_code=403,
+            detail="El usuario no pertenece a ninguna empresa activa.",
+        )
+
+    aceptadas = ya_aplicadas = duplicadas = rechazadas_tenant = 0
+
+    for fila in body.filas:
+        # Aislamiento de tenant: empresa ajena al usuario → no se guarda.
+        if fila.empresa_id not in memb:
+            rechazadas_tenant += 1
+            continue
+
+        # Reenvío idempotente: si la fila ya está en cuarentena, no duplicar.
+        ya_en_cuarentena = (
+            db.query(ColaRescate)
+            .filter(ColaRescate.idempotency_key == fila.idempotency_key)
+            .first()
+        )
+        if ya_en_cuarentena is not None:
+            duplicadas += 1
+            continue
+
+        # A2: ¿el POST original ya había llegado al servidor? (huérfana de CTT-127).
+        # Se cruza el idempotency_key contra el registro de idempotencia (CTT-105).
+        aplicada = (
+            db.query(ClaveIdempotencia)
+            .filter(
+                ClaveIdempotencia.empresa_id == fila.empresa_id,
+                ClaveIdempotencia.idempotency_key == fila.idempotency_key,
+                ClaveIdempotencia.estado == IdempotenciaEstado.COMPLETADO,
+            )
+            .first()
+        )
+        estado_rev = (
+            RescateEstado.YA_APLICADA if aplicada else RescateEstado.PENDIENTE_REVISION
+        )
+
+        db.add(ColaRescate(
+            instalacion_id=body.instalacion_id,
+            subido_por=usuario.id,
+            usuario_id=fila.usuario_id,
+            empresa_id=fila.empresa_id,
+            idempotency_key=fila.idempotency_key,
+            secuencia=fila.secuencia,
+            tipo_entidad=fila.tipo_entidad,
+            entidad_id=fila.entidad_id,
+            accion=fila.accion,
+            fila=fila.model_dump(),
+            subido_por_tercero=(fila.usuario_id != usuario.id),
+            estado_revision=estado_rev,
+        ))
+
+        # Audit por fila guardada, tenant-scoped (empresa de la fila, rol del usuario
+        # en esa empresa). El desenlace (ya_aplicada / pendiente) vive en metadata.
+        record_audit(
+            db,
+            empresa_id=fila.empresa_id,
+            actor_id=usuario.id,
+            actor_nombre=usuario.nombre_completo,
+            actor_rol=memb[fila.empresa_id].value,
+            accion="rescate_cola",
+            entidad_tipo=fila.tipo_entidad,
+            entidad_id=fila.entidad_id,
+            metadata={
+                "idempotency_key": fila.idempotency_key,
+                "instalacion_id": body.instalacion_id,
+                "subido_por": usuario.id,
+                "usuario_declarado": fila.usuario_id,
+                "estado_revision": estado_rev.value,
+            },
+            synced_offline=True,
+        )
+
+        if estado_rev == RescateEstado.YA_APLICADA:
+            ya_aplicadas += 1
+        else:
+            aceptadas += 1
+
+    db.commit()
+    return RescateColaOut(
+        recibidas=len(body.filas),
+        aceptadas=aceptadas,
+        ya_aplicadas=ya_aplicadas,
+        duplicadas=duplicadas,
+        rechazadas_tenant=rechazadas_tenant,
+    )

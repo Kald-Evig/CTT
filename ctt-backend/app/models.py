@@ -30,8 +30,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.enums import (
     ConflictoEstado, EmpresaEstado, EmpresaPlan, EvidenciaSyncStatus,
-    IdempotenciaEstado, ItemEstado, ProblemaEstado, ProyectoEstado, Rol,
-    UsuarioEstado,
+    IdempotenciaEstado, ItemEstado, ProblemaEstado, ProyectoEstado, RescateEstado,
+    Rol, UsuarioEstado,
 )
 
 
@@ -372,6 +372,46 @@ class ClaveIdempotencia(Base):
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ColaRescate(Base):
+    """Filas de la cola offline rescatadas de un dispositivo cuya app no abría
+    (CTT-130 fase 4b). Se guardan EN CUARENTENA, sin aplicarlas: pueden venir
+    desactualizadas o en conflicto. Un coordinador las revisa (UI fuera de alcance).
+
+    Aislamiento de tenant: solo se guardan filas de empresas donde el que sube tiene
+    membresía activa; las de empresas ajenas se rechazan y NO se almacenan.
+    """
+    __tablename__ = "cola_rescate"
+    __table_args__ = (
+        # Idempotencia del rescate: reenviar la misma fila no la duplica. La clave
+        # del cliente (Uuid v4) es global; UNIQUE simple alcanza.
+        UniqueConstraint("idempotency_key", name="uq_cola_rescate_idempotency"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    instalacion_id: Mapped[str] = mapped_column(String(255))
+    # Quién subió el rescate (usuario del token).
+    subido_por: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
+    # Dueño DECLARADO de la fila (puede no ser el que sube: dispositivo compartido,
+    # CTT-123). Sin FK: el id viene del cliente y podría no existir en este server.
+    usuario_id: Mapped[str] = mapped_column(String(36))
+    empresa_id: Mapped[str] = mapped_column(ForeignKey("empresas.id"))
+    idempotency_key: Mapped[str] = mapped_column(String(255))
+    secuencia: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tipo_entidad: Mapped[str] = mapped_column(String(64))
+    entidad_id: Mapped[str] = mapped_column(String(255))
+    accion: Mapped[str] = mapped_column(String(64))
+    # La fila completa, cruda (JSON), sin depender del esquema de Drift del cliente.
+    fila: Mapped[dict] = mapped_column(JSON)
+    # A4: evidente cuando el que sube NO es el dueño declarado.
+    subido_por_tercero: Mapped[bool] = mapped_column(Boolean, default=False)
+    estado_revision: Mapped[RescateEstado] = mapped_column(
+        SAEnum(RescateEstado, native_enum=False, create_constraint=True,
+               name="rescate_estado"),
+        default=RescateEstado.PENDIENTE_REVISION,
+    )
+    recibido_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class MetricaIdempotencia(Base):
