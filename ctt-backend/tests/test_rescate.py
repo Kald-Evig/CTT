@@ -129,6 +129,26 @@ def test_audit_por_fila_guardada(client, seeded, db):
     assert e.meta["idempotency_key"] == "k-audit"
 
 
+def test_varias_filas_misma_empresa_folios_distintos(client, seeded, db):
+    # Regresión (hallazgo en runtime S22): 2+ filas de la MISMA empresa en un solo
+    # request generan 2 audits en la misma transacción. Sin flush entre ellos, ambos
+    # tomaban el mismo folio y violaban UNIQUE(empresa_id, folio) -> 500. Debe ser 200.
+    r = _post(client, seeded, seeded.trab, [
+        _fila("multi-1", seeded.emp_a, seeded.trab_id, entidad_id="item-1"),
+        _fila("multi-2", seeded.emp_a, seeded.trab_id, entidad_id="item-2"),
+    ])
+    assert r.status_code == 200, r.text
+    assert r.json()["aceptadas"] == 2
+
+    db.expire_all()
+    assert db.query(ColaRescate).filter(
+        ColaRescate.idempotency_key.in_(["multi-1", "multi-2"])).count() == 2
+    entradas = db.query(AuditLog).filter(AuditLog.accion == "rescate_cola").all()
+    assert len(entradas) == 2
+    folios = {e.folio for e in entradas}
+    assert len(folios) == 2  # folios distintos, no colisión
+
+
 def test_limite_de_filas_422(client, seeded):
     filas = [_fila(f"k{i}", seeded.emp_a, seeded.trab_id) for i in range(501)]
     r = _post(client, seeded, seeded.trab, filas)

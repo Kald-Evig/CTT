@@ -72,6 +72,13 @@ def record_audit(
         synced_offline=synced_offline,
     )
     db.add(entry)
+    # Flush para que el folio recién asignado sea visible a la próxima llamada en la
+    # MISMA transacción: con autoflush=False, _next_folio hace SELECT MAX(folio) y sin
+    # este flush dos audits consecutivos de la misma empresa (p.ej. el rescate de cola
+    # CTT-130 4b, que audita una fila por cambio) obtendrían el mismo folio y violarían
+    # UNIQUE(empresa_id, folio). (La race entre requests concurrentes sigue como la
+    # documenta _next_folio.)
+    db.flush()
     return entry
 
 
