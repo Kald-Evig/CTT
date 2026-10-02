@@ -109,6 +109,36 @@ void main() {
     await db.close();
   }
 
+  /// Siembra [n] filas no terminales (pendiente) en un solo batch, para los tests
+  /// de loteo con colas grandes.
+  Future<void> sembrarMuchas(int n) async {
+    final db = BaseDatosCTT.conConexion(
+      NativeDatabase(File('${tmp.path}/ctt_local.db')),
+    );
+    await db.batch((b) {
+      for (var i = 0; i < n; i++) {
+        b.insert(
+          db.syncPendientes,
+          SyncPendientesCompanion.insert(
+            id: 'f$i',
+            idempotencyKey: 'idem-f$i',
+            empresaId: 'emp-1',
+            usuarioId: 'user-1',
+            instalacionId: 'inst-1',
+            tipoEntidad: 'item',
+            entidadId: 'item-f$i',
+            accion: 'cambio_estado_item',
+            payload: '{"i":$i}',
+            payloadVersion: 1,
+            creadoEnDispositivo: DateTime.utc(2026, 1, 1),
+            estado: const Value('pendiente'),
+          ),
+        );
+      }
+    });
+    await db.close();
+  }
+
   RescateService servicio(_MockDio dio, _MockDeviceId deviceId, {String? token}) {
     when(() => deviceId.obtener()).thenAnswer((_) async => 'inst-1');
     return RescateService(
@@ -250,6 +280,73 @@ void main() {
 
     final r = await servicio(dio, deviceId, token: 'tok').rescatar();
     expect(r.estado, ResultadoRescate.errorCliente);
+  });
+
+  test('1.200 filas → 3 lotes de 500/500/200, conteos sumados', () async {
+    await sembrarMuchas(1200);
+    final dio = _MockDio();
+    final deviceId = _MockDeviceId();
+    // El server "acepta" tantas filas como recibe en cada lote.
+    when(
+      () => dio.post<Map<String, dynamic>>(
+        any(),
+        data: any(named: 'data'),
+        options: any(named: 'options'),
+      ),
+    ).thenAnswer((inv) async {
+      final data = inv.namedArguments[#data] as Map<String, dynamic>;
+      final n = (data['filas'] as List).length;
+      return _resp(aceptadas: n);
+    });
+
+    final r = await servicio(dio, deviceId, token: 'tok').rescatar();
+    expect(r.estado, ResultadoRescate.enviado);
+    expect(r.enviadas, 1200); // suma de los tres lotes
+
+    final capturas = verify(
+      () => dio.post<Map<String, dynamic>>(
+        any(),
+        data: captureAny(named: 'data'),
+        options: any(named: 'options'),
+      ),
+    ).captured.cast<Map<String, dynamic>>();
+    final tamanos =
+        capturas.map((d) => (d['filas'] as List).length).toList();
+    expect(tamanos, [500, 500, 200]); // ningún lote supera el máximo
+  });
+
+  test('un lote que falla transitorio se reintenta en el acto', () async {
+    await sembrarMuchas(600); // 2 lotes: 500 y 100
+    final dio = _MockDio();
+    final deviceId = _MockDeviceId();
+    var llamada = 0;
+    when(
+      () => dio.post<Map<String, dynamic>>(
+        any(),
+        data: any(named: 'data'),
+        options: any(named: 'options'),
+      ),
+    ).thenAnswer((inv) async {
+      llamada++;
+      // 1er POST (lote 1, intento 1): 503 transitorio. El resto, OK.
+      if (llamada == 1) {
+        throw DioException(
+          requestOptions: RequestOptions(path: '/sync/rescate'),
+          type: DioExceptionType.badResponse,
+          response: Response<void>(
+            requestOptions: RequestOptions(path: '/sync/rescate'),
+            statusCode: 503,
+          ),
+        );
+      }
+      final data = inv.namedArguments[#data] as Map<String, dynamic>;
+      return _resp(aceptadas: (data['filas'] as List).length);
+    });
+
+    final r = await servicio(dio, deviceId, token: 'tok').rescatar();
+    expect(r.estado, ResultadoRescate.enviado);
+    expect(r.enviadas, 600); // lote 1 reintentado (500) + lote 2 (100)
+    expect(llamada, 3); // lote1 intento1 (falla) + lote1 intento2 (ok) + lote2 (ok)
   });
 
   test('sin sesión (token null) → sinSesion, sin tocar la red', () async {

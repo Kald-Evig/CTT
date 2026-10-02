@@ -7,6 +7,8 @@
 /// NO escribe en la base rota. El servidor es idempotente: reenviar es seguro.
 library;
 
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -75,13 +77,32 @@ class RescateService {
     required this.dio,
     required this.proveedorToken,
     required this.deviceIdService,
+    this.maxIntentosPorLote = 3,
   });
 
   final Dio dio;
   final ProveedorTokenRescate proveedorToken;
   final DeviceIdService deviceIdService;
 
-  /// Lee las filas no terminales de la cola y las envía a /sync/rescate.
+  /// Reintentos inmediatos de un lote ante error transitorio (red/5xx/429), antes
+  /// de ceder a la pantalla para el reintento con backoff. Con la pantalla abierta
+  /// el ciclo completo se repite igual; esto solo evita abandonar al primer tropiezo.
+  final int maxIntentosPorLote;
+
+  /// Tope de filas por request (coincide con MAX_FILAS_RESCATE del backend).
+  static const int maxFilasPorLote = 500;
+
+  /// Tope de bytes del body (coincide con MAX_BODY_BYTES_RESCATE del backend). Se
+  /// reserva un margen para el envoltorio {instalacion_id, filas:[...]}.
+  static const int maxBytesLote = 1000000;
+  static const int _margenEnvoltorio = 4096;
+
+  /// Lee las filas no terminales de la cola y las envía a /sync/rescate EN LOTES.
+  ///
+  /// Con más de [maxFilasPorLote] filas (o más de [maxBytesLote] bytes) un único
+  /// POST sería rechazado 422/413 — y el trabajador con MÁS cola acumulada sería
+  /// el único que nunca rescata. Por eso se parte en lotes, se suman los conteos y,
+  /// si un lote falla con error transitorio, se reintenta ese lote.
   Future<RescateResultado> rescatar() async {
     final token = await proveedorToken.obtenerToken();
     if (token == null) return const RescateResultado(ResultadoRescate.sinSesion);
@@ -93,10 +114,82 @@ class RescateService {
     }
 
     final instalacionId = await deviceIdService.obtener();
+    var enviadas = 0;
+    var sinRescatar = 0;
+
+    for (final lote in _lotes(filas)) {
+      final res = await _enviarLote(lote, instalacionId, token);
+      enviadas += res.enviadas;
+      sinRescatar += res.sinRescatar;
+      // Un lote que no se envió corta el ciclo: la pantalla reintenta todo con
+      // backoff (transitorio) o avisa (4xx). Lo ya enviado es idempotente en el
+      // servidor, así que reenviarlo solo suma 'duplicadas'.
+      if (res.estado != ResultadoRescate.enviado) {
+        return RescateResultado(
+          res.estado,
+          enviadas: enviadas,
+          sinRescatar: sinRescatar,
+        );
+      }
+    }
+
+    return RescateResultado(
+      ResultadoRescate.enviado,
+      enviadas: enviadas,
+      sinRescatar: sinRescatar,
+    );
+  }
+
+  /// Parte [filas] en lotes de a lo sumo [maxFilasPorLote] filas y [maxBytesLote]
+  /// bytes. Una fila que por sí sola excede el límite de bytes se manda sola (no se
+  /// puede partir más); el servidor la rechazará, pero no bloquea a las demás.
+  List<List<Map<String, Object?>>> _lotes(List<Map<String, Object?>> filas) {
+    final lotes = <List<Map<String, Object?>>>[];
+    var actual = <Map<String, Object?>>[];
+    var bytes = 0;
+    const tope = maxBytesLote - _margenEnvoltorio;
+    for (final fila in filas) {
+      final b = utf8.encode(jsonEncode(fila)).length + 1; // +1 por la coma
+      final porFilas = actual.length >= maxFilasPorLote;
+      final porBytes = actual.isNotEmpty && bytes + b > tope;
+      if (porFilas || porBytes) {
+        lotes.add(actual);
+        actual = <Map<String, Object?>>[];
+        bytes = 0;
+      }
+      actual.add(fila);
+      bytes += b;
+    }
+    if (actual.isNotEmpty) lotes.add(actual);
+    return lotes;
+  }
+
+  /// Envía un lote, reintentándolo en el acto ante error transitorio hasta
+  /// [maxIntentosPorLote]. Devuelve el último resultado (enviado, transitorio o 4xx).
+  Future<RescateResultado> _enviarLote(
+    List<Map<String, Object?>> lote,
+    String instalacionId,
+    String token,
+  ) async {
+    RescateResultado res = const RescateResultado(ResultadoRescate.errorServidor);
+    for (var intento = 0; intento < maxIntentosPorLote; intento++) {
+      res = await _postLote(lote, instalacionId, token);
+      final transitorio = res.estado == ResultadoRescate.sinRed ||
+          res.estado == ResultadoRescate.errorServidor;
+      if (!transitorio) return res;
+    }
+    return res; // agotó los reintentos inmediatos: queda el estado transitorio
+  }
+
+  Future<RescateResultado> _postLote(
+    List<Map<String, Object?>> lote,
+    String instalacionId,
+    String token,
+  ) async {
     try {
       final resp = await dio.post<Map<String, dynamic>>(
         '/sync/rescate',
-        data: {'instalacion_id': instalacionId, 'filas': filas},
+        data: {'instalacion_id': instalacionId, 'filas': lote},
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
       final data = resp.data ?? const {};
