@@ -65,6 +65,8 @@ python -m pytest -v                  # macOS/Linux
 
 El backend acepta `Authorization: Bearer <firebase_uid>` sin validación criptográfica (`AUTH_MODE=mock`). Para usuarios en múltiples empresas, agregar `X-Empresa-Id: <id>`.
 
+> **`AUTH_MODE` debe coincidir entre cliente y backend.** El cliente lo recibe por `--dart-define=AUTH_MODE=<mock|firebase>` (ver "Correr la app") y determina de dónde saca el token del rescate (CTT-130 4b): `mock` → el `firebase_uid` guardado; `firebase` → `getIdToken(true)`. Si el backend corre con `firebase` y el cliente con `mock` (o al revés), la autenticación falla.
+
 | Bearer token | Persona | Rol |
 |---|---|---|
 | `uid-superadmin` | Soporte CTT | Super Admin (plataforma) |
