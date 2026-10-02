@@ -24,3 +24,8 @@ ctt-mobile/android/.kotlin/
 
 # Artefactos sueltos de pruebas manuales
 body.json
+
+# Copias de la base y capturas sacadas del teléfono en sesiones de runtime (S22).
+# Contienen datos de trabajadores: nunca commitear. Van a una carpeta local fuera
+# del repo (ver docs/runbook_s22_ctt130_fase4b.md). El patrón cubre .db y .png.
+s22_*/
