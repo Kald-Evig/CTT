@@ -9,6 +9,8 @@ Cubre:
   - Sin header (o con header pero sin Idempotency-Key) → comportamiento de siempre, sin fila.
 """
 
+import uuid
+
 from app.enums import RechazoMotivo, Rol
 from app.models import (
     AuditLog, EmpresaUsuario, Item, ItemHistorial, ProyectoUsuario, SyncRechazo, Usuario,
@@ -105,10 +107,11 @@ def test_404_tenant_ajeno_mensaje_uniforme_causa_interna(client, seeded, db):
               _h(seeded, seeded.admin_b, "k-404"))
     assert r.status_code == 404, r.text
     d = r.json()["detail"]
+    # El cuerpo expone SOLO estas claves: la causa exacta (detalle_interno) no viaja.
+    assert set(d.keys()) == {"tipo", "rechazo_id", "motivo", "mensaje"}
     assert d["tipo"] == "rechazo"
     assert d["motivo"] == "inexistente"
     assert d["mensaje"] == "Ítem no encontrado."
-    assert "detalle_interno" not in d   # la causa exacta NO viaja al cliente
 
     db.expire_all()
     f = db.query(SyncRechazo).filter(SyncRechazo.idempotency_key == "k-404").one()
@@ -117,6 +120,19 @@ def test_404_tenant_ajeno_mensaje_uniforme_causa_interna(client, seeded, db):
     assert f.codigo_http == 404
     assert f.motivo == RechazoMotivo.INEXISTENTE
     assert "404" in f.detalle_interno and "Ítem no encontrado." in f.detalle_interno
+
+    # No-oráculo: un item_id inexistente en TODO tenant devuelve el MISMO status y el
+    # mismo detail salvo rechazo_id — admin_b no puede distinguir "existe en otra
+    # empresa" (seeded.item) de "no existe" (uuid aleatorio).
+    r2 = client.post(
+        f"/items/{uuid.uuid4()}/transicion",
+        json={"nuevo_estado": "en_progreso"},
+        headers=_h(seeded, seeded.admin_b, "k-404-inex"),
+    )
+    assert r2.status_code == r.status_code
+    d2 = r2.json()["detail"]
+    assert {k: v for k, v in d2.items() if k != "rechazo_id"} == \
+           {k: v for k, v in d.items() if k != "rechazo_id"}
 
 
 def test_403_trabajador_no_asignado_persiste(client, seeded, db):
