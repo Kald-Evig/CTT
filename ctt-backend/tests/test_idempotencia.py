@@ -5,6 +5,8 @@ Se ejercita sobre POST /items/{id}/transicion (el ítem sembrado está ABIERTO y
 asignado al trabajador, así que abierto→en_progreso es válido para `trab`).
 """
 
+import hashlib
+
 from app.enums import IdempotenciaEstado, ItemEstado
 from app.models import AuditLog, ClaveIdempotencia, Item, MetricaIdempotencia
 
@@ -138,3 +140,31 @@ def test_replay_incrementa_contador_diario(client, seeded, db):
     filas = db.query(MetricaIdempotencia).all()
     assert len(filas) == 1
     assert filas[0].replays == 1
+
+
+# 7 — CTT-103 A1: una reserva EN_PROCESO con el mismo fingerprint responde 409 con
+#     detail Map {tipo: "solicitud_en_proceso", ...} (antes era un string).
+def test_en_proceso_responde_409_map(client, seeded, db):
+    raw = b'{"nuevo_estado":"en_progreso"}'
+    fp = hashlib.sha256(raw).hexdigest()
+    db.add(ClaveIdempotencia(
+        empresa_id=seeded.emp_a, idempotency_key="k-enproc",
+        endpoint="/items/x/transicion", fingerprint=fp,
+        estado=IdempotenciaEstado.EN_PROCESO))
+    db.commit()
+
+    r = client.post(
+        f"/items/{seeded.item}/transicion",
+        content=raw,
+        headers={
+            "Authorization": f"Bearer {seeded.trab}",
+            "X-Empresa-Id": seeded.emp_a,
+            "Idempotency-Key": "k-enproc",
+            "Content-Type": "application/json",
+        },
+    )
+    assert r.status_code == 409, r.text
+    d = r.json()["detail"]
+    assert isinstance(d, dict)
+    assert d["tipo"] == "solicitud_en_proceso"
+    assert d["mensaje"]

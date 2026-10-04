@@ -133,10 +133,17 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                     headers={"Idempotent-Replayed": "true"},
                 )
             # En proceso, mismo fingerprint: hay un request en vuelo con esta clave.
+            # `detail` es un Map con `tipo`, consistente con el 409 de conflicto y el de
+            # rechazo (CTT-103 A1): el cliente lo trata como transitorio PERO suma
+            # intentos_servidor (una reserva huérfana sin reaper devolvería esto para
+            # siempre y, con orden por ítem, bloquearía el ítem — CTT-122 es el reaper).
             return JSONResponse(
                 status_code=409,
                 content={
-                    "detail": "Ya hay una solicitud en proceso con esta clave de idempotencia."
+                    "detail": {
+                        "tipo": "solicitud_en_proceso",
+                        "mensaje": "Ya hay una solicitud en proceso con esta clave de idempotencia.",
+                    }
                 },
             )
         finally:
