@@ -36,7 +36,3 @@ google-services.json
 *.env
 .env.*
 secrets/
-
-# Código de migración generado por drift_dev make-migrations (no usamos stepByStep;
-# la migración real vive en migracion_atomica.dart). Regenerable, como *.g.dart.
-*.steps.dart

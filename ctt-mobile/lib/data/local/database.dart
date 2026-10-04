@@ -21,13 +21,14 @@ import 'package:sqlite3/sqlite3.dart' show Database;
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
+import 'package:ctt_mobile/data/local/database.steps.dart';
 import 'package:ctt_mobile/data/local/migracion_atomica.dart';
 
 part 'database.g.dart';
 
-/// Versión del esquema local. Línea base v6 (CTT-130). Fuente única: la usan el
-/// getter [BaseDatosCTT.schemaVersion] y la pre-apertura con sqlite3 crudo
-/// (apertura_base.dart) para decidir si hay que migrar.
+/// Versión del esquema local: **v7** (CTT-103 agregó `rechazo_id` sobre la línea
+/// base v6 de CTT-130). Fuente única: la usan el getter [BaseDatosCTT.schemaVersion]
+/// y la pre-apertura con sqlite3 crudo (apertura_base.dart) para decidir si migrar.
 const kSchemaVersionApp = 7;
 
 // ── Tablas ────────────────────────────────────────────────────────────────────
@@ -225,13 +226,17 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   /// cruzada aporta sus pasos; se concatenan en orden. v6 es la línea base.
   List<PasoMigracion> _pasosMigracion(int desde, int hasta) {
     final pasos = <PasoMigracion>[];
-    // v6 → v7 (CTT-103): columna rechazo_id (TEXT nullable). Se usa el Migrator de
-    // Drift (no un ALTER a mano) para que el DDL sea idéntico al de createAll y el
-    // SchemaVerifier valide el esquema migrado contra el snapshot v7.
+    // v6 → v7 (CTT-103): columna rechazo_id (TEXT nullable). Se migra con el ESQUEMA
+    // CONGELADO v7 que genera make-migrations (Schema7 en database.steps.dart), no con
+    // la tabla viva: así el paso no se rompe si la tabla evoluciona después. El
+    // Migrator genera el DDL idéntico a createAll (lo valida el SchemaVerifier). Sigue
+    // corriendo dentro de migrarAtomico, que conserva la atomicidad pasos+user_version.
     if (desde < 7 && hasta >= 7) {
-      pasos.add(
-        (db) => Migrator(db).addColumn(syncPendientes, syncPendientes.rechazoId),
-      );
+      pasos.add((db) async {
+        final schema = Schema7(database: db);
+        await Migrator(db, schema)
+            .addColumn(schema.syncPendientes, schema.syncPendientes.rechazoId);
+      });
     }
     return pasos;
   }
