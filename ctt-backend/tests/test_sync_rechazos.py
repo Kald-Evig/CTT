@@ -10,7 +10,9 @@ Cubre:
 """
 
 from app.enums import RechazoMotivo, Rol
-from app.models import EmpresaUsuario, Item, ProyectoUsuario, SyncRechazo, Usuario
+from app.models import (
+    AuditLog, EmpresaUsuario, Item, ItemHistorial, ProyectoUsuario, SyncRechazo, Usuario,
+)
 
 
 def _h(seeded, uid, key, empresa_id=None):
@@ -67,6 +69,19 @@ def test_transicion_invalida_persiste_rechazo(client, seeded, db):
     assert f.motivo == RechazoMotivo.TRANSICION_INVALIDA
     assert f.tipo_entidad == "item"
     assert f.entidad_id == seeded.item
+
+
+def test_transicion_invalida_no_deja_cambio_parcial(client, seeded, db):
+    # F1c: con origen cola, una transición inválida persiste el rechazo pero NO deja
+    # rastro de transición: estado intacto, sin ItemHistorial ni AuditLog del ítem.
+    r = _post(client, seeded, seeded.trab, "terminado", _h(seeded, seeded.trab, "k-parcial"))
+    assert r.status_code == 409, r.text
+
+    db.expire_all()
+    assert db.query(Item).filter(Item.id == seeded.item).one().estado.value == "abierto"
+    assert db.query(ItemHistorial).filter(ItemHistorial.item_id == seeded.item).count() == 0
+    assert db.query(AuditLog).filter(AuditLog.entidad_id == seeded.item).count() == 0
+    assert db.query(SyncRechazo).filter(SyncRechazo.idempotency_key == "k-parcial").count() == 1
 
 
 def test_reintento_misma_clave_mismo_rechazo_una_fila(client, seeded, db):

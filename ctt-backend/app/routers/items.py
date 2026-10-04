@@ -433,6 +433,11 @@ def _persistir_rechazo(
     """Inserta la fila de dead-letter ANTES de responder (igual que SyncConflicto) y
     la devuelve. Idempotente por (idempotency_key, usuario_id): una carrera que viole
     el UNIQUE reusa la fila existente en vez de fallar."""
+    # Descartar cualquier escritura a medias en la sesión antes de persistir el rechazo:
+    # hoy transicionar() lanza TransicionInvalida antes de mutar nada (guardas puras),
+    # pero esto blinda contra cambios futuros de la máquina de estados que muten y luego
+    # fallen — no queremos commitear una transición parcial junto con el rechazo (F1).
+    db.rollback()
     r = SyncRechazo(
         empresa_id=empresa_id,
         usuario_id=ctx.usuario.id,
