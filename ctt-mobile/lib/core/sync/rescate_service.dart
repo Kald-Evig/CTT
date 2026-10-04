@@ -15,7 +15,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
-import 'package:ctt_mobile/core/network/dio_client.dart' show secureStorageProvider;
+import 'package:ctt_mobile/core/network/dio_client.dart'
+    show opcionesBaseDio, secureStorageProvider;
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/data/local/apertura_base.dart';
 
@@ -239,20 +240,12 @@ ProveedorTokenRescate proveedorTokenRescate(ProveedorTokenRescateRef ref) =>
         ? TokenRescateFirebase()
         : TokenRescateSecureStorage(ref.watch(secureStorageProvider));
 
-/// Dio dedicado al rescate: SIN el AuthInterceptor (que pisaría el Authorization con
-/// el token de SecureStorage). El rescate setea el header con el token del proveedor.
+/// Dio dedicado al rescate: MISMAS opciones base que el resto (CTT-103 D4), SIN el
+/// AuthInterceptor (que pisaría el Authorization con el token de SecureStorage) y SIN
+/// X-Sync-Origen (el endpoint /sync/rescate no lo usa). El rescate setea Authorization
+/// a mano con el token del proveedor.
 @riverpod
-Dio dioRescate(DioRescateRef ref) => Dio(
-      BaseOptions(
-        baseUrl: Entorno.urlBaseApi,
-        connectTimeout: Entorno.timeoutConexion,
-        receiveTimeout: Entorno.timeoutRecepcion,
-        headers: const {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      ),
-    );
+Dio dioRescate(DioRescateRef ref) => Dio(opcionesBaseDio());
 
 @riverpod
 RescateService rescateService(RescateServiceRef ref) => RescateService(

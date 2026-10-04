@@ -16,8 +16,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:workmanager/workmanager.dart';
 
-import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
+import 'package:ctt_mobile/core/network/dio_client.dart' show opcionesBaseDio;
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/data/local/apertura_base.dart';
@@ -113,17 +113,15 @@ Future<void> _ejecutarCicloSync() async {
     if (jwt == null) return;
     final empresaId = await secStorage.read(key: _claveEmpresaId);
 
-    final dioHeadless = Dio(BaseOptions(
-      baseUrl: Entorno.urlBaseApi,
-      connectTimeout: Entorno.timeoutConexion,
-      receiveTimeout: Entorno.timeoutRecepcion,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': 'Bearer $jwt',
-        if (empresaId != null) 'X-Empresa-Id': empresaId,
-      },
-    ),);
+    // Mismas opciones base que el resto (CTT-103 D4). SIN ErrorInterceptor (el 401 lo
+    // pausa el ciclo, no desloguea) y con X-Sync-Origen: cola. Authorization/empresa se
+    // setean a mano (el headless no tiene Riverpod ni AuthInterceptor).
+    final dioHeadless = Dio(opcionesBaseDio());
+    dioHeadless.options.headers['Authorization'] = 'Bearer $jwt';
+    if (empresaId != null) {
+      dioHeadless.options.headers['X-Empresa-Id'] = empresaId;
+    }
+    dioHeadless.options.headers['X-Sync-Origen'] = 'cola';
 
     await CicloSync(
       syncDao: db.syncDao,

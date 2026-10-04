@@ -36,7 +36,7 @@ DateTime _ahoraUtcPorDefecto() => DateTime.now().toUtc();
 @riverpod
 CicloSync cicloSync(CicloSyncRef ref) => CicloSync(
       syncDao: ref.watch(syncDaoProvider),
-      dio: ref.watch(dioClientProvider),
+      dio: ref.watch(dioSyncProvider), // Dio de sync (sin 401→logout, con X-Sync-Origen)
       deviceIdService: ref.watch(deviceIdServiceProvider),
       isolateLabel: 'ui',
     );
