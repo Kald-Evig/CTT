@@ -68,17 +68,35 @@ void main() {
       secureStorage: secureStorage,
     );
 
+    // El ítem está en caché SIN conflicto: el camino de conflicto debe encender el flag.
+    await db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
+          id: itemId,
+          proyectoId: 'proy-1',
+          nombre: 'Tarea',
+          estado: 'en_progreso',
+          updatedAt: DateTime.utc(2026, 5, 1),
+          cachadoEn: DateTime.utc(2026, 5, 1),
+        ),);
+
     final r = await service.ejecutar(itemId: itemId, nuevoEstado: 'pendiente_revision');
     expect(r, isA<TransicionConConflicto>());
     expect((r as TransicionConConflicto).conflictoId, _conflictoId);
 
-    // La fila quedó en esperando_resolucion con el conflicto_id, en un solo INSERT.
+    // La fila quedó en esperando_resolucion con el conflicto_id y el motivo que dicta
+    // decidir(conflictoDetectado), en un solo INSERT.
     final filas = await (db.select(db.syncPendientes)
           ..where((t) => t.entidadId.equals(itemId)))
         .get();
     expect(filas, hasLength(1));
     expect(filas.single.estado, EstadoSyncLocal.esperandoResolucion.valor);
     expect(filas.single.conflictoId, _conflictoId);
+    expect(filas.single.motivo, MotivoSync.conflicto.valor);
+
+    // El flag de conflicto del ítem quedó encendido (SyncDao, escritor único).
+    final itemCache = await (db.select(db.itemsCacheTable)
+          ..where((t) => t.id.equals(itemId)))
+        .getSingle();
+    expect(itemCache.tieneConflicto, isTrue);
 
     // Nunca elegible para el ciclo: filasReclamables no la trae (no es pendiente ni
     // enviando; y no pasó por 'pendiente' en ningún momento).

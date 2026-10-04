@@ -29,6 +29,34 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   Future<void> encolar(SyncPendientesCompanion entrada) =>
       into(syncPendientes).insert(entrada);
 
+  /// Inserta una fila YA en `esperando_resolucion` con su [conflictoId], en UNA
+  /// transacción, y enciende `items_cache.tiene_conflicto` para su entidad_id. El
+  /// estado y el motivo los dicta `decidir(conflictoDetectado)` (una sola fuente; no
+  /// se hardcodean). Es el camino del conflicto ONLINE (transicion_service): evita la
+  /// ventana pendiente→parqueo donde el ciclo podría reenviar la fila (carrera
+  /// CTT-136) y no depende del lease. SyncDao es el escritor único del flag (ver
+  /// [aplicarDecision]).
+  Future<void> encolarEnConflicto(
+    SyncPendientesCompanion entrada, {
+    required String conflictoId,
+  }) {
+    final decision = decidir(
+      estadoActual: EstadoSyncLocal.pendiente,
+      senal: SenalSync.conflictoDetectado,
+      reintentos: 0,
+    );
+    return transaction(() async {
+      await into(syncPendientes).insert(entrada.copyWith(
+        estado: Value(decision.nuevoEstado.valor),
+        motivo: decision.motivo != null
+            ? Value(decision.motivo!.valor)
+            : const Value.absent(),
+        conflictoId: Value(conflictoId),
+      ));
+      await _escribirFlagConflicto(entrada.entidadId.value, true);
+    });
+  }
+
   /// Pendientes ordenados por `secuencia` ASC (FIFO por orden de encolado, no por
   /// reloj del dispositivo — CTT-130: `secuencia` es monótona, el reloj no).
   /// Excluye los que están enviándose.
@@ -133,8 +161,9 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   ///
   /// `intentos_servidor` NO se toca acá: su tope y su semántica son de CTT-103.
   ///
-  /// ESCRITOR ÚNICO del flag `items_cache.tiene_conflicto` (CTT-117 tramo 3), en
-  /// la MISMA transacción que el estado de la cola, de forma simétrica:
+  /// Escritor del flag `items_cache.tiene_conflicto` (CTT-117 tramo 3) —junto con
+  /// [encolarEnConflicto], los DOS únicos—, en la MISMA transacción que el estado de
+  /// la cola, de forma simétrica:
   ///   - la decisión entra a esperandoResolucion            → flag = true
   ///   - sale de esperandoResolucion hacia un terminal      → flag = false
   ///   - cualquier otra transición                          → no toca el flag
@@ -212,23 +241,26 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         }
 
         if (nuevoFlag != null) {
-          final filasFlag = await (update(attachedDatabase.itemsCacheTable)
-                ..where((t) => t.id.equals(entidadId!)))
-              .write(ItemsCacheTableCompanion(
-                tieneConflicto: Value(nuevoFlag),
-              ),);
-          if (filasFlag == 0) {
-            // Ítem no cacheado: la fila de la cola se cerró igual, pero el flag no
-            // tuvo dónde escribirse. Caso esperable (el full-replace del pull puede
-            // sacar un ítem mientras su fila sigue encolada), no un error.
-            debugPrint(
-              'CTT-117: tiene_conflicto=$nuevoFlag no aplicado — ítem $entidadId '
-              'no está en items_cache (fila de cola $id cerrada igual).',
-            );
-          }
+          await _escribirFlagConflicto(entidadId!, nuevoFlag);
         }
         return afectadas;
       });
+
+  /// Escribe `items_cache.tiene_conflicto` = [valor] para [entidadId]. SyncDao es el
+  /// ESCRITOR ÚNICO del flag (CTT-117); lo usan [aplicarDecision] y [encolarEnConflicto]
+  /// dentro de SU transacción. Si el ítem no está en caché (el full-replace del pull
+  /// pudo sacarlo mientras su fila sigue encolada), deja rastro y sigue — no es error.
+  Future<void> _escribirFlagConflicto(String entidadId, bool valor) async {
+    final filasFlag = await (update(attachedDatabase.itemsCacheTable)
+          ..where((t) => t.id.equals(entidadId)))
+        .write(ItemsCacheTableCompanion(tieneConflicto: Value(valor)));
+    if (filasFlag == 0) {
+      debugPrint(
+        'CTT-117: tiene_conflicto=$valor no aplicado — ítem $entidadId no está en '
+        'items_cache.',
+      );
+    }
+  }
 
   /// IDs de entidades con sincronización pendiente (estados NO terminales).
   /// Usado para el indicador visual en la lista de ítems.

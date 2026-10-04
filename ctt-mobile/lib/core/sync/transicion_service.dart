@@ -8,7 +8,6 @@ library;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -131,17 +130,17 @@ class TransicionService {
     final conflictoId = extraerConflictoId(e);
 
     if (conflictoId != null) {
-      // Conflicto de concurrencia: se inserta DIRECTO en esperando_resolucion con su
-      // conflicto_id, en un solo INSERT. No pasa por 'pendiente': así el ciclo (que
-      // reclama filas 'pendiente') nunca la toma ni la reenvía en la ventana entre el
-      // encolado y el parqueo (carrera CTT-136); y no depende de aplicarDecision, que
-      // exige lease. Lo resuelve el reconciliador (CTT-117 tramo 3).
-      await _encolar(
+      // Conflicto de concurrencia: el DAO inserta la fila DIRECTO en
+      // esperando_resolucion con su conflicto_id y enciende el flag de conflicto del
+      // ítem, todo en UNA transacción (estado y motivo los dicta decidir()). No pasa
+      // por 'pendiente': así el ciclo (que reclama filas 'pendiente') nunca la toma ni
+      // la reenvía en esa ventana (carrera CTT-136); y no depende del lease. Lo
+      // resuelve el reconciliador (CTT-117 tramo 3).
+      final fila = await _prepararFila(
         itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
         idempotencyKey,
-        estado: EstadoSyncLocal.esperandoResolucion.valor,
-        conflictoId: conflictoId,
       );
+      await syncDao.encolarEnConflicto(fila.companion, conflictoId: conflictoId);
       return TransicionConConflicto(conflictoId);
     }
 
@@ -155,20 +154,20 @@ class TransicionService {
   /// desde SecureStorage), `instalacion_id` (DeviceIdService), `idempotency_key`,
   /// `payload_version` = 1 y `creado_en_dispositivo`. Si no hay sesión activa,
   /// lanza [SesionNoDisponibleException] y NO encola (nunca una fila sin dueño).
-  Future<String> _encolar(
+  /// Lee el dueño de SecureStorage y arma el companion BASE de la fila (estado
+  /// 'pendiente' por defecto, sin conflicto_id) con un id nuevo. Si no hay sesión
+  /// activa, lanza [SesionNoDisponibleException] y NO toca la cola. Fuente única de
+  /// construcción de la fila: la usan el camino offline ([_encolar]) y el de conflicto
+  /// (que la inserta vía syncDao.encolarEnConflicto).
+  Future<({String id, SyncPendientesCompanion companion})> _prepararFila(
     String itemId,
     String nuevoEstado,
     String? comentario,
     String? descripcionProblema,
     DateTime ahora,
     String deviceId,
-    String idempotencyKey, {
-    // Permiten nacer la fila en un estado distinto de 'pendiente' (con su conflicto_id)
-    // en UN solo INSERT — el camino de conflicto online la crea en esperando_resolucion
-    // (L2). null = usar el default de la tabla ('pendiente' / sin conflicto_id).
-    String? estado,
-    String? conflictoId,
-  }) async {
+    String idempotencyKey,
+  ) async {
     final usuarioId = await secureStorage.obtenerUsuarioId();
     final empresaId = await secureStorage.obtenerEmpresaId();
     if (usuarioId == null || empresaId == null) {
@@ -178,7 +177,7 @@ class TransicionService {
     }
 
     final id = const Uuid().v4();
-    await syncDao.encolar(SyncPendientesCompanion.insert(
+    final companion = SyncPendientesCompanion.insert(
       id: id,
       idempotencyKey: idempotencyKey,
       empresaId: empresaId,
@@ -198,11 +197,26 @@ class TransicionService {
       }),
       payloadVersion: 1,
       creadoEnDispositivo: ahora,
-      estado: estado != null ? Value(estado) : const Value.absent(),
-      conflictoId:
-          conflictoId != null ? Value(conflictoId) : const Value.absent(),
-    ),);
-    return id;
+    );
+    return (id: id, companion: companion);
+  }
+
+  /// Encola el cambio en 'pendiente' y devuelve el id. Camino offline (red caída).
+  Future<String> _encolar(
+    String itemId,
+    String nuevoEstado,
+    String? comentario,
+    String? descripcionProblema,
+    DateTime ahora,
+    String deviceId,
+    String idempotencyKey,
+  ) async {
+    final fila = await _prepararFila(
+      itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
+      idempotencyKey,
+    );
+    await syncDao.encolar(fila.companion);
+    return fila.id;
   }
 
   bool _esErrorDeRed(DioException e) =>

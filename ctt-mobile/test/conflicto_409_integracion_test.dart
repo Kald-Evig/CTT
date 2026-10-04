@@ -75,6 +75,7 @@ void main() {
       const DecisionSync(nuevoEstado: EstadoSyncLocal.pendiente),
     );
     registerFallbackValue(DateTime.utc(2020));
+    registerFallbackValue('');
   });
 
   // ── Camino online: transicion_service._manejar409 ──────────────────────────
@@ -102,6 +103,8 @@ void main() {
       when(() => secureStorage.obtenerEmpresaId())
           .thenAnswer((_) async => 'emp-1');
       when(() => syncDao.encolar(any())).thenAnswer((_) async {});
+      when(() => syncDao.encolarEnConflicto(any(),
+            conflictoId: any(named: 'conflictoId'),)).thenAnswer((_) async {});
       when(() => syncDao.aplicarDecision(
             any(),
             estadoEsperado: any(named: 'estadoEsperado'),
@@ -129,14 +132,19 @@ void main() {
       expect((r as TransicionConConflicto).conflictoId,
           'b5a160d2-d97f-411c-9ef5-0172935f6f1c',);
 
-      // (2) UN solo INSERT, ya en esperando_resolucion con el conflicto_id (L2).
-      final capturado = verify(() => syncDao.encolar(captureAny())).captured;
-      expect(capturado, hasLength(1));
-      final companion = capturado.single as SyncPendientesCompanion;
-      expect(companion.estado.value, EstadoSyncLocal.esperandoResolucion.valor);
-      expect(companion.conflictoId.value, 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
+      // (2) UN solo INSERT vía encolarEnConflicto con el conflicto_id. El DAO (no el
+      // service) fija estado/motivo y enciende el flag, en una transacción (L2b).
+      final cap = verify(() => syncDao.encolarEnConflicto(
+            captureAny(),
+            conflictoId: captureAny(named: 'conflictoId'),
+          ),).captured;
+      expect(cap[1], 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
+      final companion = cap[0] as SyncPendientesCompanion;
+      expect(companion.entidadId.value, '82893973');
 
-      // (3) NO pasa por aplicarDecision: evita la carrera CTT-136 y no depende del lease.
+      // (3) NO pasa por encolar(pendiente) ni aplicarDecision: evita la carrera
+      // CTT-136 y no depende del lease.
+      verifyNever(() => syncDao.encolar(any()));
       verifyNever(() => syncDao.aplicarDecision(
             any(),
             estadoEsperado: any(named: 'estadoEsperado'),
