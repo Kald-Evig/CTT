@@ -28,7 +28,7 @@ part 'database.g.dart';
 /// Versión del esquema local. Línea base v6 (CTT-130). Fuente única: la usan el
 /// getter [BaseDatosCTT.schemaVersion] y la pre-apertura con sqlite3 crudo
 /// (apertura_base.dart) para decidir si hay que migrar.
-const kSchemaVersionApp = 6;
+const kSchemaVersionApp = 7;
 
 // ── Tablas ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +89,11 @@ class SyncPendientes extends Table {
       dateTime().named('sincronizado_en').nullable()();
   IntColumn get versionResultante =>
       integer().named('version_resultante').nullable()();
+  /// id del rechazo determinista del servidor (sync_rechazos, CTT-103). Presente solo
+  /// en filas `rechazada`. Declarada AL FINAL a propósito: `ALTER TABLE ... ADD COLUMN`
+  /// la agrega al final, así el orden de columnas coincide entre create-fresh (v7) y
+  /// migrado-desde-v6 (lo verifica el SchemaVerifier de make-migrations).
+  TextColumn get rechazoId => text().named('rechazo_id').nullable()();
 }
 
 /// Caché local de ítems descargados del servidor.
@@ -188,7 +193,7 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   // estático y NO resuelve una referencia a const. Debe coincidir con
   // kSchemaVersionApp (lo garantiza un test). Ver CTT-130 fase 7.
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -210,16 +215,26 @@ class BaseDatosCTT extends _$BaseDatosCTT {
             );
           }
           // desde >= 6: migración real por pasos (v7 en adelante), ATÓMICA —
-          // pasos + user_version en una sola transacción (CTT-130 fase 4). Hoy no
-          // hay pasos: v6 es la línea base.
+          // pasos + user_version en una sola transacción (CTT-130 fase 4).
           await migrarAtomico(this, from: desde, to: hasta,
               pasos: _pasosMigracion(desde, hasta),);
         },
       );
 
-  /// Pasos de migración por rango de versiones (v7 en adelante). Hoy vacío: v6 es
-  /// la línea base. Se llenará con los pasos que genere `make-migrations`.
-  List<PasoMigracion> _pasosMigracion(int desde, int hasta) => const [];
+  /// Pasos de migración por rango de versiones (v7 en adelante). Cada boundary
+  /// cruzada aporta sus pasos; se concatenan en orden. v6 es la línea base.
+  List<PasoMigracion> _pasosMigracion(int desde, int hasta) {
+    final pasos = <PasoMigracion>[];
+    // v6 → v7 (CTT-103): columna rechazo_id (TEXT nullable). Se usa el Migrator de
+    // Drift (no un ALTER a mano) para que el DDL sea idéntico al de createAll y el
+    // SchemaVerifier valide el esquema migrado contra el snapshot v7.
+    if (desde < 7 && hasta >= 7) {
+      pasos.add(
+        (db) => Migrator(db).addColumn(syncPendientes, syncPendientes.rechazoId),
+      );
+    }
+    return pasos;
+  }
 }
 
 /// Top-level para que sea enviable al isolate de background de createInBackground.

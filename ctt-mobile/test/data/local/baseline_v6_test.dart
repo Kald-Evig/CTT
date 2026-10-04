@@ -40,6 +40,7 @@ void main() {
     int intentosServidor = 0,
     int? ultimoErrorCodigo,
     String? ultimoError,
+    String? rechazoId,
     DateTime? creadoEnDispositivo,
   }) =>
       SyncPendientesCompanion.insert(
@@ -63,6 +64,7 @@ void main() {
         intentosServidor: Value(intentosServidor),
         ultimoErrorCodigo: Value(ultimoErrorCodigo),
         ultimoError: Value(ultimoError),
+        rechazoId: Value(rechazoId),
       );
 
   Future<SyncPendiente> leer(String id) =>
@@ -140,6 +142,30 @@ void main() {
       expect(f.ultimoErrorCodigo, 409);
       expect(f.ultimoError, 'boom');
     });
+
+    // v7 (CTT-103): columna rechazo_id + estados terminales nuevos.
+    test('rechazada con rechazo_id', () async {
+      await db.syncDao.encolar(fila('r-rech', 'rechazada',
+          motivo: 'rechazo_negocio', rechazoId: 'rzo-1',),);
+      final f = await leer('r-rech');
+      expect(f.estado, 'rechazada');
+      expect(f.motivo, 'rechazo_negocio');
+      expect(f.rechazoId, 'rzo-1');
+    });
+
+    test('en_revision sin rechazo_id (tope de intentos → rescate)', () async {
+      await db.syncDao.encolar(fila('r-rev', 'en_revision',
+          intentosServidor: 6,),);
+      final f = await leer('r-rev');
+      expect(f.estado, 'en_revision');
+      expect(f.intentosServidor, 6);
+      expect(f.rechazoId, isNull);
+    });
+
+    test('rechazo_id es null por defecto (pendiente)', () async {
+      await db.syncDao.encolar(fila('r-null', 'pendiente'));
+      expect((await leer('r-null')).rechazoId, isNull);
+    });
   });
 
   test('orden de la cola: obtenerPendientes ordena por secuencia, NO por '
@@ -185,7 +211,8 @@ void main() {
     });
 
     test('from > to (base más nueva que la app) lanza', () async {
-      await expectLater(abrir(7), throwsA(isA<StateError>()));
+      // App en v7: una base v8 es "más nueva" → debe lanzar (no hay downgrade).
+      await expectLater(abrir(8), throwsA(isA<StateError>()));
     });
   });
 }
