@@ -110,12 +110,16 @@ require_project_manage = require_project_access("gestionar")
 
 # ── Item access (CTT-96) ──────────────────────────────────────────────────────
 
-def require_item_access(
+def resolver_item_access(
     item_id: str,
-    ctx: AuthContext = Depends(get_current_context),
-    db: Session = Depends(get_db),
+    ctx: AuthContext,
+    db: Session,
 ) -> Item:
-    """Dependencia FastAPI para autorización resource-scoped en endpoints de ítem.
+    """Autorización resource-scoped para endpoints de ítem (función pura, sin Depends).
+
+    Se usa vía la dependencia [require_item_access] en los endpoints que la toman por
+    `Depends`; transicion_item la llama directamente en su cuerpo para poder persistir
+    sync_rechazos en 403/404 sin cambiar las demás rutas (CTT-103 D1).
 
     Una sola query: JOIN Proyecto (tenant) + OUTER JOIN ProyectoUsuario (en ON,
     no en WHERE, para preservar la fila del ítem cuando no hay membresía).
@@ -165,6 +169,17 @@ def require_item_access(
     if membresia is not None:
         raise HTTPException(403, "Este ítem no está asignado a usted.")
     raise HTTPException(404, "Ítem no encontrado.")
+
+
+def require_item_access(
+    item_id: str,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> Item:
+    """Dependencia FastAPI: envoltorio fino de [resolver_item_access] para los
+    endpoints de ítem que la usan vía `Depends`. transicion_item NO la usa (llama a
+    resolver_item_access en el cuerpo para persistir sync_rechazos — CTT-103 D1)."""
+    return resolver_item_access(item_id, ctx, db)
 
 
 # ── Scope helpers (CTT-78) ────────────────────────────────────────────────────

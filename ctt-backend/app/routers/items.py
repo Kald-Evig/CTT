@@ -10,10 +10,12 @@ Incluye:
   - Notificaciones de los eventos de la Sección 9.2.
 """
 
+import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
 from app.audit import a_serializable, record_audit
@@ -24,13 +26,13 @@ from app.auth import (
     get_current_context,
     requiere_empresa,
 )
-from app.authz import require_item_access, require_project_read
+from app.authz import require_item_access, require_project_read, resolver_item_access
 from app.config import settings
 from app.database import get_db
-from app.enums import EvidenciaSyncStatus, ItemEstado, Rol, UsuarioEstado
+from app.enums import EvidenciaSyncStatus, ItemEstado, RechazoMotivo, Rol, UsuarioEstado
 from app.models import (
     AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial,
-    Proyecto, ProyectoUsuario, SyncConflicto, Usuario,
+    Proyecto, ProyectoUsuario, SyncConflicto, SyncRechazo, Usuario,
 )
 from app.notifications import notificar
 from app.schemas import (
@@ -43,6 +45,8 @@ from app.state_machine import (
 from app.tenancy import get_item_de_empresa, get_proyecto_de_empresa, get_usuario_de_empresa
 
 router = APIRouter(prefix="/items", tags=["Ítems"])
+
+_log = logging.getLogger("ctt.items")
 
 
 # ── Helper de notificación a supervisores del proyecto ───────────────────────
@@ -400,18 +404,119 @@ def asignar_item(
     return item
 
 
+# ── Rechazos deterministas persistidos (CTT-103) ─────────────────────────────
+_MENSAJE_RECHAZO = {
+    RechazoMotivo.TRANSICION_INVALIDA:
+        "La transición solicitada no es válida para el estado actual del ítem.",
+    RechazoMotivo.NO_AUTORIZADO: "Este ítem no está asignado a usted.",
+    RechazoMotivo.INEXISTENTE: "Ítem no encontrado.",
+}
+
+
+def _rechazo_detail(r: SyncRechazo) -> dict:
+    """Cuerpo público del rechazo. `mensaje` es UNIFORME por motivo (no revela más
+    que el código HTTP ya devuelto); la causa exacta vive en r.detalle_interno y
+    NUNCA se devuelve al cliente (el 404 no es oráculo de existencia)."""
+    return {
+        "tipo": "rechazo",
+        "rechazo_id": r.id,
+        "motivo": r.motivo.value,
+        "mensaje": _MENSAJE_RECHAZO[r.motivo],
+    }
+
+
+def _persistir_rechazo(
+    db: Session, ctx: AuthContext, empresa_id: str, item_id: str,
+    idem_key: str, body: TransicionIn, *,
+    codigo: int, motivo: RechazoMotivo, detalle: str,
+) -> SyncRechazo:
+    """Inserta la fila de dead-letter ANTES de responder (igual que SyncConflicto) y
+    la devuelve. Idempotente por (idempotency_key, usuario_id): una carrera que viole
+    el UNIQUE reusa la fila existente en vez de fallar."""
+    r = SyncRechazo(
+        empresa_id=empresa_id,
+        usuario_id=ctx.usuario.id,
+        instalacion_id=body.dispositivo_id,
+        idempotency_key=idem_key,
+        tipo_entidad="item",
+        entidad_id=item_id,
+        accion="cambio_estado_item",
+        payload=body.model_dump(mode="json"),
+        codigo_http=codigo,
+        motivo=motivo,
+        detalle_interno=(
+            f"{codigo} {detalle} | usuario={ctx.usuario.id} "
+            f"rol={ctx.rol.value if ctx.rol else None} empresa={empresa_id} item={item_id}"
+        ),
+    )
+    db.add(r)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        r = (db.query(SyncRechazo)
+             .filter_by(idempotency_key=idem_key, usuario_id=ctx.usuario.id)
+             .one())
+    else:
+        db.refresh(r)
+    return r
+
+
 # ── Transición de estado ─────────────────────────────────────────────────────
 @router.post("/{item_id}/transicion", response_model=ItemOut)
 def transicion_item(
     item_id: str,
     body: TransicionIn,
-    item: Item = Depends(require_item_access),
+    request: Request,
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
     """Aplica una transición de estado (Sección 6). La autorización fina por
-    transición la resuelve la máquina de estados."""
+    transición la resuelve la máquina de estados.
+
+    Solo cuando el request viene de la COLA offline (header `X-Sync-Origen: cola`,
+    CTT-103) los rechazos deterministas (403/404 de acceso, 409 de transición
+    inválida) se persisten en sync_rechazos y se devuelven con `rechazo_id`, y el
+    rechazo es pegajoso por (idempotency_key, usuario_id). Sin ese header la respuesta
+    es EXACTAMENTE la de siempre y no se escribe nada."""
     empresa_id = requiere_empresa(ctx)
+
+    origen_cola = request.headers.get("x-sync-origen") == "cola"
+    idem_key = request.headers.get("idempotency-key")
+    persistir = origen_cola and idem_key is not None
+    if origen_cola and idem_key is None:
+        # La cola SIEMPRE manda Idempotency-Key; su ausencia es un bug del cliente.
+        # No se inventa una ni se persiste: se responde como siempre y se deja rastro.
+        _log.warning(
+            "X-Sync-Origen=cola sin Idempotency-Key en /items/%s/transicion "
+            "(usuario=%s): no se persiste rechazo.", item_id, ctx.usuario.id,
+        )
+
+    # Rechazo pegajoso (D2): si ya hay rechazo para (clave, usuario), devolver el MISMO
+    # sin reevaluar — el middleware de idempotencia borra su reserva en 4xx, así que sin
+    # esto un reintento tras perder la respuesta reaplicaría un cambio ya rechazado.
+    if persistir:
+        previo = (db.query(SyncRechazo)
+                  .filter_by(idempotency_key=idem_key, usuario_id=ctx.usuario.id)
+                  .first())
+        if previo is not None:
+            raise HTTPException(previo.codigo_http, detail=_rechazo_detail(previo))
+
+    # Acceso al ítem en el cuerpo (CTT-103 D1): permite persistir el rechazo en 403/404
+    # sin afectar a las otras rutas que usan require_item_access vía Depends.
+    try:
+        item = resolver_item_access(item_id, ctx, db)
+    except HTTPException as e:
+        if persistir and e.status_code in (403, 404):
+            motivo = (RechazoMotivo.NO_AUTORIZADO if e.status_code == 403
+                      else RechazoMotivo.INEXISTENTE)
+            r = _persistir_rechazo(
+                db, ctx, empresa_id, item_id, idem_key, body,
+                codigo=e.status_code, motivo=motivo, detalle=str(e.detail),
+            )
+            raise HTTPException(e.status_code, detail=_rechazo_detail(r)) from e
+        raise
+
     proyecto = db.query(Proyecto).filter(Proyecto.id == item.proyecto_id).first()
 
     # ── Detección de conflicto de concurrencia (Sección 8) ───────────────────
@@ -452,6 +557,12 @@ def transicion_item(
         )
     except TransicionInvalida as e:
         # 409 Conflict: el estado actual no permite la transición pedida.
+        if persistir:
+            r = _persistir_rechazo(
+                db, ctx, empresa_id, item_id, idem_key, body,
+                codigo=409, motivo=RechazoMotivo.TRANSICION_INVALIDA, detalle=str(e),
+            )
+            raise HTTPException(409, detail=_rechazo_detail(r)) from e
         raise HTTPException(status_code=409, detail=str(e))
 
     # ── Notificaciones según el nuevo estado (Sección 9.2) ───────────────────
