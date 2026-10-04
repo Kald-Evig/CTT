@@ -8,6 +8,7 @@ library;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,7 +16,6 @@ import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
-import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -131,23 +131,15 @@ class TransicionService {
     final conflictoId = extraerConflictoId(e);
 
     if (conflictoId != null) {
-      // Conflicto de concurrencia: encolar y parquear en esperando_resolucion
-      // (no se re-envía; lo resuelve el reconciliador del tramo 3). La entrada
-      // nace en 'pendiente'; la decisión pura la mueve al estado de parqueo.
-      final entradaId = await _encolar(
+      // Conflicto de concurrencia: se inserta DIRECTO en esperando_resolucion con su
+      // conflicto_id, en un solo INSERT. No pasa por 'pendiente': así el ciclo (que
+      // reclama filas 'pendiente') nunca la toma ni la reenvía en la ventana entre el
+      // encolado y el parqueo (carrera CTT-136); y no depende de aplicarDecision, que
+      // exige lease. Lo resuelve el reconciliador (CTT-117 tramo 3).
+      await _encolar(
         itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
         idempotencyKey,
-      );
-      final decision = decidir(
-        estadoActual: EstadoSyncLocal.pendiente,
-        senal: SenalSync.conflictoDetectado,
-        reintentos: 0,
-      );
-      await syncDao.aplicarDecision(
-        entradaId,
-        estadoEsperado: EstadoSyncLocal.pendiente,
-        decision: decision,
-        reintentosActuales: 0,
+        estado: EstadoSyncLocal.esperandoResolucion.valor,
         conflictoId: conflictoId,
       );
       return TransicionConConflicto(conflictoId);
@@ -170,8 +162,13 @@ class TransicionService {
     String? descripcionProblema,
     DateTime ahora,
     String deviceId,
-    String idempotencyKey,
-  ) async {
+    String idempotencyKey, {
+    // Permiten nacer la fila en un estado distinto de 'pendiente' (con su conflicto_id)
+    // en UN solo INSERT — el camino de conflicto online la crea en esperando_resolucion
+    // (L2). null = usar el default de la tabla ('pendiente' / sin conflicto_id).
+    String? estado,
+    String? conflictoId,
+  }) async {
     final usuarioId = await secureStorage.obtenerUsuarioId();
     final empresaId = await secureStorage.obtenerEmpresaId();
     if (usuarioId == null || empresaId == null) {
@@ -201,6 +198,9 @@ class TransicionService {
       }),
       payloadVersion: 1,
       creadoEnDispositivo: ahora,
+      estado: estado != null ? Value(estado) : const Value.absent(),
+      conflictoId:
+          conflictoId != null ? Value(conflictoId) : const Value.absent(),
     ),);
     return id;
   }

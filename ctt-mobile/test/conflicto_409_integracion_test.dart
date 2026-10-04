@@ -112,8 +112,9 @@ void main() {
           ),).thenAnswer((_) async => 1);
     });
 
-    test('409 de concurrencia (body real): extrae el id, ENCOLA el cambio y '
-        'lo parquea en esperando_resolucion con el conflicto_id', () async {
+    test('409 de concurrencia (body real): extrae el id e inserta el cambio DIRECTO '
+        'en esperando_resolucion con el conflicto_id (un INSERT, sin pendiente)',
+        () async {
       when(() => dio.post<Map<String, dynamic>>(any(),
               data: any(named: 'data'), options: any(named: 'options'),),)
           .thenThrow(_err409(jsonDecode(_bodyConflicto)));
@@ -128,27 +129,23 @@ void main() {
       expect((r as TransicionConConflicto).conflictoId,
           'b5a160d2-d97f-411c-9ef5-0172935f6f1c',);
 
-      // (2) El cambio QUEDÓ ENCOLADO (criterio anti-pérdida-de-trabajo).
+      // (2) UN solo INSERT, ya en esperando_resolucion con el conflicto_id (L2).
       final capturado = verify(() => syncDao.encolar(captureAny())).captured;
       expect(capturado, hasLength(1));
       final companion = capturado.single as SyncPendientesCompanion;
-      final idEncolado = companion.id.value;
+      expect(companion.estado.value, EstadoSyncLocal.esperandoResolucion.valor);
+      expect(companion.conflictoId.value, 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
 
-      // (3) aplicarDecision movió esa entrada a esperando_resolucion con el id.
-      final args = verify(() => syncDao.aplicarDecision(
-            captureAny(),
-            estadoEsperado: captureAny(named: 'estadoEsperado'),
-            decision: captureAny(named: 'decision'),
+      // (3) NO pasa por aplicarDecision: evita la carrera CTT-136 y no depende del lease.
+      verifyNever(() => syncDao.aplicarDecision(
+            any(),
+            estadoEsperado: any(named: 'estadoEsperado'),
+            decision: any(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
-            conflictoId: captureAny(named: 'conflictoId'),
+            tomadoPor: any(named: 'tomadoPor'),
+            conflictoId: any(named: 'conflictoId'),
             detalle: any(named: 'detalle'),
-          ),).captured;
-      expect(args[0], idEncolado);
-      expect(args[1], EstadoSyncLocal.pendiente); // estado esperado de la fila recién encolada
-      expect((args[2] as DecisionSync).nuevoEstado,
-          EstadoSyncLocal.esperandoResolucion,);
-      expect((args[2] as DecisionSync).motivo, MotivoSync.conflicto);
-      expect(args[3], 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
+          ),);
     });
 
     test('409 con detail string: NO encola, NO aplica decisión, '
