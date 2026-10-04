@@ -28,6 +28,9 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'ciclo_sync.g.dart';
 
+/// Reloj por defecto del ciclo (UTC). Top-level para poder ser default const.
+DateTime _ahoraUtcPorDefecto() => DateTime.now().toUtc();
+
 /// Provider que usa las instancias del ProviderScope (foreground).
 /// El ConectividadListener lo lee para el flush inmediato al reconectar.
 @riverpod
@@ -46,6 +49,7 @@ class CicloSync {
     required this.dio,
     required this.deviceIdService,
     required this.isolateLabel,
+    this.reloj = _ahoraUtcPorDefecto,
   });
 
   final SyncDao syncDao;
@@ -54,6 +58,10 @@ class CicloSync {
 
   /// Etiqueta del isolate ('ui' o 'headless'), parte del `tomado_por` del lease.
   final String isolateLabel;
+
+  /// Reloj inyectable (UTC). Default: el reloj del sistema. Se inyecta en tests para
+  /// verificar que el lease se calcula por fila con el instante real de cada reclamo.
+  final DateTime Function() reloj;
 
   /// Margen sobre el timeout máximo de una request, para el lease.
   static const _margenLease = Duration(seconds: 30);
@@ -69,15 +77,19 @@ class CicloSync {
   /// conflictos ya resueltos server-side (pull, CTT-117 tramo 3, disparador d).
   Future<void> ejecutar() async {
     // ── Push: drenar la cola de cambios salientes. ───────────────────────────
-    final ahora = DateTime.now().toUtc();
     final instalacion = await deviceIdService.obtener();
     // tomado_por = instalación + isolate + corrida (UUID por ejecución). Único por
     // corrida: es la identidad del lease para el claim y el cierre condicional (A2).
     final tomadoPor = '$instalacion:$isolateLabel:${const Uuid().v4()}';
-    final tomadoHasta = ahora.add(duracionLease);
 
-    final reclamables = await syncDao.filasReclamables(ahora);
+    final reclamables = await syncDao.filasReclamables(reloj());
     for (final cambio in reclamables) {
+      // Reloj y lease POR FILA (L1): con envíos secuenciales largos (hasta ~60s c/u),
+      // un `ahora`/lease calculado al inicio dejaría a las últimas filas con un lease
+      // ya vencido (otra corrida las retomaría en paralelo) y evaluaría
+      // proximo_intento_en con una hora vieja. Cada fila se reclama con su instante.
+      final ahora = reloj();
+      final tomadoHasta = ahora.add(duracionLease);
       // CLAIM atómico (I4): un UPDATE condicional. Si otra corrida la tomó, su lease
       // sigue vigente o dejó de ser elegible, retorna false → saltar.
       final tomado = await syncDao.reclamar(
