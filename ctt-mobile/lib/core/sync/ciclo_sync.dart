@@ -15,7 +15,10 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:uuid/uuid.dart';
 
+import 'package:ctt_mobile/core/config/environment.dart';
+import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
@@ -31,27 +34,58 @@ part 'ciclo_sync.g.dart';
 CicloSync cicloSync(CicloSyncRef ref) => CicloSync(
       syncDao: ref.watch(syncDaoProvider),
       dio: ref.watch(dioClientProvider),
+      deviceIdService: ref.watch(deviceIdServiceProvider),
+      isolateLabel: 'ui',
     );
 
 /// Ciclo de sincronización reutilizable.
-/// No crea instancias propias — el caller provee [SyncDao] y [Dio].
+/// No crea instancias propias — el caller provee las dependencias.
 class CicloSync {
   const CicloSync({
     required this.syncDao,
     required this.dio,
+    required this.deviceIdService,
+    required this.isolateLabel,
   });
 
   final SyncDao syncDao;
   final Dio dio;
+  final DeviceIdService deviceIdService;
+
+  /// Etiqueta del isolate ('ui' o 'headless'), parte del `tomado_por` del lease.
+  final String isolateLabel;
+
+  /// Margen sobre el timeout máximo de una request, para el lease.
+  static const _margenLease = Duration(seconds: 30);
+
+  /// Duración del lease (I4): cota superior de lo que puede tardar un envío del Dio
+  /// de sync —conexión + recepción— más un margen. Recién pasado este tiempo otra
+  /// corrida puede retomar una fila que quedó en 'enviando' (corrida muerta/CTT-127).
+  ///   30s (timeoutConexion) + 30s (timeoutRecepcion) + 30s (margen) = 90s.
+  static Duration get duracionLease =>
+      Entorno.timeoutConexion + Entorno.timeoutRecepcion + _margenLease;
 
   /// Lee la cola, envía cada cambio al API (push) y después reconcilia los
   /// conflictos ya resueltos server-side (pull, CTT-117 tramo 3, disparador d).
   Future<void> ejecutar() async {
     // ── Push: drenar la cola de cambios salientes. ───────────────────────────
-    final pendientes = await syncDao.obtenerPendientes();
-    for (final cambio in pendientes) {
-      // "Claim" atómico: si otro ciclo ya tomó esta entrada, retorna false → saltar.
-      final tomado = await syncDao.marcarEnviando(cambio.id);
+    final ahora = DateTime.now().toUtc();
+    final instalacion = await deviceIdService.obtener();
+    // tomado_por = instalación + isolate + corrida (UUID por ejecución). Único por
+    // corrida: es la identidad del lease para el claim y el cierre condicional (A2).
+    final tomadoPor = '$instalacion:$isolateLabel:${const Uuid().v4()}';
+    final tomadoHasta = ahora.add(duracionLease);
+
+    final reclamables = await syncDao.filasReclamables(ahora);
+    for (final cambio in reclamables) {
+      // CLAIM atómico (I4): un UPDATE condicional. Si otra corrida la tomó, su lease
+      // sigue vigente o dejó de ser elegible, retorna false → saltar.
+      final tomado = await syncDao.reclamar(
+        cambio.id,
+        tomadoPor: tomadoPor,
+        ahora: ahora,
+        tomadoHasta: tomadoHasta,
+      );
       if (!tomado) continue;
 
       SenalSync senal;
@@ -80,11 +114,14 @@ class CicloSync {
         senal: senal,
         reintentos: cambio.intentosRed,
       );
+      // Cierre condicional (A2): pasa tomadoPor; si esta corrida perdió el lease
+      // (otra retomó la fila por lease vencido), la escritura es un no-op logueado.
       await syncDao.aplicarDecision(
         cambio.id,
         estadoEsperado: EstadoSyncLocal.enviando,
         decision: decision,
         reintentosActuales: cambio.intentosRed,
+        tomadoPor: tomadoPor,
         conflictoId: conflictoId,
         detalle: detalle,
       );

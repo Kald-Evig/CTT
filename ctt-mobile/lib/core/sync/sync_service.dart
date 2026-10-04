@@ -17,6 +17,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'package:ctt_mobile/core/config/environment.dart';
+import 'package:ctt_mobile/core/device/device_id_service.dart';
+import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/data/local/apertura_base.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -123,7 +125,12 @@ Future<void> _ejecutarCicloSync() async {
       },
     ),);
 
-    await CicloSync(syncDao: db.syncDao, dio: dioHeadless).ejecutar();
+    await CicloSync(
+      syncDao: db.syncDao,
+      dio: dioHeadless,
+      deviceIdService: DeviceIdService(SecureStorageService()),
+      isolateLabel: 'headless',
+    ).ejecutar();
   } finally {
     await db.close();
   }

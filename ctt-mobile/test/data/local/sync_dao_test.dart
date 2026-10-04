@@ -15,12 +15,15 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 class _MockDio extends Mock implements Dio {}
+
+class _MockDeviceIdService extends Mock implements DeviceIdService {}
 
 /// DioException con statusCode y body dados (forma de FastAPI: `{"detail": ...}`).
 DioException _err(int status, Object? data) {
@@ -283,7 +286,14 @@ void main() {
 
     setUp(() {
       dio = _MockDio();
-      ciclo = CicloSync(syncDao: db.syncDao, dio: dio);
+      final deviceIdService = _MockDeviceIdService();
+      when(() => deviceIdService.obtener()).thenAnswer((_) async => 'inst-test');
+      ciclo = CicloSync(
+        syncDao: db.syncDao,
+        dio: dio,
+        deviceIdService: deviceIdService,
+        isolateLabel: 'test',
+      );
     });
 
     test('(d) rechazo de negocio (409 con detail string) por la cola: la fila '

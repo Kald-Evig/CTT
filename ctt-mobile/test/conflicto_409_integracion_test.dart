@@ -74,6 +74,7 @@ void main() {
     registerFallbackValue(
       const DecisionSync(nuevoEstado: EstadoSyncLocal.pendiente),
     );
+    registerFallbackValue(DateTime.utc(2020));
   });
 
   // ── Camino online: transicion_service._manejar409 ──────────────────────────
@@ -223,14 +224,28 @@ void main() {
     setUp(() {
       dio = _MockDio();
       syncDao = _MockSyncDao();
-      ciclo = CicloSync(syncDao: syncDao, dio: dio);
-      when(() => syncDao.obtenerPendientes()).thenAnswer((_) async => [entrada()]);
-      when(() => syncDao.marcarEnviando(any())).thenAnswer((_) async => true);
+      final deviceIdService = _MockDeviceIdService();
+      when(() => deviceIdService.obtener()).thenAnswer((_) async => 'inst-1');
+      ciclo = CicloSync(
+        syncDao: syncDao,
+        dio: dio,
+        deviceIdService: deviceIdService,
+        isolateLabel: 'test',
+      );
+      when(() => syncDao.filasReclamables(any()))
+          .thenAnswer((_) async => [entrada()]);
+      when(() => syncDao.reclamar(
+            any(),
+            tomadoPor: any(named: 'tomadoPor'),
+            ahora: any(named: 'ahora'),
+            tomadoHasta: any(named: 'tomadoHasta'),
+          ),).thenAnswer((_) async => true);
       when(() => syncDao.aplicarDecision(
             any(),
             estadoEsperado: any(named: 'estadoEsperado'),
             decision: any(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
+            tomadoPor: any(named: 'tomadoPor'),
             conflictoId: any(named: 'conflictoId'),
             detalle: any(named: 'detalle'),
           ),).thenAnswer((_) async => 1);
@@ -249,6 +264,7 @@ void main() {
             estadoEsperado: EstadoSyncLocal.enviando,
             decision: captureAny(named: 'decision'),
             reintentosActuales: any(named: 'reintentosActuales'),
+            tomadoPor: any(named: 'tomadoPor'),
             conflictoId: captureAny(named: 'conflictoId'),
             detalle: any(named: 'detalle'),
           ),).captured;
