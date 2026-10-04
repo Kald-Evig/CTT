@@ -80,3 +80,22 @@ class RescateEstado(str, Enum):
     """Estado de revisión de una fila rescatada a cuarentena (CTT-130 fase 4b)."""
     PENDIENTE_REVISION = "pendiente_revision"  # esperando revisión de un coordinador
     YA_APLICADA = "ya_aplicada"                # su idempotency_key ya se aplicó (CTT-105); no reaplicar
+
+
+class RechazoMotivo(str, Enum):
+    """Causa (gruesa) de un rechazo determinista persistido en sync_rechazos (CTT-103).
+
+    No revela más que el código HTTP que la acompaña: `inexistente`/`no_autorizado`
+    emparejan 404/403 que el cliente ya distingue. La causa EXACTA (qué rama disparó
+    el 404, qué regla de la máquina de estados) vive en `detalle_interno`, no acá.
+    """
+    TRANSICION_INVALIDA = "transicion_invalida"  # 409: la máquina de estados rechazó la transición
+    NO_AUTORIZADO = "no_autorizado"              # 403: el actor no puede operar este ítem
+    INEXISTENTE = "inexistente"                  # 404: el ítem no existe / no es visible para el actor
+
+
+class RechazoResolucion(str, Enum):
+    """Estado de resolución de un rechazo por parte del coordinador (CTT-134)."""
+    PENDIENTE = "pendiente"                                # sin revisar
+    REAPLICADO = "reaplicado"                              # el coordinador reaplicó el cambio
+    DESCARTADO_POR_COORDINADOR = "descartado_por_coordinador"  # el coordinador lo descartó

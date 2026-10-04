@@ -22,7 +22,7 @@ from datetime import date, datetime, timezone
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, Enum as _SAEnum, Float, ForeignKey, Integer,
+    Boolean, Date, DateTime, Enum as _SAEnum, Float, ForeignKey, Index, Integer,
     String, Text, JSON, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,8 +30,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 from app.enums import (
     ConflictoEstado, EmpresaEstado, EmpresaPlan, EvidenciaSyncStatus,
-    IdempotenciaEstado, ItemEstado, ProblemaEstado, ProyectoEstado, RescateEstado,
-    Rol, UsuarioEstado,
+    IdempotenciaEstado, ItemEstado, ProblemaEstado, ProyectoEstado,
+    RechazoMotivo, RechazoResolucion, RescateEstado, Rol, UsuarioEstado,
 )
 
 
@@ -412,6 +412,76 @@ class ColaRescate(Base):
         default=RescateEstado.PENDIENTE_REVISION,
     )
     recibido_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class SyncRechazo(Base):
+    """Dead-letter de rechazos DETERMINISTAS de /items/{id}/transicion (CTT-103).
+
+    El servidor persiste la fila ANTES de responder (igual que SyncConflicto) en:
+      - TransicionInvalida (409): la máquina de estados rechazó la transición.
+      - 403/404 de acceso al ítem en esa ruta (no asignado / inexistente o invisible).
+    El cliente recibe `rechazo_id` en el cuerpo y marca su fila local como `rechazada`
+    (terminal); el coordinador la resuelve (CTT-134). NUNCA se descarta en el dispositivo.
+
+    Solo persiste lo que sale de la COLA offline: el request debe traer el header
+    `X-Sync-Origen: cola` (lo ponen los Dio de sync, no el interactivo — CTT-103 D4).
+    Sin ese header, /transicion responde exactamente como siempre y no escribe acá.
+
+    Pegajoso por (idempotency_key, usuario_id) — CTT-103 D2: el lookup de la
+    pegajosidad es por ESE par, y porque hasta CTT-123 (dispositivo compartido) la
+    MISMA fila local puede llegar al servidor con tokens de dos usuarios distintos;
+    el par evita devolverle a un usuario el rechazo de otro. Reintentar con la misma
+    clave devuelve el MISMO rechazo sin reevaluar (el middleware de idempotencia borra
+    su reserva en 4xx, así que sin esto un reintento tras perder la respuesta
+    reaplicaría un cambio ya rechazado). La causa exacta queda en `detalle_interno`,
+    nunca en la respuesta (el 404 conserva su mensaje uniforme — no es oráculo).
+    """
+    __tablename__ = "sync_rechazos"
+    __table_args__ = (
+        # Pegajosidad por (clave, dueño): ver docstring y D2. Deducido por lookup
+        # (idempotency_key, usuario_id) antes de insertar; el UNIQUE lo garantiza.
+        UniqueConstraint("idempotency_key", "usuario_id",
+                         name="uq_sync_rechazos_key_usuario"),
+        # Vista del coordinador (CTT-134): rechazos de una empresa por resolver,
+        # más recientes primero.
+        Index("ix_sync_rechazos_revision",
+              "empresa_id", "estado_resolucion", "creado_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    empresa_id: Mapped[str] = mapped_column(ForeignKey("empresas.id"))
+    # Dueño del intento = usuario autenticado que lo originó (ctx.usuario.id).
+    usuario_id: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
+    # Instalación declarada (body.dispositivo_id). Nullable: un POST interactivo
+    # (no de la cola) puede no mandarlo.
+    instalacion_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Clave de idempotencia del cliente (header Idempotency-Key). NOT NULL: solo se
+    # persiste lo que viene de la cola, y esas filas siempre la traen. Un header de
+    # origen SIN clave es un bug del cliente: no se persiste (se loguea), no se inventa.
+    idempotency_key: Mapped[str] = mapped_column(String(255))
+    # SIN FK a propósito: un 404 de tenant ajeno (entidad_id de otra empresa, o
+    # inexistente) tiene que poder guardarse igual para que el coordinador lo vea.
+    tipo_entidad: Mapped[str] = mapped_column(String(32))
+    entidad_id: Mapped[str] = mapped_column(String(255))
+    accion: Mapped[str] = mapped_column(String(64))
+    # Cuerpo crudo del request rechazado (TransicionIn), para contexto del coordinador.
+    payload: Mapped[dict] = mapped_column(JSON)
+    codigo_http: Mapped[int] = mapped_column(Integer)
+    motivo: Mapped[RechazoMotivo] = mapped_column(
+        SAEnum(RechazoMotivo, native_enum=False, create_constraint=True,
+               name="rechazo_motivo"),
+    )
+    # Causa EXACTA, solo servidor (nunca va al cliente).
+    detalle_interno: Mapped[str | None] = mapped_column(Text, nullable=True)
+    estado_resolucion: Mapped[RechazoResolucion] = mapped_column(
+        SAEnum(RechazoResolucion, native_enum=False, create_constraint=True,
+               name="rechazo_resolucion"),
+        default=RechazoResolucion.PENDIENTE,
+    )
+    resuelto_por: Mapped[str | None] = mapped_column(
+        ForeignKey("usuarios.id"), nullable=True)
+    resuelto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    creado_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class MetricaIdempotencia(Base):
