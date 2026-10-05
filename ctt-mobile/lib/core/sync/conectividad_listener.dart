@@ -17,6 +17,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 
 part 'conectividad_listener.g.dart';
 
@@ -37,6 +38,10 @@ class ConectividadListener extends _$ConectividadListener {
 
       if (flancoAOnline) {
         try {
+          // Red recuperada: soltar el backoff de las filas que fallaron por RED
+          // (ultimo_error_codigo NULL) para que salgan YA; el backoff de servidor y el
+          // Retry-After se respetan (L3).
+          await ref.read(syncDaoProvider).liberarBackoffRed();
           // Flush foreground: usa BD y Dio del ProviderScope. Sin instancias nuevas.
           await ref.read(cicloSyncProvider).ejecutar();
           // Flush completó — cola vacía. No registrar one-off: evitar dos

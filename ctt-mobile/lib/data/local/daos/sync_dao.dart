@@ -146,6 +146,19 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     return afectadas > 0;
   }
 
+  /// Al recuperar conectividad (L3): borra el backoff (`proximo_intento_en`) de las
+  /// filas pendientes cuya ÚLTIMA falla fue de RED —sin respuesta del servidor, por eso
+  /// `ultimo_error_codigo` quedó NULL—, para que salgan de inmediato cuando vuelve la
+  /// señal. NO toca las de backoff de servidor (5xx/408/429/otro 4xx) ni las que
+  /// respetan un Retry-After: esas conservan su `proximo_intento_en`. Devuelve cuántas
+  /// liberó.
+  Future<int> liberarBackoffRed() => (update(syncPendientes)
+        ..where((t) =>
+            t.estado.equals(EstadoSyncLocal.pendiente.valor) &
+            t.proximoIntentoEn.isNotNull() &
+            t.ultimoErrorCodigo.isNull()))
+      .write(const SyncPendientesCompanion(proximoIntentoEn: Value(null)));
+
   /// Aplica una [DecisionSync] a una entrada: solo escribe si la fila sigue en
   /// [estadoEsperado] (guarda anti-carrera) y —si se pasa [tomadoPor]— solo si el
   /// lease sigue siendo de esta corrida (cierre condicional, CTT-103 A2): un cierre

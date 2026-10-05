@@ -204,9 +204,10 @@ class CicloSync {
     if (clas.detalle != null) {
       extra = extra.copyWith(ultimoError: Value(clas.detalle));
     }
-    if (clas.codigo != null) {
-      extra = extra.copyWith(ultimoErrorCodigo: Value(clas.codigo));
-    }
+    // SIEMPRE se escribe ultimo_error_codigo, incluido null en una falla sin respuesta
+    // (red/timeout). Si arrastrara el código de un intento anterior, liberarBackoffRed
+    // no reconocería la última falla como de red y no soltaría el backoff (L3).
+    extra = extra.copyWith(ultimoErrorCodigo: Value(clas.codigo));
     // 401: limpiar el backoff para reintentar apenas vuelva la sesión.
     if (decision.pausaCola) {
       extra = extra.copyWith(proximoIntentoEn: const Value(null));
