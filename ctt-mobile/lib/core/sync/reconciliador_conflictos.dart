@@ -11,6 +11,7 @@
 library;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
@@ -70,35 +71,37 @@ class ReconciliadorConflictos {
 
     for (final fila in enEspera) {
       final cid = fila.conflictoId;
-      final SenalSync senal;
-
-      if (cid != null && resueltos.containsKey(cid)) {
-        // Resuelto server-side: el desenlace lo dicta version_ganadora.
-        //   'local'    → aplicó el cambio del cliente (sync.py:150-168) → ganó cliente.
-        //   'servidor' → el ítem no se tocó → ganó servidor.
-        //   null       → resuelto antes de persistir la versión (rama indeterminada).
-        senal = switch (resueltos[cid]) {
-          'local' => SenalSync.resolucionGanoCliente,
-          'servidor' => SenalSync.resolucionGanoServidor,
-          _ => SenalSync.resolucionIndeterminada,
-        };
-      } else if (cid == null) {
-        // Fila heredada por la migración sin conflicto_id casable: nunca podrá
-        // corresponder con /mios. Terminal indeterminado.
-        senal = SenalSync.resolucionIndeterminada;
-      } else {
-        // conflictoId presente pero NO en /mios: el conflicto sigue PENDIENTE
-        // server-side (/mios solo trae resueltos). NO se descarta — se reintenta
-        // en una corrida futura, cuando el Coordinador lo resuelva. La cola no
-        // tiene dueño (no hay columna de usuario); en un dispositivo compartido
-        // esta fila puede pertenecer a otro usuario. Ver CTT-123.
+      if (cid == null) {
+        // Invariante CTT-103 C4: ninguna fila entra a esperando_resolucion sin
+        // conflicto_id (lo garantizan el ciclo y encolarEnConflicto). Si igual
+        // apareciera una (fila corrupta/legacy), se loguea y se DEJA — nunca se
+        // descarta en el dispositivo. Ya no existe la rama heredado_indeterminado.
+        debugPrint(
+          'CTT-103: fila ${fila.id} en esperando_resolucion sin conflicto_id; se '
+          'ignora (no debería ocurrir — invariante C4).',
+        );
         continue;
+      }
+      if (!resueltos.containsKey(cid)) {
+        // conflictoId presente pero NO en /mios: sigue PENDIENTE server-side (/mios
+        // solo trae resueltos). No se descarta — se reintenta en una corrida futura.
+        continue;
+      }
+      final SenalSync senal;
+      switch (resueltos[cid]) {
+        case 'local':
+          senal = SenalSync.resolucionGanoCliente; // aplicó el cambio del cliente
+        case 'servidor':
+          senal = SenalSync.resolucionGanoServidor; // el ítem no se tocó
+        default:
+          // Resuelto pero sin version_ganadora (null): no se puede afirmar quién
+          // ganó. NO se descarta; se reintenta cuando el server complete el dato.
+          continue;
       }
 
       final decision = decidir(
         estadoActual: EstadoSyncLocal.esperandoResolucion,
         senal: senal,
-        reintentos: fila.intentosRed,
       );
       // aplicarDecision cierra la fila Y apaga items_cache.tiene_conflicto en la
       // misma transacción (escritor único del flag, CTT-117 tramo 3).
@@ -106,7 +109,6 @@ class ReconciliadorConflictos {
         fila.id,
         estadoEsperado: EstadoSyncLocal.esperandoResolucion,
         decision: decision,
-        reintentosActuales: fila.intentosRed,
       );
     }
     return true;

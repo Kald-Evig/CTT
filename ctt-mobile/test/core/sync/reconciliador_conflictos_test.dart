@@ -1,12 +1,11 @@
 /// reconciliador_conflictos_test.dart — CTT-117 tramo 3.
 ///
 /// Ejercita el reconciliador contra una BD Drift REAL (in-memory) y un Dio
-/// mockeado (la red). Verifica las TRES ramas de la regla corregida (aprobada por
-/// Kald), incluida la rama 2 que NO descarta conflictos aún pendientes server-side:
+/// mockeado (la red). Verifica las ramas de la regla (CTT-117 + CTT-103 C4):
 ///   1. conflictoId en /mios con version 'local'/'servidor' → cliente/servidor.
-///   3a. conflictoId nulo (heredado sin id casable)         → heredadoIndeterminado.
-///   3b. conflictoId en /mios con version null              → heredadoIndeterminado.
-///   2.  conflictoId NO en /mios (sigue pendiente)          → NO-OP, fila intacta.
+///   2. conflictoId NO en /mios (sigue pendiente)           → NO-OP, fila intacta.
+///   version null en /mios                                  → NO-OP (ya NO descarta).
+///   conflictoId nulo (legacy, viola invariante C4)         → ignora + loguea, NO-OP.
 /// Y que apaga items_cache.tiene_conflicto solo cuando la fila llega a terminal.
 library;
 
@@ -124,8 +123,8 @@ void main() {
     expect(await flag('item-B'), isFalse);
   });
 
-  test('rama 3b — en /mios con version null → descartado/heredado_indeterminado',
-      () async {
+  test('version null en /mios (resuelto sin ganadora): NO-OP — NO descarta, fila y '
+      'flag intactos (C4: se eliminó heredado_indeterminado)', () async {
     await itemConConflicto('item-C');
     await parquear(id: 'e3', entidadId: 'item-C', conflictoId: 'c-C');
     mockMios([
@@ -135,22 +134,22 @@ void main() {
     await reconciliador.reconciliar();
 
     final f = await leer('e3');
-    expect(f.estado, EstadoSyncLocal.descartado.valor);
-    expect(f.motivo, MotivoSync.heredadoIndeterminado.valor);
-    expect(await flag('item-C'), isFalse);
+    expect(f.estado, EstadoSyncLocal.esperandoResolucion.valor); // intacta
+    expect(f.motivo, MotivoSync.conflicto.valor);
+    expect(await flag('item-C'), isTrue); // no se apaga
   });
 
-  test('rama 3a — conflictoId nulo → descartado/heredado_indeterminado', () async {
+  test('conflictoId nulo (legacy, viola invariante C4): se ignora y loguea — NO '
+      'descarta, fila y flag intactos', () async {
     await itemConConflicto('item-D');
     await parquear(id: 'e4', entidadId: 'item-D', conflictoId: null);
-    mockMios([]); // aunque /mios traiga algo, esta fila no puede casar
+    mockMios([]);
 
     await reconciliador.reconciliar();
 
     final f = await leer('e4');
-    expect(f.estado, EstadoSyncLocal.descartado.valor);
-    expect(f.motivo, MotivoSync.heredadoIndeterminado.valor);
-    expect(await flag('item-D'), isFalse);
+    expect(f.estado, EstadoSyncLocal.esperandoResolucion.valor); // intacta
+    expect(await flag('item-D'), isTrue); // no se apaga
   });
 
   test('rama 2 — conflictoId presente pero NO en /mios (pendiente server-side): '

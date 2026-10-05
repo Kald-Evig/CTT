@@ -51,20 +51,24 @@ void main() {
 
   group('EstadoSyncLocal (v4 — ciclo de vida)', () {
     test('el conjunto de estados es exactamente el rediseñado', () {
-      // Gestión interna del dispositivo — no existe en el backend. conflicto,
-      // rechazado y error DEJARON de ser estados (ahora son MotivoSync).
+      // Gestión interna del dispositivo — no existe en el backend. CTT-103 agregó
+      // los terminales rechazada y en_revision.
       expect(
         EstadoSyncLocal.values.map((e) => e.valor).toSet(),
         {'pendiente', 'enviando', 'esperando_resolucion', 'sincronizado',
-         'descartado',},
+         'descartado', 'rechazada', 'en_revision',},
       );
     });
 
-    test('solo sincronizado y descartado son terminales', () {
+    test('los terminales son sincronizado, descartado, rechazada y en_revision', () {
       final terminales =
           EstadoSyncLocal.values.where((e) => e.esTerminal).toSet();
-      expect(terminales,
-          {EstadoSyncLocal.sincronizado, EstadoSyncLocal.descartado},);
+      expect(terminales, {
+        EstadoSyncLocal.sincronizado,
+        EstadoSyncLocal.descartado,
+        EstadoSyncLocal.rechazada,
+        EstadoSyncLocal.enRevision,
+      },);
     });
 
     test('fromString lanza para los valores viejos ya retirados', () {

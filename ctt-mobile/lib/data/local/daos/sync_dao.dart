@@ -43,7 +43,6 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     final decision = decidir(
       estadoActual: EstadoSyncLocal.pendiente,
       senal: SenalSync.conflictoDetectado,
-      reintentos: 0,
     );
     return transaction(() async {
       await into(syncPendientes).insert(entrada.copyWith(
@@ -147,19 +146,18 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     return afectadas > 0;
   }
 
-  /// Aplica una [DecisionSync] a una entrada, en profundidad: solo escribe si la
-  /// fila sigue en [estadoEsperado] (guarda anti-carrera) y —si se pasa [tomadoPor]—
-  /// solo si el lease sigue siendo de esta corrida (cierre condicional, CTT-103 A2):
-  /// un cierre tardío de una corrida que perdió el lease NO pisa el resultado de la
-  /// que retomó la fila. Sin [tomadoPor] no se chequea el lease (p. ej. el camino de
-  /// conflicto online y el reconciliador, que no reclaman lease).
+  /// Aplica una [DecisionSync] a una entrada: solo escribe si la fila sigue en
+  /// [estadoEsperado] (guarda anti-carrera) y —si se pasa [tomadoPor]— solo si el
+  /// lease sigue siendo de esta corrida (cierre condicional, CTT-103 A2): un cierre
+  /// tardío de una corrida que perdió el lease NO pisa a la que retomó la fila. Sin
+  /// [tomadoPor] no se chequea el lease (el reconciliador no reclama lease).
   ///
-  /// Devuelve las filas afectadas (0 si otro ciclo ya la movió). Escribe estado y
-  /// —según la decisión y el transporte— motivo, `intentos_red`, conflicto_id y
-  /// ultimo_error (el detalle del backend; su ausencia deja el valor previo, así
-  /// que en reintentos gana el ÚLTIMO intento con detalle — CTT-115).
-  ///
-  /// `intentos_servidor` NO se toca acá: su tope y su semántica son de CTT-103.
+  /// Escribe SIEMPRE `estado` = [DecisionSync.nuevoEstado] y `motivo` =
+  /// [DecisionSync.motivo] EXACTO, incluido null (A4: una fila que llega a
+  /// `sincronizado` no arrastra el motivo previo). [extra] trae el resto de los campos
+  /// que calcula el ciclo (intentos_red/servidor, proximo_intento_en, conflicto_id,
+  /// rechazo_id, ultimo_error, ultimo_error_codigo); NO debe traer estado/motivo (los
+  /// pisa la decisión). Devuelve las filas afectadas (0 si la guarda no matcheó).
   ///
   /// Escritor del flag `items_cache.tiene_conflicto` (CTT-117 tramo 3) —junto con
   /// [encolarEnConflicto], los DOS únicos—, en la MISMA transacción que el estado de
@@ -175,10 +173,8 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     String id, {
     required EstadoSyncLocal estadoEsperado,
     required DecisionSync decision,
-    required int reintentosActuales,
     String? tomadoPor,
-    String? conflictoId,
-    String? detalle,
+    SyncPendientesCompanion extra = const SyncPendientesCompanion(),
   }) =>
       transaction(() async {
         // El flag depende solo de (estadoEsperado, decisión); se resuelve antes de
@@ -213,18 +209,11 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
                     : base & t.tomadoPor.equals(tomadoPor);
               }))
             .write(
-          SyncPendientesCompanion(
+          // estado y motivo los fija la decisión (motivo EXACTO, incl. null — A4);
+          // el resto viene de [extra] (lo calcula el ciclo).
+          extra.copyWith(
             estado: Value(decision.nuevoEstado.valor),
-            motivo: decision.motivo != null
-                ? Value(decision.motivo!.valor)
-                : const Value.absent(),
-            intentosRed: decision.incrementaReintentos
-                ? Value(reintentosActuales + 1)
-                : const Value.absent(),
-            conflictoId:
-                conflictoId != null ? Value(conflictoId) : const Value.absent(),
-            ultimoError:
-                detalle != null ? Value(detalle) : const Value.absent(),
+            motivo: Value(decision.motivo?.valor),
           ),
         );
         // Guarda anti-carrera / cierre condicional: si la fila ya no estaba en

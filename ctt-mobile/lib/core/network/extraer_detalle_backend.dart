@@ -55,14 +55,40 @@ String extraerDetalleBackend(DioException e) {
 /// Devuelve null ante cualquier otra forma —sin body, `detail` String (rechazo
 /// de negocio), `detail` lista (422 de Pydantic), o `detail` Map sin la clave—
 /// para que la clasificación de la cola no distinga un rechazo de un conflicto.
-String? extraerConflictoId(DioException e) {
+String? extraerConflictoId(DioException e) => _detailString(e, 'conflicto_id');
+
+/// `rechazo_id` de un 4xx de rechazo determinista (CTT-103), o null. El backend lo
+/// anida bajo `detail`: `{"detail": {"tipo": "rechazo", "rechazo_id": "...", ...}}`.
+String? extraerRechazoId(DioException e) => _detailString(e, 'rechazo_id');
+
+/// `detail.tipo` de un error estructurado (p. ej. "conflicto_concurrencia",
+/// "solicitud_en_proceso", "rechazo"), o null si `detail` no es un Map con `tipo`.
+String? extraerTipoDetail(DioException e) => _detailString(e, 'tipo');
+
+/// `detail.motivo` de un rechazo determinista (transicion_invalida / no_autorizado /
+/// inexistente), o null. Es el motivo del SERVIDOR; se persiste junto al rechazo.
+String? extraerMotivoRechazo(DioException e) => _detailString(e, 'motivo');
+
+/// Lee `detail.<clave>` como String cuando `detail` es un Map; null en cualquier
+/// otra forma (sin body, detail String/List, o sin la clave).
+String? _detailString(DioException e, String clave) {
   final data = e.response?.data;
   if (data is Map<String, dynamic>) {
     final detail = data['detail'];
     if (detail is Map<String, dynamic>) {
-      final id = detail['conflicto_id'];
-      if (id is String) return id;
+      final v = detail[clave];
+      if (v is String) return v;
     }
   }
   return null;
+}
+
+/// Duración del header `Retry-After` (429/503), o null. Soporta el formato de
+/// segundos (entero); ignora el formato HTTP-date (el backend usa segundos).
+Duration? extraerRetryAfter(DioException e) {
+  final raw = e.response?.headers.value('retry-after');
+  if (raw == null) return null;
+  final segundos = int.tryParse(raw.trim());
+  if (segundos == null || segundos < 0) return null;
+  return Duration(seconds: segundos);
 }

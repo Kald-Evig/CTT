@@ -105,14 +105,7 @@ void main() {
       when(() => syncDao.encolar(any())).thenAnswer((_) async {});
       when(() => syncDao.encolarEnConflicto(any(),
             conflictoId: any(named: 'conflictoId'),)).thenAnswer((_) async {});
-      when(() => syncDao.aplicarDecision(
-            any(),
-            estadoEsperado: any(named: 'estadoEsperado'),
-            decision: any(named: 'decision'),
-            reintentosActuales: any(named: 'reintentosActuales'),
-            conflictoId: any(named: 'conflictoId'),
-            detalle: any(named: 'detalle'),
-          ),).thenAnswer((_) async => 1);
+      // El camino online ya NO llama aplicarDecision (usa encolarEnConflicto — L2).
     });
 
     test('409 de concurrencia (body real): extrae el id e inserta el cambio DIRECTO '
@@ -149,10 +142,8 @@ void main() {
             any(),
             estadoEsperado: any(named: 'estadoEsperado'),
             decision: any(named: 'decision'),
-            reintentosActuales: any(named: 'reintentosActuales'),
             tomadoPor: any(named: 'tomadoPor'),
-            conflictoId: any(named: 'conflictoId'),
-            detalle: any(named: 'detalle'),
+            extra: any(named: 'extra'),
           ),);
     });
 
@@ -174,9 +165,8 @@ void main() {
             any(),
             estadoEsperado: any(named: 'estadoEsperado'),
             decision: any(named: 'decision'),
-            reintentosActuales: any(named: 'reintentosActuales'),
-            conflictoId: any(named: 'conflictoId'),
-            detalle: any(named: 'detalle'),
+            tomadoPor: any(named: 'tomadoPor'),
+            extra: any(named: 'extra'),
           ),);
     });
 
@@ -249,10 +239,8 @@ void main() {
             any(),
             estadoEsperado: any(named: 'estadoEsperado'),
             decision: any(named: 'decision'),
-            reintentosActuales: any(named: 'reintentosActuales'),
             tomadoPor: any(named: 'tomadoPor'),
-            conflictoId: any(named: 'conflictoId'),
-            detalle: any(named: 'detalle'),
+            extra: any(named: 'extra'),
           ),).thenAnswer((_) async => 1);
       // El ciclo ahora reconcilia (pull) al final de ejecutar (CTT-117 tramo 3).
       // Con la cola de espera vacía, el pull es un no-op (no consulta /mios): estos
@@ -262,18 +250,16 @@ void main() {
           .thenAnswer((_) async => []);
     });
 
-    /// Captura la DecisionSync (y el conflicto_id) con que se aplicó la entrada.
-    (DecisionSync, String?) capturarDecision() {
+    /// Captura la DecisionSync y el companion [extra] con que se aplicó la entrada.
+    (DecisionSync, SyncPendientesCompanion) capturarDecision() {
       final args = verify(() => syncDao.aplicarDecision(
             'entry-1',
             estadoEsperado: EstadoSyncLocal.enviando,
             decision: captureAny(named: 'decision'),
-            reintentosActuales: any(named: 'reintentosActuales'),
             tomadoPor: any(named: 'tomadoPor'),
-            conflictoId: captureAny(named: 'conflictoId'),
-            detalle: any(named: 'detalle'),
+            extra: captureAny(named: 'extra'),
           ),).captured;
-      return (args[0] as DecisionSync, args[1] as String?);
+      return (args[0] as DecisionSync, args[1] as SyncPendientesCompanion);
     }
 
     test('409 de concurrencia: la entrada va a esperando_resolucion con el id', () async {
@@ -283,27 +269,28 @@ void main() {
 
       await ciclo.ejecutar();
 
-      final (decision, conflictoId) = capturarDecision();
+      final (decision, extra) = capturarDecision();
       expect(decision.nuevoEstado, EstadoSyncLocal.esperandoResolucion);
       expect(decision.motivo, MotivoSync.conflicto);
-      expect(conflictoId, 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
+      expect(extra.conflictoId.value, 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
     });
 
-    test('409 con detail string: es rechazo de negocio → descartado '
-        '(conducta correcta; el rediseño cierra el defecto de CTT-115)', () async {
+    test('409 con detail string (sin conflicto_id ni rechazo_id): NO descarta → '
+        'falla_servidor, pendiente, intentos_servidor++', () async {
       when(() => dio.post<void>(any(),
               data: any(named: 'data'), options: any(named: 'options'),),)
           .thenThrow(_err409({'detail': _detalleString}));
 
       await ciclo.ejecutar();
 
-      // Un 409 SIN conflicto_id es rechazo de negocio: la clasificación lo manda
-      // a rechazoDefinitivo → descartado/rechazo_negocio. Antes (CTT-115) caía en
-      // conflicto ante CUALQUIER 409; ahora se distingue por el id.
-      final (decision, conflictoId) = capturarDecision();
-      expect(decision.nuevoEstado, EstadoSyncLocal.descartado);
-      expect(decision.motivo, MotivoSync.rechazoNegocio);
-      expect(conflictoId, isNull);
+      // Un 409 sin conflicto_id ni rechazo_id → fallaServidor: la fila NUNCA se
+      // descarta, vuelve a pendiente con backoff por intentos_servidor (CTT-103).
+      final (decision, extra) = capturarDecision();
+      expect(decision.nuevoEstado, EstadoSyncLocal.pendiente);
+      expect(decision.motivo, MotivoSync.fallaServidor);
+      expect(decision.incremento, IncrementoContador.servidor);
+      expect(extra.intentosServidor.value, 1);
+      expect(extra.ultimoError.value, _detalleString);
     });
   });
 }

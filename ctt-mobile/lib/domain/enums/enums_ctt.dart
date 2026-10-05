@@ -204,8 +204,18 @@ enum EstadoSyncLocal {
   /// conflicto ganado por el cliente).
   sincronizado('sincronizado'),
 
-  /// TERMINAL — la intención no se aplicará. El [MotivoSync] dice por qué.
-  descartado('descartado');
+  /// TERMINAL — la intención no se aplicará. Reservado para "ganó el servidor" de la
+  /// resolución de conflicto (reconciliador) y filas viejas. Ya NO es salida del envío.
+  descartado('descartado'),
+
+  /// TERMINAL — el servidor rechazó el cambio de forma determinista (4xx con
+  /// `rechazo_id`). Guarda el `rechazo_id`; lo resuelve el Coordinador (CTT-134). El
+  /// trabajador no actúa (CTT-103).
+  rechazada('rechazada'),
+
+  /// TERMINAL — agotó los reintentos del servidor y se derivó a /sync/rescate: queda
+  /// en cuarentena para revisión del Coordinador (CTT-103 D5 / CTT-134).
+  enRevision('en_revision');
 
   const EstadoSyncLocal(this.valor);
   final String valor;
@@ -213,7 +223,10 @@ enum EstadoSyncLocal {
   /// Estados terminales: sin transición de salida. Una fila acá no vuelve a
   /// moverse (la función de decisión lanza StateError si se lo intenta).
   bool get esTerminal =>
-      this == EstadoSyncLocal.sincronizado || this == EstadoSyncLocal.descartado;
+      this == EstadoSyncLocal.sincronizado ||
+      this == EstadoSyncLocal.descartado ||
+      this == EstadoSyncLocal.rechazada ||
+      this == EstadoSyncLocal.enRevision;
 
   static EstadoSyncLocal fromString(String s) => values.firstWhere(
         (e) => e.valor == s,
@@ -241,8 +254,14 @@ enum MotivoSync {
   /// 4xx de negocio definitivo: 403/404/422 y 409 sin conflicto_id.
   rechazoNegocio('rechazo_negocio'),
 
-  /// Falla transitoria que agotó [kMaxReintentosSync] intentos.
+  /// Falla transitoria que agotó [kMaxReintentosSync] intentos. OBSOLETO como salida
+  /// del envío (CTT-103 ya no descarta por conteo); se conserva para filas viejas.
   reintentosAgotados('reintentos_agotados'),
+
+  /// Último envío falló con un 4xx NO determinista (solicitud_en_proceso, 422, 501,
+  /// 403/404 de sesión, desconocido): la fila sigue pendiente con backoff por
+  /// `intentos_servidor` (CTT-103). Diagnóstico, no gobierna transiciones.
+  fallaServidor('falla_servidor'),
 
   /// Fila heredada cuyo terminal no pudo determinarse. Fallback del
   /// reconciliador del tramo 3 cuando /mios no tiene registro del conflicto.

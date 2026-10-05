@@ -1,10 +1,8 @@
-/// decision_sync_test.dart — CTT-117 tramo 2.
+/// decision_sync_test.dart — CTT-103 (clasificador) / CTT-117 tramo 2.
 ///
-/// Verifica la función de decisión pura y, sobre todo, el GRAFO de transiciones:
-/// que ningún estado no terminal sea un sumidero. Es el candado que impide que
-/// el defecto de CTT-103 (una fila atrapada sin salida) reaparezca en un tercer
-/// estado: si alguien agrega un estado no terminal sin darle salida, este test
-/// rompe.
+/// Verifica la función de decisión pura y el GRAFO de transiciones: que ningún
+/// estado no terminal sea un sumidero (candado anti-sumidero). Si alguien agrega un
+/// estado no terminal sin darle salida, este test rompe.
 library;
 
 import 'dart:io';
@@ -15,9 +13,9 @@ import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 /// Intenta una transición; devuelve null si es una combinación inválida.
-DecisionSync? _try(EstadoSyncLocal estado, SenalSync senal, {int reintentos = 0}) {
+DecisionSync? _try(EstadoSyncLocal estado, SenalSync senal) {
   try {
-    return decidir(estadoActual: estado, senal: senal, reintentos: reintentos);
+    return decidir(estadoActual: estado, senal: senal);
   } on StateError {
     return null;
   }
@@ -28,104 +26,115 @@ void main() {
       EstadoSyncLocal.values.where((e) => !e.esTerminal).toList();
   final terminales = EstadoSyncLocal.values.where((e) => e.esTerminal).toList();
 
-  group('mapeo de los cuatro casos del ticket', () {
-    test('conflicto resuelto a favor del servidor → descartado', () {
+  group('mapeo de señales (envío)', () {
+    test('envioOk → sincronizado, SIN motivo (A4: no arrastra motivo previo)', () {
       final d = decidir(
-        estadoActual: EstadoSyncLocal.esperandoResolucion,
-        senal: SenalSync.resolucionGanoServidor,
-        reintentos: 0,
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.envioOk,
       );
-      expect(d.nuevoEstado, EstadoSyncLocal.descartado);
-      expect(d.motivo, MotivoSync.conflictoResueltoServidor);
-      expect(d.registraDescarte, isTrue);
+      expect(d.nuevoEstado, EstadoSyncLocal.sincronizado);
+      expect(d.motivo, isNull);
+      expect(d.incremento, IncrementoContador.ninguno);
+      expect(d.aplicaBackoff, isFalse);
     });
 
-    test('conflicto resuelto a favor del cliente → sincronizado', () {
+    test('conflictoDetectado → esperando_resolucion, motivo conflicto', () {
+      final d = decidir(
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.conflictoDetectado,
+      );
+      expect(d.nuevoEstado, EstadoSyncLocal.esperandoResolucion);
+      expect(d.motivo, MotivoSync.conflicto);
+    });
+
+    test('rechazadoPorServidor → rechazada (terminal), motivo rechazoNegocio', () {
+      final d = decidir(
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.rechazadoPorServidor,
+      );
+      expect(d.nuevoEstado, EstadoSyncLocal.rechazada);
+      expect(d.motivo, MotivoSync.rechazoNegocio);
+      expect(d.incremento, IncrementoContador.ninguno);
+    });
+
+    test('fallaTransitoriaRed → pendiente, incrementa RED, backoff; NUNCA descarta',
+        () {
+      final d = decidir(
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.fallaTransitoriaRed,
+      );
+      expect(d.nuevoEstado, EstadoSyncLocal.pendiente);
+      expect(d.motivo, MotivoSync.errorTransitorio);
+      expect(d.incremento, IncrementoContador.red);
+      expect(d.aplicaBackoff, isTrue);
+    });
+
+    test('fallaServidor → pendiente, incrementa SERVIDOR, backoff; NUNCA descarta',
+        () {
+      final d = decidir(
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.fallaServidor,
+      );
+      expect(d.nuevoEstado, EstadoSyncLocal.pendiente);
+      expect(d.motivo, MotivoSync.fallaServidor);
+      expect(d.incremento, IncrementoContador.servidor);
+      expect(d.aplicaBackoff, isTrue);
+    });
+
+    test('sesionVencida (401) → pendiente, PAUSA, sin contadores ni backoff', () {
+      final d = decidir(
+        estadoActual: EstadoSyncLocal.enviando,
+        senal: SenalSync.sesionVencida,
+      );
+      expect(d.nuevoEstado, EstadoSyncLocal.pendiente);
+      expect(d.pausaCola, isTrue);
+      expect(d.incremento, IncrementoContador.ninguno);
+      expect(d.aplicaBackoff, isFalse);
+    });
+  });
+
+  group('mapeo de señales (resolución, solo esperando_resolucion)', () {
+    test('resolucionGanoCliente → sincronizado', () {
       final d = decidir(
         estadoActual: EstadoSyncLocal.esperandoResolucion,
         senal: SenalSync.resolucionGanoCliente,
-        reintentos: 0,
       );
       expect(d.nuevoEstado, EstadoSyncLocal.sincronizado);
       expect(d.motivo, MotivoSync.conflictoResueltoCliente);
-      expect(d.registraDescarte, isFalse);
     });
 
-    test('resolución indeterminada → descartado/heredado_indeterminado', () {
+    test('resolucionGanoServidor → descartado', () {
       final d = decidir(
         estadoActual: EstadoSyncLocal.esperandoResolucion,
-        senal: SenalSync.resolucionIndeterminada,
-        reintentos: 0,
+        senal: SenalSync.resolucionGanoServidor,
       );
       expect(d.nuevoEstado, EstadoSyncLocal.descartado);
-      expect(d.motivo, MotivoSync.heredadoIndeterminado);
-      expect(d.registraDescarte, isTrue);
+      expect(d.motivo, MotivoSync.conflictoResueltoServidor);
     });
 
-    test('resolución indeterminada es inválida en enviando (solo espera)', () {
+    test('las señales de resolución son inválidas en enviando (solo espera)', () {
       expect(
         () => decidir(
           estadoActual: EstadoSyncLocal.enviando,
-          senal: SenalSync.resolucionIndeterminada,
-          reintentos: 0,
+          senal: SenalSync.resolucionGanoCliente,
         ),
         throwsStateError,
       );
     });
 
-    test('rechazo de negocio 4xx definitivo → descartado', () {
-      final d = decidir(
-        estadoActual: EstadoSyncLocal.enviando,
-        senal: SenalSync.rechazoDefinitivo,
-        reintentos: 0,
-      );
-      expect(d.nuevoEstado, EstadoSyncLocal.descartado);
-      expect(d.motivo, MotivoSync.rechazoNegocio);
-      expect(d.registraDescarte, isTrue);
-    });
-
-    test('error transitorio que agotó reintentos → descartado', () {
-      final d = decidir(
-        estadoActual: EstadoSyncLocal.enviando,
-        senal: SenalSync.fallaTransitoria,
-        reintentos: kMaxReintentosSync - 1, // el +1 lo agota
-      );
-      expect(d.nuevoEstado, EstadoSyncLocal.descartado);
-      expect(d.motivo, MotivoSync.reintentosAgotados);
-      expect(d.registraDescarte, isTrue);
-    });
-  });
-
-  group('borde de agotamiento (CTT-103)', () {
-    test('falla transitoria NO agotada vuelve a pendiente e incrementa', () {
-      final d = decidir(
-        estadoActual: EstadoSyncLocal.enviando,
-        senal: SenalSync.fallaTransitoria,
-        reintentos: 0,
-      );
-      expect(d.nuevoEstado, EstadoSyncLocal.pendiente);
-      expect(d.motivo, MotivoSync.errorTransitorio);
-      expect(d.incrementaReintentos, isTrue);
-    });
-
-    test('el último intento (reintentos == max-1) termina, no reintenta', () {
-      final d = decidir(
-        estadoActual: EstadoSyncLocal.enviando,
-        senal: SenalSync.fallaTransitoria,
-        reintentos: kMaxReintentosSync - 1,
-      );
-      expect(d.nuevoEstado, EstadoSyncLocal.descartado);
-      expect(d.incrementaReintentos, isFalse);
-    });
-
-    test('envío ok termina en sincronizado', () {
-      final d = decidir(
-        estadoActual: EstadoSyncLocal.enviando,
-        senal: SenalSync.envioOk,
-        reintentos: 0,
-      );
-      expect(d.nuevoEstado, EstadoSyncLocal.sincronizado);
-      expect(d.motivo, isNull);
+    test('las señales de envío son inválidas en esperando_resolucion', () {
+      for (final s in [
+        SenalSync.envioOk,
+        SenalSync.fallaTransitoriaRed,
+        SenalSync.fallaServidor,
+        SenalSync.rechazadoPorServidor,
+        SenalSync.sesionVencida,
+        SenalSync.conflictoDetectado,
+      ]) {
+        expect(() => _try(EstadoSyncLocal.esperandoResolucion, s), returnsNormally);
+        expect(_try(EstadoSyncLocal.esperandoResolucion, s), isNull,
+            reason: '$s no debería ser válida en esperando_resolucion',);
+      }
     });
   });
 
@@ -134,7 +143,7 @@ void main() {
       for (final t in terminales) {
         for (final s in SenalSync.values) {
           expect(
-            () => decidir(estadoActual: t, senal: s, reintentos: 0),
+            () => decidir(estadoActual: t, senal: s),
             throwsStateError,
             reason: '$t es terminal; no debería aceptar $s',
           );
@@ -148,55 +157,41 @@ void main() {
         final salidas = <EstadoSyncLocal>{};
         for (final s in SenalSync.values) {
           final d = _try(estado, s);
-          if (d != null && d.nuevoEstado != estado) {
-            salidas.add(d.nuevoEstado);
-          }
+          if (d != null && d.nuevoEstado != estado) salidas.add(d.nuevoEstado);
         }
         expect(salidas, isNotEmpty,
             reason: '$estado es un sumidero: ninguna señal lo saca de sí mismo',);
       }
     });
 
-    test('ambos terminales son alcanzables desde pendiente', () {
-      // BFS sobre el grafo partiendo de pendiente, explorando toda señal.
+    test('sincronizado, descartado y rechazada son alcanzables desde pendiente', () {
+      // BFS sobre el grafo partiendo de pendiente, explorando toda señal. en_revision
+      // NO lo produce decidir (lo setea el ciclo al derivar a rescate — CTT-103 D5).
       final visitados = <EstadoSyncLocal>{EstadoSyncLocal.pendiente};
       final cola = <EstadoSyncLocal>[EstadoSyncLocal.pendiente];
-      final reintentosPorEstado = {EstadoSyncLocal.enviando: 0};
       while (cola.isNotEmpty) {
         final actual = cola.removeAt(0);
         if (actual.esTerminal) continue;
         for (final s in SenalSync.values) {
-          // Explorar ambas ramas de fallaTransitoria (agotada y no agotada).
-          for (final r in [0, kMaxReintentosSync - 1]) {
-            final d = _try(actual, s, reintentos: r);
-            if (d != null && visitados.add(d.nuevoEstado)) {
-              cola.add(d.nuevoEstado);
-            }
-          }
+          final d = _try(actual, s);
+          if (d != null && visitados.add(d.nuevoEstado)) cola.add(d.nuevoEstado);
         }
       }
       expect(visitados.contains(EstadoSyncLocal.sincronizado), isTrue);
       expect(visitados.contains(EstadoSyncLocal.descartado), isTrue);
-      // ignore: unused_local_variable
-      reintentosPorEstado; // documentativo
+      expect(visitados.contains(EstadoSyncLocal.rechazada), isTrue);
     });
   });
 
-  // ── Condición de alcance CTT-117 (tramo 3) ─────────────────────────────────
-  //
-  // esperando_resolucion es no terminal; su ÚNICA salida son las señales
-  // resolucionGanoCliente/resolucionGanoServidor. El test del grafo de arriba NO
-  // detecta si alguien las EJERCE: verifica que decidir() tiene arista de salida,
-  // no que un caller la emita. Este candado verifica el emisor real. En el tramo 2
-  // estaba en skip (nadie emitía); el tramo 3 agregó el reconciliador (que emite
-  // ambas), así que ahora corre y debe pasar — el DoD no cierra con el skip puesto.
+  // ── Candado del EMISOR (CTT-117 tramo 3) ───────────────────────────────────
+  // esperando_resolucion es no terminal; su única salida son las señales de
+  // resolución. El test del grafo verifica que decidir() tiene arista de salida, no
+  // que un caller las EMITA. Este candado verifica el emisor real (el reconciliador).
   test('existe código de producción que emite las señales de resolución', () {
     final fuentes = Directory('lib')
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.dart'))
-        // Excluir la definición de la propia función de decisión: buscamos un
-        // EMISOR (un caller), no el switch interno de decision_sync.dart.
         .where((f) => !f.path.replaceAll(r'\', '/').endsWith(
             'lib/core/sync/decision_sync.dart',),);
 

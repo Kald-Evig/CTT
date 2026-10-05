@@ -192,14 +192,12 @@ void main() {
     // run1, tardío, intenta cerrar: el guard por tomado_por da 0 y no escribe.
     final decisionRun1 = decidir(
       estadoActual: EstadoSyncLocal.enviando,
-      senal: SenalSync.fallaTransitoria,
-      reintentos: 0,
+      senal: SenalSync.fallaTransitoriaRed,
     );
     final n1 = await dao.aplicarDecision(
       'A1',
       estadoEsperado: EstadoSyncLocal.enviando,
       decision: decisionRun1,
-      reintentosActuales: 0,
       tomadoPor: 'run1',
     );
     expect(n1, 0);
@@ -211,13 +209,11 @@ void main() {
     final decisionRun2 = decidir(
       estadoActual: EstadoSyncLocal.enviando,
       senal: SenalSync.envioOk,
-      reintentos: 0,
     );
     final n2 = await dao.aplicarDecision(
       'A1',
       estadoEsperado: EstadoSyncLocal.enviando,
       decision: decisionRun2,
-      reintentosActuales: 0,
       tomadoPor: 'run2',
     );
     expect(n2, 1);

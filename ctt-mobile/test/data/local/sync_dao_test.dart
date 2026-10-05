@@ -8,6 +8,8 @@
 /// estaba probado en la función pura y no en quien lo escribe: el DAO.
 library;
 
+import 'dart:math';
+
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
@@ -24,6 +26,17 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 class _MockDio extends Mock implements Dio {}
 
 class _MockDeviceIdService extends Mock implements DeviceIdService {}
+
+/// Random con jitter CERO: el backoff queda en 0 → la fila vuelve a ser reclamable de
+/// inmediato, para poder ejercer dos ciclos seguidos sin esperar la ventana real.
+class _RandomCero implements Random {
+  @override
+  double nextDouble() => 0;
+  @override
+  int nextInt(int max) => 0;
+  @override
+  bool nextBool() => false;
+}
 
 /// DioException con statusCode y body dados (forma de FastAPI: `{"detail": ...}`).
 DioException _err(int status, Object? data) {
@@ -98,15 +111,13 @@ void main() {
     final decision = decidir(
       estadoActual: EstadoSyncLocal.pendiente,
       senal: SenalSync.conflictoDetectado,
-      reintentos: 0,
     );
 
     final afectadas = await db.syncDao.aplicarDecision(
       id,
       estadoEsperado: EstadoSyncLocal.pendiente,
       decision: decision,
-      reintentosActuales: 0,
-      conflictoId: 'conf-123',
+      extra: const SyncPendientesCompanion(conflictoId: Value('conf-123')),
     );
 
     expect(afectadas, 1);
@@ -128,7 +139,6 @@ void main() {
         nuevoEstado: EstadoSyncLocal.descartado,
         motivo: MotivoSync.rechazoNegocio,
       ),
-      reintentosActuales: 0,
     );
 
     expect(afectadas, 0);
@@ -137,8 +147,8 @@ void main() {
     expect(fila.motivo, isNull);
   });
 
-  group('(c) incremento de reintentos lo escribe el DAO', () {
-    test('incrementaReintentos: true deja N+1', () async {
+  group('(c) el DAO escribe los contadores que le pasa el ciclo (extra)', () {
+    test('escribe intentos_red desde extra', () async {
       final id = await encolar(estado: 'enviando', reintentos: 2);
 
       await db.syncDao.aplicarDecision(
@@ -147,22 +157,21 @@ void main() {
         decision: const DecisionSync(
           nuevoEstado: EstadoSyncLocal.pendiente,
           motivo: MotivoSync.errorTransitorio,
-          incrementaReintentos: true,
+          incremento: IncrementoContador.red,
         ),
-        reintentosActuales: 2,
+        extra: const SyncPendientesCompanion(intentosRed: Value(3)),
       );
 
       expect((await leer(id)).intentosRed, 3);
     });
 
-    test('incrementaReintentos: false deja los reintentos intactos', () async {
+    test('sin extra, no toca los reintentos', () async {
       final id = await encolar(estado: 'enviando', reintentos: 2);
 
       await db.syncDao.aplicarDecision(
         id,
         estadoEsperado: EstadoSyncLocal.enviando,
         decision: const DecisionSync(nuevoEstado: EstadoSyncLocal.sincronizado),
-        reintentosActuales: 2,
       );
 
       expect((await leer(id)).intentosRed, 2);
@@ -178,15 +187,13 @@ void main() {
       final decision = decidir(
         estadoActual: EstadoSyncLocal.pendiente,
         senal: SenalSync.conflictoDetectado,
-        reintentos: 0,
       );
 
       await db.syncDao.aplicarDecision(
         id,
         estadoEsperado: EstadoSyncLocal.pendiente,
         decision: decision,
-        reintentosActuales: 0,
-        conflictoId: 'c-1',
+        extra: const SyncPendientesCompanion(conflictoId: Value('c-1')),
       );
 
       final fila = await leer(id);
@@ -205,14 +212,12 @@ void main() {
       final decision = decidir(
         estadoActual: EstadoSyncLocal.esperandoResolucion,
         senal: SenalSync.resolucionGanoServidor,
-        reintentos: 0,
       );
 
       await db.syncDao.aplicarDecision(
         id,
         estadoEsperado: EstadoSyncLocal.esperandoResolucion,
         decision: decision,
-        reintentosActuales: 0,
       );
 
       expect((await leer(id)).estado, EstadoSyncLocal.descartado.valor);
@@ -231,15 +236,13 @@ void main() {
       final decision = decidir(
         estadoActual: EstadoSyncLocal.pendiente,
         senal: SenalSync.conflictoDetectado,
-        reintentos: 0,
       );
 
       await db.syncDao.aplicarDecision(
         id,
         estadoEsperado: EstadoSyncLocal.pendiente,
         decision: decision,
-        reintentosActuales: 0,
-        conflictoId: 'c-3',
+        extra: const SyncPendientesCompanion(conflictoId: Value('c-3')),
       );
 
       // La fila de la cola se cerró igual.
@@ -260,19 +263,17 @@ void main() {
       final id = await encolar(id: 'e4', estado: 'enviando', entidadId: 'item-4');
       final decision = decidir(
         estadoActual: EstadoSyncLocal.enviando,
-        senal: SenalSync.rechazoDefinitivo,
-        reintentos: 0,
+        senal: SenalSync.rechazadoPorServidor,
       );
 
       await db.syncDao.aplicarDecision(
         id,
         estadoEsperado: EstadoSyncLocal.enviando,
         decision: decision,
-        reintentosActuales: 0,
       );
 
-      expect((await leer(id)).estado, EstadoSyncLocal.descartado.valor);
-      expect(await flag('item-4'), isTrue); // intacto
+      expect((await leer(id)).estado, EstadoSyncLocal.rechazada.valor);
+      expect(await flag('item-4'), isTrue); // intacto (rechazada no toca el flag)
     });
   });
 
@@ -293,12 +294,13 @@ void main() {
         dio: dio,
         deviceIdService: deviceIdService,
         isolateLabel: 'test',
+        random: _RandomCero(),
       );
     });
 
-    test('(d) rechazo de negocio (409 con detail string) por la cola: la fila '
-        'termina descartada, motivo rechazo_negocio y ultimo_error con el '
-        'mensaje del backend', () async {
+    test('(d) 409 con detail string (sin rechazo_id) por la cola: NO descarta — '
+        'queda pendiente, motivo falla_servidor, intentos_servidor=1 y ultimo_error '
+        'con el mensaje del backend', () async {
       const detalle = 'El ítem está en PROBLEMA. Debe cerrarse el problema '
           'antes de cambiar de estado.';
       final id = await encolar(estado: 'pendiente');
@@ -309,8 +311,9 @@ void main() {
       await ciclo.ejecutar();
 
       final fila = await leer(id);
-      expect(fila.estado, EstadoSyncLocal.descartado.valor);
-      expect(fila.motivo, MotivoSync.rechazoNegocio.valor);
+      expect(fila.estado, EstadoSyncLocal.pendiente.valor); // NUNCA descarta
+      expect(fila.motivo, MotivoSync.fallaServidor.valor);
+      expect(fila.intentosServidor, 1);
       expect(fila.ultimoError, detalle);
     });
 
