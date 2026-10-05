@@ -282,38 +282,42 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     }
   }
 
-  /// IDs de entidades con sincronización pendiente (estados NO terminales).
-  /// Usado para el indicador visual en la lista de ítems.
-  Future<Set<String>> obtenerIdsPendienteSet() async {
+  /// Stream REACTIVO de entidad_id con sincronización pendiente (estados NO
+  /// terminales). Para el indicador visual de la lista: con `.watch()` de Drift, el
+  /// indicador se refresca solo cuando la cola cambia (p. ej. el ciclo foreground
+  /// sincroniza y la nube se apaga), sin re-montar la pantalla. OJO: `.watch()` solo
+  /// observa escrituras de ESTA conexión; no ve las del isolate headless (ver sync_dao
+  /// / nota del commit D6-R).
+  Stream<Set<String>> observarIdsPendienteSet() {
     final noTerminales = [
       EstadoSyncLocal.pendiente.valor,
       EstadoSyncLocal.enviando.valor,
       EstadoSyncLocal.esperandoResolucion.valor,
     ];
-    final rows = await (select(syncPendientes)
-          ..where((t) => t.estado.isIn(noTerminales)))
-        .get();
-    return {for (final r in rows) r.entidadId};
+    return (select(syncPendientes)..where((t) => t.estado.isIn(noTerminales)))
+        .watch()
+        .map((rows) => {for (final r in rows) r.entidadId});
   }
 
-  /// entidad_id → estado de revisión (`rechazada` o `en_revision`) de sus filas en
-  /// esos terminales. Consulta APARTE de [obtenerIdsPendienteSet] (CTT-103 D6 / A3: el
-  /// indicador de pendientes NO se toca). Si un ítem tiene filas en ambos, gana
-  /// `rechazada` (el trabajador debe ver lo más grave primero).
-  Future<Map<String, EstadoSyncLocal>> obtenerEstadoRevisionPorItem() async {
-    final rows = await (select(syncPendientes)
+  /// Stream REACTIVO de entidad_id → estado de revisión (`rechazada` o `en_revision`);
+  /// si un ítem tiene filas en ambos, gana `rechazada`. APARTE de
+  /// [observarIdsPendienteSet] (CTT-103 D6 / A3: el indicador de pendientes no se toca).
+  Stream<Map<String, EstadoSyncLocal>> observarEstadoRevisionPorItem() {
+    return (select(syncPendientes)
           ..where((t) => t.estado.isIn([
                 EstadoSyncLocal.rechazada.valor,
                 EstadoSyncLocal.enRevision.valor,
               ])))
-        .get();
-    final out = <String, EstadoSyncLocal>{};
-    for (final r in rows) {
-      final e = EstadoSyncLocal.fromString(r.estado);
-      // rechazada gana sobre en_revision; no se degrada una vez fijada.
-      if (out[r.entidadId] != EstadoSyncLocal.rechazada) out[r.entidadId] = e;
-    }
-    return out;
+        .watch()
+        .map((rows) {
+      final out = <String, EstadoSyncLocal>{};
+      for (final r in rows) {
+        final e = EstadoSyncLocal.fromString(r.estado);
+        // rechazada gana sobre en_revision; no se degrada una vez fijada.
+        if (out[r.entidadId] != EstadoSyncLocal.rechazada) out[r.entidadId] = e;
+      }
+      return out;
+    });
   }
 
   /// Momento de la última reconciliación (o null si nunca corrió). Persistido en

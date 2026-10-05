@@ -25,14 +25,15 @@ Future<ItemsCacheTableData?> itemDetalle(
 ) =>
     ref.watch(itemsRepositoryProvider).obtenerDetalle(itemId);
 
-/// IDs de ítems con cambios pendientes de sincronizar.
-/// Usado para el indicador visual de sincronización en las listas.
+/// IDs de ítems con cambios pendientes de sincronizar — Stream REACTIVO (Drift
+/// `.watch()`): el indicador de las listas se refresca solo al cambiar la cola, sin
+/// re-montar la pantalla (CTT-103 D6-R).
 @riverpod
-Future<Set<String>> itemsConSyncPendiente(ItemsConSyncPendienteRef ref) =>
-    ref.watch(syncDaoProvider).obtenerIdsPendienteSet();
+Stream<Set<String>> itemsConSyncPendiente(ItemsConSyncPendienteRef ref) =>
+    ref.watch(syncDaoProvider).observarIdsPendienteSet();
 
-/// entidad_id → estado de revisión (rechazada/en_revision) para el badge de sync
-/// (CTT-103 D6). Consulta aparte de [itemsConSyncPendiente].
+/// entidad_id → estado de revisión (rechazada/en_revision) para el badge de sync —
+/// Stream REACTIVO. Consulta aparte de [itemsConSyncPendiente] (A3).
 @riverpod
-Future<Map<String, EstadoSyncLocal>> itemsEnRevision(ItemsEnRevisionRef ref) =>
-    ref.watch(syncDaoProvider).obtenerEstadoRevisionPorItem();
+Stream<Map<String, EstadoSyncLocal>> itemsEnRevision(ItemsEnRevisionRef ref) =>
+    ref.watch(syncDaoProvider).observarEstadoRevisionPorItem();

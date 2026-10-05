@@ -42,13 +42,14 @@ void main() {
                 _item('dos', 'terminado'), // pendiente Y rechazada → gana la nube
               ]),
           // pendiente/enviando/esperando: 'p' y 'dos'.
-          itemsConSyncPendienteProvider.overrideWith((ref) async => {'p', 'dos'}),
+          itemsConSyncPendienteProvider
+              .overrideWith((ref) => Stream.value({'p', 'dos'})),
           // rechazada/en_revision: 'r', 'v' y 'dos' (dos también, para probar prioridad).
-          itemsEnRevisionProvider.overrideWith((ref) async => {
+          itemsEnRevisionProvider.overrideWith((ref) => Stream.value({
                 'r': EstadoSyncLocal.rechazada,
                 'v': EstadoSyncLocal.enRevision,
                 'dos': EstadoSyncLocal.rechazada,
-              }),
+              }),),
         ],
         child: const MaterialApp(home: MisItemsScreen()),
       ),
