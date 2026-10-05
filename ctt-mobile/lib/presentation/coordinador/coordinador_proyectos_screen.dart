@@ -8,6 +8,7 @@ import 'package:ctt_mobile/data/repositories/coordinador_repository.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/coordinador_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_notificaciones.dart';
+import 'package:ctt_mobile/presentation/shared/chip_estado.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/layout_constants.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
@@ -178,7 +179,7 @@ class _TarjetaProyectoState extends ConsumerState<_TarjetaProyecto> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _ChipEstado(label: label, color: color),
+                  ChipEstado(label: label, color: color),
                   if (_loadingEditar)
                     const SizedBox(
                       width: 40,
@@ -240,31 +241,6 @@ class _TarjetaProyectoState extends ConsumerState<_TarjetaProyecto> {
         'cerrado' => ('Cerrado', Colors.grey),
         _ => (valor, Colors.blue),
       };
-}
-
-class _ChipEstado extends StatelessWidget {
-  const _ChipEstado({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          border: Border.all(color: color),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: color,
-          ),
-        ),
-      );
 }
 
 // ── AppBar: badges ────────────────────────────────────────────────────────────
