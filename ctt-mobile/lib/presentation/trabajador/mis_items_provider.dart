@@ -7,6 +7,7 @@ import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
+import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'mis_items_provider.g.dart';
 
@@ -29,3 +30,9 @@ Future<ItemsCacheTableData?> itemDetalle(
 @riverpod
 Future<Set<String>> itemsConSyncPendiente(ItemsConSyncPendienteRef ref) =>
     ref.watch(syncDaoProvider).obtenerIdsPendienteSet();
+
+/// entidad_id → estado de revisión (rechazada/en_revision) para el badge de sync
+/// (CTT-103 D6). Consulta aparte de [itemsConSyncPendiente].
+@riverpod
+Future<Map<String, EstadoSyncLocal>> itemsEnRevision(ItemsEnRevisionRef ref) =>
+    ref.watch(syncDaoProvider).obtenerEstadoRevisionPorItem();

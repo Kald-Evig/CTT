@@ -296,6 +296,26 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     return {for (final r in rows) r.entidadId};
   }
 
+  /// entidad_id → estado de revisión (`rechazada` o `en_revision`) de sus filas en
+  /// esos terminales. Consulta APARTE de [obtenerIdsPendienteSet] (CTT-103 D6 / A3: el
+  /// indicador de pendientes NO se toca). Si un ítem tiene filas en ambos, gana
+  /// `rechazada` (el trabajador debe ver lo más grave primero).
+  Future<Map<String, EstadoSyncLocal>> obtenerEstadoRevisionPorItem() async {
+    final rows = await (select(syncPendientes)
+          ..where((t) => t.estado.isIn([
+                EstadoSyncLocal.rechazada.valor,
+                EstadoSyncLocal.enRevision.valor,
+              ])))
+        .get();
+    final out = <String, EstadoSyncLocal>{};
+    for (final r in rows) {
+      final e = EstadoSyncLocal.fromString(r.estado);
+      // rechazada gana sobre en_revision; no se degrada una vez fijada.
+      if (out[r.entidadId] != EstadoSyncLocal.rechazada) out[r.entidadId] = e;
+    }
+    return out;
+  }
+
   /// Momento de la última reconciliación (o null si nunca corrió). Persistido en
   /// Drift para que el debounce coordine entre el isolate de UI y el headless.
   Future<DateTime?> ultimaReconciliacion() async {

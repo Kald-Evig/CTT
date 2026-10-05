@@ -9,7 +9,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
+import 'package:ctt_mobile/presentation/shared/chip_estado.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
@@ -106,20 +108,37 @@ class _TarjetaItem extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final pendientesAsync = ref.watch(itemsConSyncPendienteProvider);
-    final tienePendiente = pendientesAsync.whenOrNull(
+    final tienePendiente = ref.watch(itemsConSyncPendienteProvider).whenOrNull(
           data: (ids) => ids.contains(item.id),
         ) ??
         false;
+    // Prioridad del indicador de sync: nube naranja (pendiente/enviando/esperando) >
+    // rechazada > en_revision. La nube (pendiente) tapa el chip de revisión.
+    final estadoRevision = tienePendiente
+        ? null
+        : ref
+            .watch(itemsEnRevisionProvider)
+            .whenOrNull(data: (m) => m[item.id]);
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       title: Text(item.nombre),
-      subtitle: item.descripcion != null
-          ? Text(
-              item.descripcion!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+      subtitle: (item.descripcion != null || estadoRevision != null)
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (item.descripcion != null)
+                  Text(
+                    item.descripcion!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                if (estadoRevision != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: _chipRevision(estadoRevision),
+                  ),
+              ],
             )
           : null,
       trailing: Row(
@@ -139,6 +158,24 @@ class _TarjetaItem extends ConsumerWidget {
       ),
       onTap: () => context.push('/trabajador/${item.id}'),
     );
+  }
+
+  /// Chip de sync para rechazada/en_revision (CTT-103 D6). Textos aprobados por Kald.
+  /// Colores FUERA de la paleta de BadgeEstadoItem (azul/naranja/morado/verde/rojo/
+  /// gris) para no chocar en la misma fila; en_revision es teal, NO morado (que es el
+  /// estado de ítem "En revisión"). Sin acciones ni taps.
+  Widget _chipRevision(EstadoSyncLocal estado) {
+    final (label, color) = switch (estado) {
+      EstadoSyncLocal.rechazada => (
+          'Envío rechazado — lo revisa coordinación',
+          Colors.brown.shade600,
+        ),
+      _ => (
+          'Envío en revisión por coordinación',
+          Colors.teal.shade700,
+        ), // en_revision
+    };
+    return ChipEstado(label: label, color: color);
   }
 }
 
