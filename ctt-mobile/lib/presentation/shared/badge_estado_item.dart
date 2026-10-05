@@ -2,6 +2,10 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'package:ctt_mobile/presentation/shared/chip_estado.dart';
+
+/// Pastilla del estado de un ítem. Conserva solo el mapeo estado→(label, color) y
+/// delega el render en [ChipEstado] (pastilla compartida); su aspecto no cambia.
 class BadgeEstadoItem extends StatelessWidget {
   const BadgeEstadoItem({super.key, required this.estado});
   final String estado;
@@ -9,22 +13,7 @@ class BadgeEstadoItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color) = _infoEstado(estado);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        border: Border.all(color: color),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
-    );
+    return ChipEstado(label: label, color: color);
   }
 
   (String, Color) _infoEstado(String valor) => switch (valor) {
