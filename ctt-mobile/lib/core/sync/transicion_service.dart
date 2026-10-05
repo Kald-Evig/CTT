@@ -26,6 +26,9 @@ part 'transicion_service.g.dart';
 /// Timeout para el intento online. Si el servidor no responde, se encola offline.
 const _kTimeoutTransicion = Duration(seconds: 4);
 
+/// Reloj por defecto (UTC). Top-level para poder ser default const del constructor.
+DateTime _ahoraUtcTransicion() => DateTime.now().toUtc();
+
 /// Se lanza cuando se intenta encolar un cambio sin sesión activa (sin usuario_id
 /// o empresa_id en SecureStorage). En v6 esas columnas son NOT NULL: una fila de
 /// la cola no puede existir sin dueño. NO se encola y la UI debe mostrar el fallo
@@ -51,12 +54,17 @@ class TransicionService {
     required this.syncDao,
     required this.deviceIdService,
     required this.secureStorage,
+    this.reloj = _ahoraUtcTransicion,
   });
 
   final Dio dio;
   final SyncDao syncDao;
   final DeviceIdService deviceIdService;
   final SecureStorageService secureStorage;
+
+  /// Reloj inyectable (UTC). Default: reloj del sistema. Se inyecta en tests para
+  /// verificar que el backoff de C6 se basa en el instante de la respuesta.
+  final DateTime Function() reloj;
 
   /// Ejecuta una transición de estado online-first con fallback a cola offline.
   ///
@@ -75,7 +83,7 @@ class TransicionService {
     String? descripcionProblema,
   }) async {
     final deviceId = await deviceIdService.obtener();
-    final ahora = DateTime.now().toUtc();
+    final ahora = reloj();
     // Una sola clave por invocación de ejecutar(): la comparten el POST online y
     // el encolado, para que el backend deduplique si la respuesta online se pierde
     // y el cambio se reintenta después desde la cola (CTT-105).
@@ -120,12 +128,16 @@ class TransicionService {
       // propagar. Si viene Retry-After (429/503), ese es el primer proximo_intento_en
       // (piso del backoff del ciclo); se guarda el código para que NO se trate como red.
       final status = e.response?.statusCode;
-      if (_esServidorReintentable(status)) {
+      if (esStatusTransitorioServidor(status)) {
         final retryAfter = extraerRetryAfter(e);
+        // Base del backoff = instante en que LLEGÓ la respuesta, no el `ahora` del
+        // inicio de ejecutar() (el POST pudo tardar hasta el timeout). CTT-103 C6(b).
+        final ahoraRespuesta = reloj();
         await _encolar(
           itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
           idempotencyKey,
-          proximoIntentoEn: retryAfter != null ? ahora.add(retryAfter) : null,
+          proximoIntentoEn:
+              retryAfter != null ? ahoraRespuesta.add(retryAfter) : null,
           ultimoError: extraerDetalleBackend(e),
           ultimoErrorCodigo: status,
         );
@@ -136,13 +148,6 @@ class TransicionService {
       rethrow;
     }
   }
-
-  /// Status de servidor transitorio que el online encola en vez de propagar (C6):
-  /// 408 (timeout), 429 (rate limit) y 5xx salvo 501 (no implementado).
-  bool _esServidorReintentable(int? status) =>
-      status == 408 ||
-      status == 429 ||
-      (status != null && status >= 500 && status != 501);
 
   Future<ResultadoTransicion> _manejar409(
     DioException e,

@@ -83,6 +83,14 @@ String? _detailString(DioException e, String clave) {
   return null;
 }
 
+/// Status HTTP de transitorio del SERVIDOR que amerita reintento con backoff: 408
+/// (timeout), 429 (rate limit) y 5xx salvo 501 (no implementado). Fuente única (CTT-103):
+/// la usan el clasificador del ciclo (fallaTransitoriaRed) y el encolado online (C6).
+bool esStatusTransitorioServidor(int? status) =>
+    status == 408 ||
+    status == 429 ||
+    (status != null && status >= 500 && status != 501);
+
 /// Duración del header `Retry-After` (429/503), o null. Soporta el formato de
 /// segundos (entero); ignora el formato HTTP-date (el backend usa segundos).
 Duration? extraerRetryAfter(DioException e) {

@@ -46,6 +46,12 @@ void main() {
   late _MockDio dio;
   late TransicionService service;
 
+  // Reloj inyectado: 1ª llamada (inicio de ejecutar) = t0; las siguientes (instante en
+  // que llega la respuesta) = tRespuesta. Así el test distingue la base del backoff.
+  final t0 = DateTime.utc(2026, 7, 1, 12);
+  final tRespuesta = t0.add(const Duration(seconds: 4));
+  late int llamadasReloj;
+
   setUp(() {
     db = BaseDatosCTT.conConexion(NativeDatabase.memory());
     dio = _MockDio();
@@ -54,11 +60,16 @@ void main() {
     when(() => deviceId.obtener()).thenAnswer((_) async => 'dev-1');
     when(() => storage.obtenerUsuarioId()).thenAnswer((_) async => 'user-1');
     when(() => storage.obtenerEmpresaId()).thenAnswer((_) async => 'emp-1');
+    llamadasReloj = 0;
     service = TransicionService(
       dio: dio,
       syncDao: db.syncDao,
       deviceIdService: deviceId,
       secureStorage: storage,
+      reloj: () {
+        llamadasReloj++;
+        return llamadasReloj == 1 ? t0 : tRespuesta;
+      },
     );
   });
   tearDown(() => db.close());
@@ -72,7 +83,6 @@ void main() {
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenThrow(_err(status, retryAfter: retryAfter));
 
-    final t0 = DateTime.now().toUtc();
     final r = await service.ejecutar(itemId: itemId, nuevoEstado: 'en_progreso');
     expect(r, isA<TransicionEncoladaOffline>(), reason: 'status $status debe encolar');
 
@@ -90,9 +100,10 @@ void main() {
     expect(f.idempotencyKey, opts.headers!['Idempotency-Key']);
 
     if (retryAfter != null) {
-      // Retry-After = primer proximo_intento_en (≈ ahora + retryAfter).
-      expect(f.proximoIntentoEn, isNotNull);
-      expect(f.proximoIntentoEn!.difference(t0).inSeconds, closeTo(retryAfter, 5));
+      // primer proximo_intento_en = instante de la RESPUESTA + Retry-After (C6b):
+      // tRespuesta + retryAfter, NO t0 (inicio) + retryAfter.
+      expect(f.proximoIntentoEn, tRespuesta.add(Duration(seconds: retryAfter)));
+      expect(f.proximoIntentoEn, isNot(t0.add(Duration(seconds: retryAfter))));
     } else {
       expect(f.proximoIntentoEn, isNull);
     }

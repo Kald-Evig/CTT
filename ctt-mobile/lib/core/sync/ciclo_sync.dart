@@ -263,8 +263,8 @@ class CicloSync {
       return _clas(SenalSync.fallaServidor,
           detalle: detalle, codigo: 409, retryAfter: retryAfter,);
     }
-    // Transitorio de servidor: 5xx salvo 501, 408, 429.
-    if ((status >= 500 && status != 501) || status == 408 || status == 429) {
+    // Transitorio de servidor (fuente única): 5xx salvo 501, 408, 429.
+    if (esStatusTransitorioServidor(status)) {
       return _clas(SenalSync.fallaTransitoriaRed,
           detalle: detalle, codigo: status, retryAfter: retryAfter,);
     }
