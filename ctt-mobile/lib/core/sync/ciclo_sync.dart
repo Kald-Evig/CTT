@@ -134,6 +134,32 @@ class CicloSync {
         estadoActual: EstadoSyncLocal.enviando,
         senal: clas.senal,
       );
+
+      // D5: al alcanzar el tope de intentos_servidor, derivar la fila a /sync/rescate
+      // → en_revision (la revisa el coordinador, CTT-134). Si el rescate falla (p. ej.
+      // 403 por cuenta inactiva), la fila cae al camino normal: sigue pendiente con
+      // backoff y reintenta el rescate en una corrida futura — NUNCA se descarta.
+      if (decision.incremento == IncrementoContador.servidor &&
+          cambio.intentosServidor + 1 >= kTopeIntentosServidor &&
+          await _rescatarFila(cambio, instalacion)) {
+        await syncDao.aplicarDecision(
+          cambio.id,
+          estadoEsperado: EstadoSyncLocal.enviando,
+          decision: const DecisionSync(
+            nuevoEstado: EstadoSyncLocal.enRevision,
+            motivo: MotivoSync.fallaServidor,
+          ),
+          tomadoPor: tomadoPor,
+          extra: SyncPendientesCompanion(
+            intentosServidor: Value(cambio.intentosServidor + 1),
+            ultimoError:
+                clas.detalle != null ? Value(clas.detalle) : const Value.absent(),
+            ultimoErrorCodigo: Value(clas.codigo),
+          ),
+        );
+        continue;
+      }
+
       final extra = _efectos(cambio, decision, clas, ahora);
 
       // Cierre condicional (A2): si esta corrida perdió el lease, es un no-op logueado.
@@ -188,9 +214,9 @@ class CicloSync {
               ? Value(ahora.add(_backoff(n, clas.retryAfter)))
               : const Value.absent(),
         );
-        // TODO(CTT-103 D5): al llegar a kTopeIntentosServidor, derivar la fila a
-        // /sync/rescate (→ en_revision). En este commit queda pendiente con el
-        // backoff máximo; nunca se descarta.
+        // Al tope de intentos_servidor, ejecutar() ya intentó derivar a /sync/rescate
+        // (D5) ANTES de llegar acá; _efectos solo corre si no se alcanzó el tope o si
+        // el rescate falló → la fila sigue pendiente con este backoff (nunca descarta).
       case IncrementoContador.ninguno:
         break;
     }
@@ -290,6 +316,44 @@ class CicloSync {
         codigo: codigo,
         retryAfter: retryAfter,
       );
+
+  /// Deriva una fila al servidor de rescate (/sync/rescate) — CTT-103 D5. Devuelve
+  /// true SOLO si el servidor la aceptó en cuarentena; false ante 403 (cuenta inactiva)
+  /// / 5xx / 4xx / red o rechazo por tenant, para que la fila siga pendiente. Usa el
+  /// Dio de sync (ya autenticado por su AuthInterceptor).
+  Future<bool> _rescatarFila(SyncPendiente f, String instalacion) async {
+    try {
+      final resp = await dio.post<Map<String, dynamic>>(
+        '/sync/rescate',
+        data: {
+          'instalacion_id': instalacion,
+          'filas': [
+            {
+              'id': f.id,
+              'idempotency_key': f.idempotencyKey,
+              'empresa_id': f.empresaId,
+              'usuario_id': f.usuarioId,
+              'instalacion_id': f.instalacionId,
+              'tipo_entidad': f.tipoEntidad,
+              'entidad_id': f.entidadId,
+              'accion': f.accion,
+              'secuencia': f.secuencia,
+              'payload': f.payload,
+            },
+          ],
+        },
+      );
+      final data = resp.data ?? const {};
+      final aceptada = (((data['aceptadas'] as int?) ?? 0) +
+              ((data['ya_aplicadas'] as int?) ?? 0) +
+              ((data['duplicadas'] as int?) ?? 0)) >=
+          1;
+      final rechazadaTenant = ((data['rechazadas_tenant'] as int?) ?? 0) >= 1;
+      return aceptada && !rechazadaTenant;
+    } on DioException {
+      return false; // la fila sigue pendiente; se reintenta el rescate más tarde.
+    }
+  }
 
   Future<void> _enviarCambio({
     required String accion,
