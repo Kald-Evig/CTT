@@ -8,6 +8,7 @@ library;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -60,11 +61,13 @@ class TransicionService {
   /// Ejecuta una transición de estado online-first con fallback a cola offline.
   ///
   /// Flujo de decisión:
-  ///   200            → [TransicionAplicadaOnline]   (sin encolar)
-  ///   error de red   → [TransicionEncoladaOffline]  (encola en Drift)
-  ///   409 sin id     → [TransicionRechazada]         (sin encolar, error de negocio)
-  ///   409 con id     → [TransicionConConflicto]      (encola con estado conflicto)
-  ///   4xx/5xx resto  → propaga excepción             (sin encolar)
+  ///   200                  → [TransicionAplicadaOnline]   (sin encolar)
+  ///   error de red         → [TransicionEncoladaOffline]  (encola en Drift)
+  ///   408/429/5xx (≠501)   → [TransicionEncoladaOffline]  (encola; Retry-After = 1er
+  ///                                                        proximo_intento_en — C6)
+  ///   409 sin id           → [TransicionRechazada]        (sin encolar, error de negocio)
+  ///   409 con id           → [TransicionConConflicto]     (inserta en esperando_resolucion)
+  ///   401/403/404/422/501  → propaga excepción            (sin encolar)
   Future<ResultadoTransicion> ejecutar({
     required String itemId,
     required String nuevoEstado,
@@ -105,17 +108,41 @@ class TransicionService {
         );
       }
 
-      // Error de red (sin conexión, timeout): encolar para sincronizar después.
+      // Error de red (sin conexión, timeout): encolar sin backoff ni código (falla de
+      // red: ultimo_error_codigo queda NULL → liberarBackoffRed la soltará, L3).
       if (_esErrorDeRed(e)) {
         await _encolar(itemId, nuevoEstado, comentario, descripcionProblema, ahora,
             deviceId, idempotencyKey,);
         return const TransicionEncoladaOffline();
       }
 
-      // Otros errores HTTP (401, 403, 422, 5xx): propagar — no encolar.
+      // C6: 408/429/5xx (salvo 501) son transitorios del servidor — encolar en vez de
+      // propagar. Si viene Retry-After (429/503), ese es el primer proximo_intento_en
+      // (piso del backoff del ciclo); se guarda el código para que NO se trate como red.
+      final status = e.response?.statusCode;
+      if (_esServidorReintentable(status)) {
+        final retryAfter = extraerRetryAfter(e);
+        await _encolar(
+          itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
+          idempotencyKey,
+          proximoIntentoEn: retryAfter != null ? ahora.add(retryAfter) : null,
+          ultimoError: extraerDetalleBackend(e),
+          ultimoErrorCodigo: status,
+        );
+        return const TransicionEncoladaOffline();
+      }
+
+      // 401/403/404/422/501: propagar — no encolar.
       rethrow;
     }
   }
+
+  /// Status de servidor transitorio que el online encola en vez de propagar (C6):
+  /// 408 (timeout), 429 (rate limit) y 5xx salvo 501 (no implementado).
+  bool _esServidorReintentable(int? status) =>
+      status == 408 ||
+      status == 429 ||
+      (status != null && status >= 500 && status != 501);
 
   Future<ResultadoTransicion> _manejar409(
     DioException e,
@@ -201,7 +228,10 @@ class TransicionService {
     return (id: id, companion: companion);
   }
 
-  /// Encola el cambio en 'pendiente' y devuelve el id. Camino offline (red caída).
+  /// Encola el cambio en 'pendiente' y devuelve el id. Camino offline (red caída) y
+  /// C6 (408/429/5xx). [proximoIntentoEn]/[ultimoError]/[ultimoErrorCodigo] son
+  /// opcionales: el camino de red los deja en null (falla sin respuesta); el de C6
+  /// pasa el código y, si hubo Retry-After, el primer proximo_intento_en.
   Future<String> _encolar(
     String itemId,
     String nuevoEstado,
@@ -209,13 +239,24 @@ class TransicionService {
     String? descripcionProblema,
     DateTime ahora,
     String deviceId,
-    String idempotencyKey,
-  ) async {
+    String idempotencyKey, {
+    DateTime? proximoIntentoEn,
+    String? ultimoError,
+    int? ultimoErrorCodigo,
+  }) async {
     final fila = await _prepararFila(
       itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
       idempotencyKey,
     );
-    await syncDao.encolar(fila.companion);
+    final companion = fila.companion.copyWith(
+      proximoIntentoEn:
+          proximoIntentoEn != null ? Value(proximoIntentoEn) : const Value.absent(),
+      ultimoError: ultimoError != null ? Value(ultimoError) : const Value.absent(),
+      ultimoErrorCodigo: ultimoErrorCodigo != null
+          ? Value(ultimoErrorCodigo)
+          : const Value.absent(),
+    );
+    await syncDao.encolar(companion);
     return fila.id;
   }
 
