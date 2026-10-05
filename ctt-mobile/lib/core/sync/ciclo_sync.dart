@@ -141,7 +141,7 @@ class CicloSync {
       // backoff y reintenta el rescate en una corrida futura — NUNCA se descarta.
       if (decision.incremento == IncrementoContador.servidor &&
           cambio.intentosServidor + 1 >= kTopeIntentosServidor &&
-          await _rescatarFila(cambio, instalacion)) {
+          await _rescatarFila(cambio, instalacion, clas)) {
         await syncDao.aplicarDecision(
           cambio.id,
           estadoEsperado: EstadoSyncLocal.enviando,
@@ -317,31 +317,28 @@ class CicloSync {
         retryAfter: retryAfter,
       );
 
-  /// Deriva una fila al servidor de rescate (/sync/rescate) — CTT-103 D5. Devuelve
-  /// true SOLO si el servidor la aceptó en cuarentena; false ante 403 (cuenta inactiva)
-  /// / 5xx / 4xx / red o rechazo por tenant, para que la fila siga pendiente. Usa el
-  /// Dio de sync (ya autenticado por su AuthInterceptor).
-  Future<bool> _rescatarFila(SyncPendiente f, String instalacion) async {
+  /// Deriva una fila al servidor de rescate (/sync/rescate) — CTT-103 D5. Envía la fila
+  /// COMPLETA (mismo formato que el flujo de pantalla, vía filaCrudaParaRescate),
+  /// sobrescribiendo los campos de la falla ACTUAL ([clas]) para que la cuarentena
+  /// registre por qué se escaló: intentos_servidor (+1), ultimo_error y
+  /// ultimo_error_codigo. Devuelve true SOLO si el servidor la aceptó en cuarentena;
+  /// false ante 403 / 5xx / 4xx / red o rechazo por tenant → la fila sigue pendiente.
+  /// Usa el Dio de sync (ya autenticado por su AuthInterceptor).
+  Future<bool> _rescatarFila(
+    SyncPendiente f,
+    String instalacion,
+    _Clasificacion clas,
+  ) async {
+    final fila = await syncDao.filaCrudaParaRescate(f.id);
+    if (fila == null) return false; // desapareció entre el claim y el rescate
+    // Valores de la falla actual (la 6ª): la fila en la BD todavía tiene los previos.
+    fila['intentos_servidor'] = f.intentosServidor + 1;
+    fila['ultimo_error'] = clas.detalle;
+    fila['ultimo_error_codigo'] = clas.codigo;
     try {
       final resp = await dio.post<Map<String, dynamic>>(
         '/sync/rescate',
-        data: {
-          'instalacion_id': instalacion,
-          'filas': [
-            {
-              'id': f.id,
-              'idempotency_key': f.idempotencyKey,
-              'empresa_id': f.empresaId,
-              'usuario_id': f.usuarioId,
-              'instalacion_id': f.instalacionId,
-              'tipo_entidad': f.tipoEntidad,
-              'entidad_id': f.entidadId,
-              'accion': f.accion,
-              'secuencia': f.secuencia,
-              'payload': f.payload,
-            },
-          ],
-        },
+        data: {'instalacion_id': instalacion, 'filas': [fila]},
       );
       final data = resp.data ?? const {};
       final aceptada = (((data['aceptadas'] as int?) ?? 0) +

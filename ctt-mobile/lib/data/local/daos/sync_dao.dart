@@ -159,6 +159,24 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
             t.ultimoErrorCodigo.isNull()))
       .write(const SyncPendientesCompanion(proximoIntentoEn: Value(null)));
 
+  /// Fila COMPLETA (SELECT *) como Map crudo {columna: valor}, para enviarla a
+  /// /sync/rescate con el MISMO formato que el flujo de pantalla
+  /// ([leerFilasNoTerminalesCrudo] en apertura_base.dart): ambas usan `SELECT *`, así
+  /// que las claves (nombres de columna) y los valores coinciden — incluye
+  /// creado_en_dispositivo, payload_version, estado, conflicto_id, intentos_* y
+  /// ultimo_error*. Devuelve null si la fila no existe. El ciclo sobrescribe los campos
+  /// de la falla actual (intentos_servidor, ultimo_error, ultimo_error_codigo) antes de
+  /// enviarla (CTT-103 D5).
+  Future<Map<String, Object?>?> filaCrudaParaRescate(String id) async {
+    final filas = await customSelect(
+      'SELECT * FROM sync_pendientes WHERE id = ?1',
+      variables: [Variable.withString(id)],
+      readsFrom: {syncPendientes},
+    ).get();
+    if (filas.isEmpty) return null;
+    return Map<String, Object?>.from(filas.single.data);
+  }
+
   /// Aplica una [DecisionSync] a una entrada: solo escribe si la fila sigue en
   /// [estadoEsperado] (guarda anti-carrera) y —si se pasa [tomadoPor]— solo si el
   /// lease sigue siendo de esta corrida (cierre condicional, CTT-103 A2): un cierre
