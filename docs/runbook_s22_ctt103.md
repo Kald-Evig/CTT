@@ -145,8 +145,16 @@ Continúa de R1 (3 filas pendientes, modo avión).
    `curl -s -X POST <TAILNET_URL>/sync/conflictos/<CONFLICTO_ID>/resolver -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" -H "Content-Type: application/json" -d '{"version_ganadora":"servidor"}'`
 6. **[KALD]** Llevar la app a segundo plano y volver (dispara la reconciliación).
 7. **[VOS]** Leer la cola. **Esperado:** X en `descartado` / `conflicto_resuelto_servidor`;
-   **ahora Y se envía** (sincronizado, o rechazada si la transición ya no aplica: en ese caso
-   debe tener `rechazo_id` y aparecer en `sync_rechazos`). Ninguna fila trabada.
+   **ahora Y se envía y vuelve en `esperando_resolucion` con un `conflicto_id` NUEVO** (≠ el de X).
+   > **Conflicto en cascada por fila bloqueada — hallazgo de diseño, no bug del runtime.**
+   > Al ganar el servidor, el ítem no se modifica (sync.py:151-174), así que su `updated_at`
+   > sigue posterior al `device_timestamp` de Y. Cuando Y se desbloquea y se envía, vuelve a
+   > cumplir `updated_at > device_timestamp` (items.py:530) → segundo 409 con conflicto nuevo.
+   > Que Y re-conflictúe (en vez de quedar trabada o descartarse) PRUEBA que el orden por ítem
+   > la liberó y re-evaluó correctamente.
+8. **[VOS]** Resolver ese segundo conflicto con Jorge (mismo curl del paso 5, con el nuevo
+   `<CONFLICTO_ID>`). **Verificación final:** ninguna fila de `<ITEM_C>` en estado no terminal
+   y **ninguna** fila con `tomado_por` distinto de NULL.
 
 ## R5 — Huérfana en `enviando` recuperada por lease (CTT-127)
 
