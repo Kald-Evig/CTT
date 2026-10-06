@@ -35,13 +35,22 @@ servidor + chip en el teléfono), (R4) conflicto con orden por ítem y reconcili
 1. **[KALD]** S22 conectado (`adb devices`) y `<TAILNET_URL>` del backend.
 2. **[VOS]** Backend en `feature/mvp-sync` HEAD, `ENV=local AUTH_MODE=mock`.
    `alembic current` = `7f3a9c2e1b84` (sync_rechazos; ya aplicada el 4-oct).
-3. **[VOS]** Identificar en ctt_dev dos ítems de Luis en `abierto` o `en_progreso`
-   (`<ITEM_A>`, `<ITEM_B>`) del mismo proyecto, y el id de usuario de **Marcos Díaz**
-   (`<ID_MARCOS>`, trabajador miembro del mismo proyecto):
+3. **[VOS]** Preparar **cuatro** ítems de Luis en `abierto` en el mismo proyecto
+   (`<ITEM_A>`..`<ITEM_D>`) y el id de **Marcos Díaz** (`<ID_MARCOS>`, trabajador miembro).
+   Hacen falta 4 porque el trabajador solo tiene 2 transiciones por ítem
+   (`abierto→en_progreso`, `en_progreso→pendiente_revision`; state_machine.py:43-63): un
+   ítem reusado entre secciones queda en `pendiente_revision` y Luis ya no puede moverlo.
+   Reparto: **A** → R1+R2 (2 cambios) · **B** → R1+R2 (1 cambio) y R3 · **C** → R4 ·
+   **D** → R5. Se crean por la API como Jorge (coordinador_principal de 4ec74662), que
+   nacen en `abierto`:
    ```
-   psql ... -c "SELECT i.id,i.nombre,i.estado FROM items i JOIN usuarios u ON u.id=i.asignado_a WHERE u.firebase_uid='pCcukEA7BfP4SiOAZNaeSkxAHY32';"
-   psql ... -c "SELECT id FROM usuarios WHERE nombre_completo='Marcos Díaz';"
+   # ×4, nombres "CTT-103 RT A/B/C/D"
+   curl -s -X POST <TAILNET_URL>/items -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" \
+     -H "Content-Type: application/json" \
+     -d '{"proyecto_id":"4ec74662-abdb-4b9a-b606-960299144e50","nombre":"CTT-103 RT A","asignado_a":"43c8297a-ab65-4ef7-a6a9-e93d148feb24"}'
    ```
+   `<ID_MARCOS>` = `97e2f903-175e-4b72-a914-f1fe81eca679` (miembro trabajador activo de 4ec74662).
+   Guardar los ids en `.evidencia/ctt103_rt_fase0_items.txt`.
 4. **[VOS]** Build debug del HEAD (v7) listo pero **sin instalar todavía**:
    ```
    cd ctt-mobile
@@ -85,10 +94,11 @@ Continúa de R1 (3 filas pendientes, modo avión).
 
 ## R3 — Rechazo determinista de punta a punta
 
-1. **[KALD]** Modo avión. Hacer **1** cambio de estado en `<ITEM_A>` (uno válido para Luis).
-2. **[VOS]** Reasignar `<ITEM_A>` a Marcos con el token de Jorge:
+1. **[KALD]** Modo avión. Hacer **1** cambio de estado en `<ITEM_B>` (tras R2 quedó en
+   `en_progreso`, así que el cambio válido es `en_progreso→pendiente_revision`).
+2. **[VOS]** Reasignar `<ITEM_B>` a Marcos con el token de Jorge:
    ```
-   curl -s -X POST <TAILNET_URL>/items/<ITEM_A>/asignar \
+   curl -s -X POST <TAILNET_URL>/items/<ITEM_B>/asignar \
      -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" \
      -H "Content-Type: application/json" -d '{"usuario_id":"<ID_MARCOS>"}'
    ```
@@ -108,17 +118,18 @@ Continúa de R1 (3 filas pendientes, modo avión).
    lista sale de `obtenerAsignadosA` filtrando el cache LOCAL, que conserva `asignado_a=Luis`
    (stale). Por eso la reasignación a Marcos NO lo saca de la lista del S22. Si desapareciera,
    es una regresión del pull (no de la cola): anotarlo y PARAR.
-7. **[VOS]** Volver a asignar `<ITEM_A>` a Luis (mismo curl con su id) para R4.
+   (`<ITEM_B>` queda asignado a Marcos; no se revierte — R4 y R5 usan `<ITEM_C>`/`<ITEM_D>`.)
 
 ## R4 — Conflicto, orden por ítem y reconciliación
 
-1. **[KALD]** Modo avión. Hacer **2** cambios de estado seguidos en `<ITEM_A>` (fila X y fila Y).
+1. **[KALD]** Modo avión. Hacer **2** cambios de estado seguidos en `<ITEM_C>` (fila X y fila Y:
+   `abierto→en_progreso` y `en_progreso→pendiente_revision`).
 2. **[VOS]** Provocar el conflicto: editar el ítem desde el servidor (Jorge) sin cambiar
-   la asignación. `PUT /items/<ITEM_A>` bumpea `Item.updated_at` (`onupdate=_now`) **solo si
+   la asignación. `PUT /items/<ITEM_C>` bumpea `Item.updated_at` (`onupdate=_now`) **solo si
    el body cambia de verdad algún campo** (`editar_item` arma un diff y retorna sin commit si
    nada cambió — verificado en items.py:352-361). Por eso mandamos una `descripcion` nueva:
    ```
-   curl -s -X PUT <TAILNET_URL>/items/<ITEM_A> \
+   curl -s -X PUT <TAILNET_URL>/items/<ITEM_C> \
      -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" \
      -H "Content-Type: application/json" \
      -d '{"descripcion":"conflicto R4 <marca_de_tiempo_unica>"}'
@@ -149,7 +160,7 @@ Simula que el ciclo muere a mitad del POST.
    El Action=Block de Windows Firewall descarta los SYN en silencio (sin RST) → el cliente ve
    timeout de conexión, no rechazo inmediato. **[VOS]** Verificarlo con un curl desde otro
    equipo del tailnet antes de seguir (debe colgar hasta timeout, no responder al instante).
-2. **[KALD]** Con red, hacer **1** cambio de estado en `<ITEM_B>`.
+2. **[KALD]** Con red, hacer **1** cambio de estado en `<ITEM_D>` (`abierto→en_progreso`).
 3. **[VOS]** Dentro de los ~30 s: `adb shell am force-stop cl.ctt.ctt_mobile`.
 4. **[VOS]** Leer la cola. **Esperado:** la fila en `enviando`, con `tomado_por` y
    `tomado_hasta` ≈ instante del reclamo + 90 s.
