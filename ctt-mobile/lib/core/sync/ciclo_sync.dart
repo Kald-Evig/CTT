@@ -15,6 +15,7 @@ import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:uuid/uuid.dart';
 
@@ -87,6 +88,12 @@ class CicloSync {
 
   static const _margenLease = Duration(seconds: 30);
 
+  /// Tope de pasadas por corrida (defensa anti-bucle). El criterio real de corte es
+  /// el conjunto `intentados`: una fila nunca se intenta dos veces en la misma corrida,
+  /// así que el while termina cuando no quedan filas reclamables sin intentar. El tope
+  /// solo acota un caso patológico; si se alcanza, se deja un log de advertencia.
+  static const kMaxPasadasPorCorrida = 50;
+
   /// Duración del lease (I4): cota superior de un envío (conexión + recepción del Dio
   /// de sync) + margen. 30s + 30s + 30s = 90s.
   static Duration get duracionLease =>
@@ -104,78 +111,105 @@ class CicloSync {
     // lease para el claim y el cierre condicional (A2).
     final tomadoPor = '$instalacion:$isolateLabel:${const Uuid().v4()}';
 
-    final reclamables = await syncDao.filasReclamables(reloj());
-    for (final cambio in reclamables) {
-      // Reloj y lease POR FILA (L1): cada fila se reclama con su instante real.
-      final ahora = reloj();
-      final tomadoHasta = ahora.add(duracionLease);
-      final tomado = await syncDao.reclamar(
-        cambio.id,
-        tomadoPor: tomadoPor,
-        ahora: ahora,
-        tomadoHasta: tomadoHasta,
-      );
-      if (!tomado) continue;
+    // Una fila nunca se intenta dos veces en la MISMA corrida (evita reprocesar una que
+    // quedó pendiente con backoff). El while re-consulta filasReclamables porque cada
+    // pasada cierra a terminal las primeras de cada agregado y DESBLOQUEA las siguientes
+    // (FIFO por agregado): así se envía toda la cola elegible en una sola corrida, no
+    // una fila por agregado. El tope de pasadas es solo defensa anti-bucle.
+    final intentados = <String>{};
+    var pausar = false;
+    var pasada = 0;
+    for (; pasada < kMaxPasadasPorCorrida && !pausar; pasada++) {
+      final lote = (await syncDao.filasReclamables(reloj()))
+          .where((f) => !intentados.contains(f.id))
+          .toList();
+      if (lote.isEmpty) break;
 
-      _Clasificacion clas;
-      try {
-        await _enviarCambio(
-          accion: cambio.accion,
-          entidadId: cambio.entidadId,
-          payload: cambio.payload,
-          idempotencyKey: cambio.idempotencyKey,
+      for (final cambio in lote) {
+        intentados.add(cambio.id);
+        // Reloj y lease POR FILA (L1): cada fila se reclama con su instante real.
+        final ahora = reloj();
+        final tomadoHasta = ahora.add(duracionLease);
+        final tomado = await syncDao.reclamar(
+          cambio.id,
+          tomadoPor: tomadoPor,
+          ahora: ahora,
+          tomadoHasta: tomadoHasta,
         );
-        clas = _clas(SenalSync.envioOk);
-      } catch (e) {
-        clas = _clasificar(e);
-      }
+        if (!tomado) continue;
 
-      final decision = decidir(
-        estadoActual: EstadoSyncLocal.enviando,
-        senal: clas.senal,
-      );
+        _Clasificacion clas;
+        try {
+          await _enviarCambio(
+            accion: cambio.accion,
+            entidadId: cambio.entidadId,
+            payload: cambio.payload,
+            idempotencyKey: cambio.idempotencyKey,
+          );
+          clas = _clas(SenalSync.envioOk);
+        } catch (e) {
+          clas = _clasificar(e);
+        }
+        // Instante DESPUÉS de la respuesta/excepción (mismo criterio que el Retry-After):
+        // es el que se persiste en ultimo_intento_en y sincronizado_en.
+        final finIntento = reloj();
 
-      // D5: al alcanzar el tope de intentos_servidor, derivar la fila a /sync/rescate
-      // → en_revision (la revisa el coordinador, CTT-134). Si el rescate falla (p. ej.
-      // 403 por cuenta inactiva), la fila cae al camino normal: sigue pendiente con
-      // backoff y reintenta el rescate en una corrida futura — NUNCA se descarta.
-      if (decision.incremento == IncrementoContador.servidor &&
-          cambio.intentosServidor + 1 >= kTopeIntentosServidor &&
-          await _rescatarFila(cambio, instalacion, clas)) {
+        final decision = decidir(
+          estadoActual: EstadoSyncLocal.enviando,
+          senal: clas.senal,
+        );
+
+        // D5: al alcanzar el tope de intentos_servidor, derivar la fila a /sync/rescate
+        // → en_revision (la revisa el coordinador, CTT-134). Si el rescate falla (p. ej.
+        // 403 por cuenta inactiva), la fila cae al camino normal: sigue pendiente con
+        // backoff y reintenta el rescate en una corrida futura — NUNCA se descarta.
+        if (decision.incremento == IncrementoContador.servidor &&
+            cambio.intentosServidor + 1 >= kTopeIntentosServidor &&
+            await _rescatarFila(cambio, instalacion, clas)) {
+          await syncDao.aplicarDecision(
+            cambio.id,
+            estadoEsperado: EstadoSyncLocal.enviando,
+            decision: const DecisionSync(
+              nuevoEstado: EstadoSyncLocal.enRevision,
+              motivo: MotivoSync.fallaServidor,
+            ),
+            tomadoPor: tomadoPor,
+            extra: SyncPendientesCompanion(
+              intentosServidor: Value(cambio.intentosServidor + 1),
+              ultimoError: clas.detalle != null
+                  ? Value(clas.detalle)
+                  : const Value.absent(),
+              ultimoErrorCodigo: Value(clas.codigo),
+              ultimoIntentoEn: Value(finIntento),
+            ),
+          );
+          continue;
+        }
+
+        final extra = _efectos(cambio, decision, clas, ahora, finIntento);
+
+        // Cierre condicional (A2): si esta corrida perdió el lease, es un no-op logueado.
         await syncDao.aplicarDecision(
           cambio.id,
           estadoEsperado: EstadoSyncLocal.enviando,
-          decision: const DecisionSync(
-            nuevoEstado: EstadoSyncLocal.enRevision,
-            motivo: MotivoSync.fallaServidor,
-          ),
+          decision: decision,
           tomadoPor: tomadoPor,
-          extra: SyncPendientesCompanion(
-            intentosServidor: Value(cambio.intentosServidor + 1),
-            ultimoError:
-                clas.detalle != null ? Value(clas.detalle) : const Value.absent(),
-            ultimoErrorCodigo: Value(clas.codigo),
-          ),
+          extra: extra,
         );
-        continue;
+
+        if (decision.pausaCola) {
+          // 401: avisar (solo foreground) y ABORTAR la corrida — no seguir con las demás.
+          alSesionVencida?.call();
+          pausar = true;
+          break;
+        }
       }
-
-      final extra = _efectos(cambio, decision, clas, ahora);
-
-      // Cierre condicional (A2): si esta corrida perdió el lease, es un no-op logueado.
-      await syncDao.aplicarDecision(
-        cambio.id,
-        estadoEsperado: EstadoSyncLocal.enviando,
-        decision: decision,
-        tomadoPor: tomadoPor,
-        extra: extra,
+    }
+    if (pasada >= kMaxPasadasPorCorrida) {
+      debugPrint(
+        'CTT-103: ejecutar() alcanzó el tope de $kMaxPasadasPorCorrida pasadas; '
+        'pueden quedar filas reclamables sin intentar en esta corrida.',
       );
-
-      if (decision.pausaCola) {
-        // 401: avisar (solo foreground) y ABORTAR la corrida — no seguir con las demás.
-        alSesionVencida?.call();
-        break;
-      }
     }
 
     // ── Pull (CTT-117 tramo 3): cerrar conflictos ya resueltos. Best-effort. ──
@@ -194,6 +228,7 @@ class CicloSync {
     DecisionSync decision,
     _Clasificacion clas,
     DateTime ahora,
+    DateTime finIntento,
   ) {
     var extra = const SyncPendientesCompanion();
 
@@ -237,6 +272,12 @@ class CicloSync {
     // 401: limpiar el backoff para reintentar apenas vuelva la sesión.
     if (decision.pausaCola) {
       extra = extra.copyWith(proximoIntentoEn: const Value(null));
+    }
+    // Siempre hubo un intento: registrar su instante (post-respuesta). Y si la fila
+    // llegó a sincronizado, sellar sincronizado_en con el mismo instante.
+    extra = extra.copyWith(ultimoIntentoEn: Value(finIntento));
+    if (decision.nuevoEstado == EstadoSyncLocal.sincronizado) {
+      extra = extra.copyWith(sincronizadoEn: Value(finIntento));
     }
     return extra;
   }
