@@ -193,11 +193,10 @@ enum EstadoSyncLocal {
   /// 409 con conflicto_id: parqueada hasta que el Coordinador resuelva. NO se
   /// re-envía (re-POSTear daría otro 409).
   ///
-  /// SUMIDERO CONOCIDO hasta el tramo 3: su única salida son las señales
-  /// [SenalSync.resolucionGanoCliente]/[SenalSync.resolucionGanoServidor], que
-  /// las emite el reconciliador de /sync/conflictos/mios (tramo 3 de CTT-117).
-  /// Hasta que ese reconciliador exista, una entrada acá no tiene salida
-  /// ejercida por código de producción.
+  /// Su salida son las señales [SenalSync.resolucionGanoCliente] /
+  /// [SenalSync.resolucionGanoServidor], que emite el reconciliador de conflictos
+  /// (reconciliador_conflictos.dart) al casar la fila contra /sync/conflictos/mios:
+  /// gana el cliente → [sincronizado], gana el servidor → [descartado].
   esperandoResolucion('esperando_resolucion'),
 
   /// TERMINAL — éxito: la intención vive en el servidor (envío directo o
@@ -263,8 +262,10 @@ enum MotivoSync {
   /// `intentos_servidor` (CTT-103). Diagnóstico, no gobierna transiciones.
   fallaServidor('falla_servidor'),
 
-  /// Fila heredada cuyo terminal no pudo determinarse. Fallback del
-  /// reconciliador del tramo 3 cuando /mios no tiene registro del conflicto.
+  /// Fila heredada cuyo terminal no pudo determinarse. OBSOLETO: CTT-103 (C4) quitó
+  /// la rama indeterminada del reconciliador (si /mios no tiene el conflicto, la fila
+  /// se salta, no se marca). Ya no se emite; se conserva para que `fromString` tolere
+  /// filas viejas persistidas con este motivo.
   heredadoIndeterminado('heredado_indeterminado');
 
   const MotivoSync(this.valor);
