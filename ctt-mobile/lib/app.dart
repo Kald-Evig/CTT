@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
+import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
 import 'package:ctt_mobile/presentation/arranque/pantalla_recuperacion.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
@@ -297,7 +298,13 @@ class _AppCTTState extends ConsumerState<AppCTT> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Disparador (b): al volver a primer plano. Cubre el caso en que el Coordinador
     // resolvió el conflicto mientras la app estaba en background.
-    if (state == AppLifecycleState.resumed) _reconciliar();
+    if (state == AppLifecycleState.resumed) {
+      // El isolate headless pudo escribir sync_pendientes en background; Drift no
+      // notifica esos writes (son de otra conexión), así que avisamos a mano para que
+      // los streams .watch() de la UI re-consulten y reflejen lo sincronizado (D6-R2).
+      ref.read(baseDatosCTTProvider).notificarSyncPendientesExterno().ignore();
+      _reconciliar();
+    }
   }
 
   /// Best-effort y debounced: no bloquea la UI y tolera la falta de sesión al

@@ -10,7 +10,7 @@ library;
 
 import 'dart:io';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart' as raw;
@@ -69,11 +69,10 @@ void main() {
     expect(revision.last, {'r': EstadoSyncLocal.rechazada});
   });
 
-  // EVIDENCIA (CTT-103 D6-R, pregunta final): .watch() de Drift NO detecta escrituras
-  // hechas por OTRA conexión a la misma base (p. ej. el isolate headless). NO se
-  // resuelve en este commit; solo se documenta.
-  test('.watch() NO ve escrituras de otra conexión a la misma base (headless)',
-      () async {
+  // CTT-103 D6-R / D6-R2: .watch() NO detecta por sí solo escrituras de OTRA conexión
+  // (el isolate headless), PERO tras notificarSyncPendientesExterno() (lo que hace
+  // app.dart al volver a primer plano) el stream re-consulta y refleja el write.
+  test('.watch() no ve el write de otra conexión; tras notificar, A reemite', () async {
     final tmp = Directory.systemTemp.createTempSync('ctt_watch');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final path = '${tmp.path}/db.sqlite';
@@ -82,6 +81,10 @@ void main() {
       d.execute('PRAGMA busy_timeout=5000;');
     }
 
+    // Dos conexiones al MISMO archivo es intencional acá (simula app + headless);
+    // el warning de Drift sobre múltiples instancias no aplica a este test.
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = false);
     final dbA = BaseDatosCTT.conConexion(NativeDatabase(File(path), setup: setup));
     final dbB = BaseDatosCTT.conConexion(NativeDatabase(File(path), setup: setup));
     addTearDown(dbA.close);
@@ -118,5 +121,11 @@ void main() {
     // es una limitación de NOTIFICACIÓN, no de visibilidad.
     final directo = await dbA.syncDao.filaCrudaParaRescate('fx');
     expect(directo, isNotNull);
+
+    // D6-R2: al volver a primer plano, app.dart llama notificarSyncPendientesExterno();
+    // eso fuerza a los .watch() de A a re-consultar y ahora SÍ reflejan el write de B.
+    await dbA.notificarSyncPendientesExterno();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(emisiones.last, {'x'});
   });
 }
