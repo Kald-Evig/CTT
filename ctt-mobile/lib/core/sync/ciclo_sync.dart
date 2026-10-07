@@ -186,7 +186,7 @@ class CicloSync {
           continue;
         }
 
-        final extra = _efectos(cambio, decision, clas, ahora, finIntento);
+        final extra = _efectos(cambio, decision, clas, finIntento);
 
         // Cierre condicional (A2): si esta corrida perdió el lease, es un no-op logueado.
         await syncDao.aplicarDecision(
@@ -227,18 +227,20 @@ class CicloSync {
     SyncPendiente cambio,
     DecisionSync decision,
     _Clasificacion clas,
-    DateTime ahora,
     DateTime finIntento,
   ) {
     var extra = const SyncPendientesCompanion();
 
+    // El backoff (y el piso Retry-After) se miden desde finIntento —el instante de la
+    // respuesta/excepción—, no desde el reclamo: así la espera cuenta desde que el
+    // servidor contestó, consistente con cómo se interpreta Retry-After.
     switch (decision.incremento) {
       case IncrementoContador.red:
         final n = cambio.intentosRed + 1;
         extra = extra.copyWith(
           intentosRed: Value(n),
           proximoIntentoEn: decision.aplicaBackoff
-              ? Value(ahora.add(_backoff(n, clas.retryAfter)))
+              ? Value(finIntento.add(_backoff(n, clas.retryAfter)))
               : const Value.absent(),
         );
       case IncrementoContador.servidor:
@@ -246,7 +248,7 @@ class CicloSync {
         extra = extra.copyWith(
           intentosServidor: Value(n),
           proximoIntentoEn: decision.aplicaBackoff
-              ? Value(ahora.add(_backoff(n, clas.retryAfter)))
+              ? Value(finIntento.add(_backoff(n, clas.retryAfter)))
               : const Value.absent(),
         );
         // Al tope de intentos_servidor, ejecutar() ya intentó derivar a /sync/rescate

@@ -65,6 +65,8 @@ void main() {
     required void Function(Duration) avanzar,
     Duration pasoReloj = const Duration(seconds: 1),
     Set<String> fallanRed = const {},
+    Set<String> da429 = const {},
+    int retryAfterSeg = 60,
   }) {
     final orden = <String>[];
     final dio = _MockDio();
@@ -81,6 +83,19 @@ void main() {
         throw DioException(
           requestOptions: RequestOptions(path: '/'),
           type: DioExceptionType.connectionError,
+        );
+      }
+      if (da429.contains(k)) {
+        throw DioException(
+          requestOptions: RequestOptions(path: '/'),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: '/'),
+            statusCode: 429,
+            headers: Headers.fromMap({
+              'retry-after': ['$retryAfterSeg'],
+            }),
+          ),
         );
       }
       return Response<void>(requestOptions: RequestOptions(path: '/'));
@@ -201,5 +216,30 @@ void main() {
     expect(u1.sincronizadoEn, esperado);
     expect(u1.ultimoIntentoEn, esperado);
     expect(u1.sincronizadoEn, isNot(t0)); // NO es el instante del reclamo
+  });
+
+  test('f) backoff/Retry-After se miden desde finIntento, no desde el reclamo',
+      () async {
+    await insertar('r1', 'item-R');
+
+    final t0 = DateTime.utc(2026, 5, 1, 12); // reclamo
+    var t = t0;
+    // El POST tarda 30s y responde 429 Retry-After: 60.
+    final h = armar(
+      reloj: () => t,
+      avanzar: (d) => t = t.add(d),
+      pasoReloj: const Duration(seconds: 30),
+      da429: {'r1'},
+    );
+    await h.ciclo.ejecutar();
+
+    final r1 = await leer('r1');
+    expect(r1.estado, 'pendiente'); // transitorio → sigue pendiente con backoff
+    final finIntento = t0.add(const Duration(seconds: 30));
+    // Retry-After=60 es el piso del backoff; medido desde finIntento (= reclamo+30s):
+    // proximo_intento_en = reclamo + 90s, NO reclamo + 60s.
+    expect(r1.proximoIntentoEn, finIntento.add(const Duration(seconds: 60)));
+    expect(r1.proximoIntentoEn, t0.add(const Duration(seconds: 90)));
+    expect(r1.proximoIntentoEn, isNot(t0.add(const Duration(seconds: 60))));
   });
 }
