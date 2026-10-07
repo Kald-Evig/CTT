@@ -193,6 +193,51 @@ Simula que el ciclo muere a mitad del POST.
 - **Tope de 6 `intentos_servidor` → rescate → `en_revision` (D5):** `rescate_tope_test`.
 - **Isolate headless escribiendo con la app en primer plano:** límite documentado de D6-R2.
 
+## Estado al pausar (2026-10-06)
+
+Runtime pausado hasta mañana. R0 (Fase 0) y R1 completos; R2 suspendido por el
+hallazgo del drenado (ya corregido en código).
+
+**Código (pusheado a `feature/mvp-sync`):**
+- `a340c26` — el ciclo drena toda la cola elegible por corrida (re-consulta
+  `filasReclamables` con conjunto `intentados`, tope 50) + sella `sincronizado_en` y
+  `ultimo_intento_en`. 5 tests (`ciclo_multipasada_test`).
+- `dd2a92b` — backoff y Retry-After medidos desde `finIntento` (respuesta), no desde el
+  reclamo. +1 test (f). Suite: 146 passed.
+
+**APK de runtime:** construido con `API_BASE_URL=http://192.168.1.12:8000` +
+`AUTH_MODE=mock`, SHA-256 `f31a3aaab7a0deaa150ea1dabd5f269947ddbf0897d78d84a561dbe6acec6d16`.
+**NO instalado** (el S22 sigue con el APK del tailnet, v7). `.evidencia/ctt103_rt_apk_lan_sha256.txt`.
+
+**`network_security_config.xml`:** tiene agregada la IP LAN `192.168.1.12` (cleartext),
+**sin commitear a propósito** (debilitaría CTT-106). Se reutiliza mañana; revertir al
+cerrar el runtime.
+
+**Cola del S22 (post-R1/R2 parcial):** `sec 1,2` sincronizado (viejas); `sec 3`
+(A→en_progreso) sincronizado; `sec 4` (A→pendiente_revision) **pendiente** (no drenó por
+el bug de "una fila por agregado por corrida", ya corregido); `sec 5` (B→en_progreso)
+sincronizado. En ctt_dev: A=`en_progreso`, B=`en_progreso`. Ítems de runtime:
+A=`7e52df00`, B=`70e35c62`, C=`4cbf8c5e`, D=`70f80fec`; `<ID_MARCOS>`=`97e2f903…`.
+
+**DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
+continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
+18:08–23:41. Detenido al pausar (puerto 8000 libre, confirmado). Para la próxima sesión:
+no dejar el mock arriba fuera de la ventana activa.
+
+**Pasos para retomar (mañana):**
+1. **[KALD, admin]** crear la regla:
+   `New-NetFirewallRule -DisplayName ctt-8000-s22 -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow -Profile Public -RemoteAddress 192.168.1.4`
+2. **[KALD, S22]** desactivar Tailscale.
+3. **[VOS]** levantar uvicorn (`0.0.0.0:8000`, mock) y verificar que el S22 llega:
+   `adb shell` → `curl http://192.168.1.12:8000/health`. Guardar evidencia.
+4. **[VOS]** instalar el APK `f31a3aaa…` encima (sin `pm clear`); confirmar `user_version=7`
+   y cola intacta (incluida `sec 4` pendiente).
+5. **[VOS/KALD]** correr **R2** con la red local (nube de un ítem que se apaga al reconectar).
+   Cierre: `Remove-NetFirewallRule -DisplayName ctt-8000-s22`, revertir
+   `network_security_config.xml`, bajar el backend.
+
+---
+
 ## Al terminar
 
 - **[VOS]** Bajar el backend (`AUTH_MODE=mock` no queda corriendo).
