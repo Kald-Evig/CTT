@@ -275,6 +275,25 @@ arregla en esta sesión.
   "actualización en vivo sobre pantalla ya montada" no se aisló (lo impidió CTT-141).
 - `sec 8/9` (duplicados CTT-128 de E) siguen `pendiente` detrás de `sec 7` (conflicto) — FIFO ok.
 
+**Resultado R4 (ítem C, conflicto + orden + reconciliación) — PASA:**
+- **Pivot de red a mitad de R4:** la LAN `192.168.1.12` se cayó (el S22 roameó a otro nodo del
+  mesh; `ip route get` correcto pero phone→PC sin L2; PC→phone OK). Se recompiló el APK con el
+  **tailnet** `http://100.83.123.115:8000` (SHA `da9eada0…`) y se reinstaló encima (cola
+  preservada). Tailscale ON en el S22. R4 corrió por el tailnet.
+- **X (sec 11, abierto→en_progreso):** enviada en arranque en frío → **`esperando_resolucion`**
+  `conflicto_id=e91a36df`, 409. **Y (sec 12)** quedó `pendiente` (FIFO, bloqueada por X). ctt_dev:
+  **1** conflicto nuevo (no duplicado — CTT-136 OK).
+- Resuelto X `servidor`. **1er arranque en frío:** reconciliador cierra X → **`descartado`/
+  conflicto_resuelto_servidor** (corre aun en pantalla de login; debounce 2 min). Y sigue
+  `pendiente` (el reconciliador corre al FINAL de `ejecutar`, Y se envía en el ciclo siguiente).
+- **2º arranque en frío:** Y se envía → **`esperando_resolucion`** con `conflicto_id` **NUEVO**
+  `279b0362` (≠ el de X). El 409 de Y es **LEGÍTIMO** (el PUT de Jorge dejó `updated_at` > su
+  `device_timestamp`), NO CTT-143.
+- Resuelto Y `servidor`. **3er arranque en frío:** Y → **`descartado`**. **Verificación final:**
+  0 filas de C no-terminales, 0 en `enviando`. Conflictos de A (sec 4) y E (sec 7) **no tocados**.
+- Nota operativa: con el reconciliador al final de `ejecutar`, cerrar X y enviar Y requiere
+  **dos** ciclos (dos arranques en frío); `resume` reconcilia pero no flushea (CTT-141).
+
 **DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
 continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
 18:08–23:41. Detenido al pausar (puerto 8000 libre, confirmado). Para la próxima sesión:
