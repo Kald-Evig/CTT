@@ -228,6 +228,13 @@ La 1ª fila sincroniza y bumpea `updated_at`; la 2ª (con `device_timestamp` ant
 409/`esperando_resolucion` contra el **propio** cambio del dispositivo (falso positivo). Afecta
 `sec 4` y la fila `E2` de R2b. Pendiente de diseño; no se arregla en esta sesión.
 
+**CTT-141 (nuevo):** la nube NO se apaga en segundos al reconectar. El flush por flanco
+offline→online dispara en el instante del avión-OFF, cuando el Wi-Fi todavía re-asocia; los
+POST fallan por red (`SocketException: Software caused connection abort, errno 103`) y, como
+no hay re-intento pronto (solo próximo flanco o WorkManager ~15 min), la nube queda colgada.
+En R2b drenó recién a las ~11:44 por **WorkManager** (no por el flanco). Reproducible. No se
+arregla en esta sesión.
+
 **DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
 continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
 18:08–23:41. Detenido al pausar (puerto 8000 libre, confirmado). Para la próxima sesión:
