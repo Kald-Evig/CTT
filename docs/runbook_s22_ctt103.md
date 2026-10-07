@@ -252,6 +252,15 @@ arregla en esta sesión.
   schedule … rescheduling for later"). El disparo manual que SÍ funciona es un **arranque en frío**
   (cerrar desde Recientes y reabrir), que corre el ciclo foreground.
 
+**CTT-144 (nuevo):** el pull de Mis ítems **pisa el estado optimista**. `_jsonACompanion` mapea
+`estado: json['estado']` (estado del server) con `estadoPrevio: Value(null)`
+(items_repository.dart:133-134) y `guardarItem` hace `insertOnConflictUpdate`
+(items_cache_dao.dart:38) **sin mirar filas pendientes** → al volver el server `abierto`, E
+reaparece en `abierto` y la UI re-muestra los botones. Es la **precondición** de los duplicados
+CTT-128 (sec 8/9 de E). **El DISPARADOR exacto de sec 8/9 NO está probado**: el logcat de 11:39
+rotó (`ctt103_rt_r2b_dup_logcat.txt` quedó vacío) y Kald afirma no haber tocado; lo que sí está
+probado es el mecanismo (el pull revierte el estado). No se arregla en esta sesión.
+
 **Resultado R2b (aceptado):**
 - **a340c26 PASA** en el dispositivo: la fila con `200` (sec 6) y la fila con `409` (sec 7)
   tienen el **mismo `tomado_por`** (`…:headless:1de7d79e…`) y `ultimo_intento_en` en orden →
