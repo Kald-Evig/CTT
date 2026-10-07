@@ -249,6 +249,21 @@ arregla en esta sesión.
 - **Reactividad de UI: PENDIENTE** de lo que observó Kald (no se pudo aislar porque el flush
   no completó por CTT-141).
 
+**Resultado R3 (ítem B, rechazo 403 de punta a punta) — PASA:**
+- Disparo: **arranque en frío** (cerrar desde Recientes + reabrir) → corrió el ciclo
+  **foreground**. El flanco (CTT-141), el `jobscheduler run -f` (rechazado por WM) y el
+  `resume` (no dispara flush) NO sirvieron.
+- Cola: `sec 10` (B `en_progreso→pendiente_revision`) → **`rechazada`**, `rechazo_id`
+  `b5eacc6b…`, `ultimo_error_codigo=403`, `ultimo_error="no_autorizado: …"`,
+  `tomado_por …:ui:…` (foreground). Nunca `descartado`.
+- ctt_dev `sync_rechazos`: 1 fila `b5eacc6b…` (= `rechazo_id` del teléfono), `usuario_id`=Luis,
+  `entidad_id`=B, `codigo_http=403`, `motivo=no_autorizado`, `estado_resolucion=pendiente`.
+- Pantalla: B **sigue visible** (pull upsert-only) con el **chip marrón** "Envío rechazado —
+  lo revisa coordinación", sin acciones. El chip apareció **sin resume ni re-entrada** (en el
+  render inicial post-login del arranque en frío). Reactividad OK en ese sentido; el caso puro
+  "actualización en vivo sobre pantalla ya montada" no se aisló (lo impidió CTT-141).
+- `sec 8/9` (duplicados CTT-128 de E) siguen `pendiente` detrás de `sec 7` (conflicto) — FIFO ok.
+
 **DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
 continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
 18:08–23:41. Detenido al pausar (puerto 8000 libre, confirmado). Para la próxima sesión:
