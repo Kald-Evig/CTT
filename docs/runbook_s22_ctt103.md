@@ -235,6 +235,14 @@ no hay re-intento pronto (solo próximo flanco o WorkManager ~15 min), la nube q
 En R2b drenó recién a las ~11:44 por **WorkManager** (no por el flanco). Reproducible. No se
 arregla en esta sesión.
 
+**Resultado R2b (aceptado):**
+- **a340c26 PASA** en el dispositivo: la fila con `200` (sec 6) y la fila con `409` (sec 7)
+  tienen el **mismo `tomado_por`** (`…:headless:1de7d79e…`) y `ultimo_intento_en` en orden →
+  una sola corrida drenó ambas (CTT-143 en E2).
+- **"La nube en segundos" FALLA** por **CTT-141** (documentado arriba).
+- **Reactividad de UI: PENDIENTE** de lo que observó Kald (no se pudo aislar porque el flush
+  no completó por CTT-141).
+
 **DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
 continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
 18:08–23:41. Detenido al pausar (puerto 8000 libre, confirmado). Para la próxima sesión:
