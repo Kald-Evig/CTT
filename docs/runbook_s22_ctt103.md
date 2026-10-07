@@ -303,6 +303,26 @@ probado es el mecanismo (el pull revierte el estado). No se arregla en esta sesi
 - Nota operativa: con el reconciliador al final de `ejecutar`, cerrar X y enviar Y requiere
   **dos** ciclos (dos arranques en frío); `resume` reconcilia pero no flushea (CTT-141).
 
+**Resultado R5 (ítem D, huérfana en `enviando` recuperada por lease — CTT-127) — PASA:**
+- **Entorno:** la LAN del mesh se cayó también para R5; el S22 pasó a **datos móviles + Tailscale
+  (ruta WAN)** y el backend volvió a ser alcanzable por tailnet. El Block (`ctt-r5-block`, inbound
+  8000) cuelga el POST ~30 s (confirmado: `/health` connect=0, total=35 s) — eso simula el ciclo
+  muerto a mitad del POST.
+- **Captura de la huérfana:** con el Block puesto, arranque en frío → el ciclo reclama D
+  (`enviando`, `tomado_por …:ui:e49b52d3…`, `tomado_hasta = reclamo+90 s`); `am force-stop` a los
+  ~3 s dejó la fila en `enviando` con el lease vigente. (Costó: lecturas de la BD durante el sync
+  activo fallan — "unable to open"/hot WAL; hubo que leer con la app detenida.)
+- **Recuperación por lease (I4/CTT-127):** quitado el Block, la fila se reclamó con un
+  **`tomado_por` NUEVO** (`…:ui:4404bb72…`) a las ~21:51:09, **después** de vencer el lease de
+  `e49b52d3` (21:51:03) → POST 200 → **`sincronizado`**. El lease se **respetó** (no hubo reclamo
+  antes de vencer; inferido del timestamp del reclamo). El paso intermedio "no se reclama con lease
+  vigente" NO se capturó en vivo (lecturas ERR en esa ventana); se infiere del reclamo post-vencimiento.
+- **ctt_dev:** D = `en_progreso`, `item_historial` con **1 sola** transición (abierto→en_progreso)
+  → un solo efecto (idempotencia: el POST colgado nunca llegó al server).
+- **Final:** 0 filas en `enviando`; sec 1-12 sin cambios respecto de R4.
+- Nota: un **WorkManager headless** re-intentaba D en background durante el Block (cuelga→falla→
+  backoff creciente), lo que complicó el timing del `force-stop`.
+
 **DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
 continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
 18:08–23:41. Detenido al pausar (puerto 8000 libre, confirmado). Para la próxima sesión:
