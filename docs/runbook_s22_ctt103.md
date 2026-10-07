@@ -234,6 +234,12 @@ POST fallan por red (`SocketException: Software caused connection abort, errno 1
 no hay re-intento pronto (solo próximo flanco o WorkManager ~15 min), la nube queda colgada.
 En R2b drenó recién a las ~11:44 por **WorkManager** (no por el flanco). Reproducible. No se
 arregla en esta sesión.
+- **`resume` NO dispara el flush** (`app.dart:301-307`): al volver a primer plano solo notifica
+  a la UI (`notificarSyncPendientesExterno`) y reconcilia conflictos (`_reconciliar`), no corre
+  el ciclo de push. Parte de CTT-141 — por eso un simple resume no drena la cola.
+- **`cmd jobscheduler run -f` NO fuerza el periódico**: WorkManager lo rechaza ("executed before
+  schedule … rescheduling for later"). El disparo manual que SÍ funciona es un **arranque en frío**
+  (cerrar desde Recientes y reabrir), que corre el ciclo foreground.
 
 **Resultado R2b (aceptado):**
 - **a340c26 PASA** en el dispositivo: la fila con `200` (sec 6) y la fila con `409` (sec 7)
