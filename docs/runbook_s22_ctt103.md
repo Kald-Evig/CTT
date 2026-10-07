@@ -146,12 +146,13 @@ Continúa de R1 (3 filas pendientes, modo avión).
 6. **[KALD]** Llevar la app a segundo plano y volver (dispara la reconciliación).
 7. **[VOS]** Leer la cola. **Esperado:** X en `descartado` / `conflicto_resuelto_servidor`;
    **ahora Y se envía y vuelve en `esperando_resolucion` con un `conflicto_id` NUEVO** (≠ el de X).
-   > **Conflicto en cascada por fila bloqueada — hallazgo de diseño, no bug del runtime.**
-   > Al ganar el servidor, el ítem no se modifica (sync.py:151-174), así que su `updated_at`
-   > sigue posterior al `device_timestamp` de Y. Cuando Y se desbloquea y se envía, vuelve a
-   > cumplir `updated_at > device_timestamp` (items.py:530) → segundo 409 con conflicto nuevo.
-   > Que Y re-conflictúe (en vez de quedar trabada o descartarse) PRUEBA que el orden por ítem
-   > la liberó y re-evaluó correctamente.
+   > **Conflicto en cascada — es CTT-143 (autoconflicto por cambios offline al mismo ítem).**
+   > Causa: al sincronizar X se bumpea `C.updated_at`; Y lleva un `device_timestamp` anterior,
+   > así que al desbloquearse y enviarse cumple `updated_at > device_timestamp` (items.py:530)
+   > → 409 con conflicto nuevo. NO es por "el resolver no toca `updated_at`": pasa igual sin la
+   > edición de Jorge, por el solo hecho de dos cambios offline secuenciales al mismo ítem.
+   > Que Y re-conflictúe (en vez de quedar trabada o descartarse) prueba que el orden por ítem
+   > la liberó y re-evaluó; el 409 en sí es CTT-143.
 8. **[VOS]** Resolver ese segundo conflicto con Jorge (mismo curl del paso 5, con el nuevo
    `<CONFLICTO_ID>`). **Verificación final:** ninguna fila de `<ITEM_C>` en estado no terminal
    y **ninguna** fila con `tomado_por` distinto de NULL.
@@ -214,10 +215,18 @@ hallazgo del drenado (ya corregido en código).
 cerrar el runtime.
 
 **Cola del S22 (post-R1/R2 parcial):** `sec 1,2` sincronizado (viejas); `sec 3`
-(A→en_progreso) sincronizado; `sec 4` (A→pendiente_revision) **pendiente** (no drenó por
-el bug de "una fila por agregado por corrida", ya corregido); `sec 5` (B→en_progreso)
+(A→en_progreso) sincronizado; `sec 4` (A→pendiente_revision) en **`esperando_resolucion`**
+(`conflicto_id` 3ca5582d, 409): la envió una corrida **headless del APK VIEJO** el 2026-10-06
+~20:39 (`tomado_por …:headless:…`, distinto al de sec 3) y conflictó por **CTT-143** (sec 3
+bumpeó `A.updated_at` por encima del `device_timestamp` de sec 4). NO es el bug multipass —
+ese todavía NO se ejerció en el dispositivo; lo prueba R2b/E. `sec 5` (B→en_progreso)
 sincronizado. En ctt_dev: A=`en_progreso`, B=`en_progreso`. Ítems de runtime:
 A=`7e52df00`, B=`70e35c62`, C=`4cbf8c5e`, D=`70f80fec`; `<ID_MARCOS>`=`97e2f903…`.
+
+**CTT-143 (nuevo):** autoconflicto por dos cambios offline al MISMO ítem — `items.py:530`.
+La 1ª fila sincroniza y bumpea `updated_at`; la 2ª (con `device_timestamp` anterior) cae en
+409/`esperando_resolucion` contra el **propio** cambio del dispositivo (falso positivo). Afecta
+`sec 4` y la fila `E2` de R2b. Pendiente de diseño; no se arregla en esta sesión.
 
 **DESVIACIÓN:** el backend en `AUTH_MODE=mock` quedó corriendo **sin supervisión
 continua** desde las ~14:26 hasta las ~23:46 (hora local), incluyendo la ventana
@@ -231,7 +240,7 @@ no dejar el mock arriba fuera de la ventana activa.
 3. **[VOS]** levantar uvicorn (`0.0.0.0:8000`, mock) y verificar que el S22 llega:
    `adb shell` → `curl http://192.168.1.12:8000/health`. Guardar evidencia.
 4. **[VOS]** instalar el APK `f31a3aaa…` encima (sin `pm clear`); confirmar `user_version=7`
-   y cola intacta (incluida `sec 4` pendiente).
+   y cola intacta (incluida `sec 4` en `esperando_resolucion` — CTT-143).
 5. **[VOS/KALD]** correr **R2** con la red local (nube de un ítem que se apaga al reconectar).
    Cierre: `Remove-NetFirewallRule -DisplayName ctt-8000-s22`, revertir
    `network_security_config.xml`, bajar el backend.
