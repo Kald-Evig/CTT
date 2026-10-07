@@ -122,6 +122,12 @@ Continúa de R1 (3 filas pendientes, modo avión).
 
 ## R4 — Conflicto, orden por ítem y reconciliación
 
+> **[KALD] Vigilar reversión de C (relacionado con sec 8/9 de R2b):** si en algún momento la
+> pantalla vuelve a mostrar C en un estado ANTERIOR al que dejaste (p. ej. reaparecen los
+> botones de `abierto`), **anotá la hora exacta** y NO vuelvas a tocar. Es el pull pisando el
+> estado optimista (items_repository.dart:133 + items_cache_dao.dart:38, sin guarda de filas
+> pendientes) — precondición de los duplicados CTT-128.
+
 1. **[KALD]** Modo avión. Hacer **2** cambios de estado seguidos en `<ITEM_C>` (fila X y fila Y:
    `abierto→en_progreso` y `en_progreso→pendiente_revision`).
 2. **[VOS]** Provocar el conflicto: editar el ítem desde el servidor (Jorge) sin cambiar
@@ -129,33 +135,38 @@ Continúa de R1 (3 filas pendientes, modo avión).
    el body cambia de verdad algún campo** (`editar_item` arma un diff y retorna sin commit si
    nada cambió — verificado en items.py:352-361). Por eso mandamos una `descripcion` nueva:
    ```
-   curl -s -X PUT <TAILNET_URL>/items/<ITEM_C> \
+   curl -s -X PUT http://192.168.1.12:8000/items/<ITEM_C> \
      -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" \
      -H "Content-Type: application/json" \
      -d '{"descripcion":"conflicto R4 <marca_de_tiempo_unica>"}'
    ```
    La detección de conflicto compara `item.updated_at > device_timestamp` (items.py:530): el
    edit de Jorge ocurre DESPUÉS de los cambios offline, así que su `updated_at` queda posterior.
-3. **[KALD]** Desactivar modo avión.
+3. **[KALD]** Para que X se envíe, hacé un **arranque en frío** con red: desactivá el modo
+   avión (para tener red) y **cerrá la app desde Recientes + reabrila**. El envío lo dispara el
+   arranque en frío, NO el flanco de avión-OFF (que racea por CTT-141, visto en R2b/R3).
 4. **[VOS]** Leer la cola. **Esperado:** X en `esperando_resolucion` con `conflicto_id`;
    **Y sigue `pendiente` y NO se envió** (orden por ítem: el conflicto bloquea las siguientes).
    En ctt_dev: `SELECT id FROM sync_conflictos ORDER BY created_at DESC LIMIT 2;` → **1** conflicto nuevo
    (no 2: sin duplicado, CTT-136).
 5. **[VOS]** Resolver con Jorge:
-   `curl -s -X POST <TAILNET_URL>/sync/conflictos/<CONFLICTO_ID>/resolver -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" -H "Content-Type: application/json" -d '{"version_ganadora":"servidor"}'`
-6. **[KALD]** Llevar la app a segundo plano y volver (dispara la reconciliación).
+   `curl -s -X POST http://192.168.1.12:8000/sync/conflictos/<CONFLICTO_ID>/resolver -H "Authorization: Bearer on1QBkdHBSZikDjR47io0M3mAVD3" -H "Content-Type: application/json" -d '{"version_ganadora":"servidor"}'`
+6. **[KALD]** (a) **Resume**: llevá la app a segundo plano y volvé — reconcilia X (lo cierra).
+   (b) **DESPUÉS, arranque en frío** (cerrar desde Recientes + reabrir) para que el ciclo
+   foreground **envíe Y**. Nota: `resume` reconcilia pero **no dispara el flush** (app.dart:301-307);
+   si se confirma que Y no sale con solo el resume, va a **CTT-141**.
 7. **[VOS]** Leer la cola. **Esperado:** X en `descartado` / `conflicto_resuelto_servidor`;
    **ahora Y se envía y vuelve en `esperando_resolucion` con un `conflicto_id` NUEVO** (≠ el de X).
-   > **Conflicto en cascada — es CTT-143 (autoconflicto por cambios offline al mismo ítem).**
-   > Causa: al sincronizar X se bumpea `C.updated_at`; Y lleva un `device_timestamp` anterior,
-   > así que al desbloquearse y enviarse cumple `updated_at > device_timestamp` (items.py:530)
-   > → 409 con conflicto nuevo. NO es por "el resolver no toca `updated_at`": pasa igual sin la
-   > edición de Jorge, por el solo hecho de dos cambios offline secuenciales al mismo ítem.
-   > Que Y re-conflictúe (en vez de quedar trabada o descartarse) prueba que el orden por ítem
-   > la liberó y re-evaluó; el 409 en sí es CTT-143.
+   > **El 409 de Y en R4 es LEGÍTIMO — NO es CTT-143.** Con `version_ganadora=servidor`, X **no
+   > se aplica**; el `updated_at` de C lo fijó el **PUT de Jorge** (paso 2), así que Y
+   > (`device_timestamp` anterior) conflictúa contra **ese** cambio del servidor — conflicto real.
+   > Además Y sería una transición inválida sobre C en `abierto`, pero el 409 de conflicto se
+   > **adelanta** porque `items.py:530` (detección de conflicto) corre ANTES de validar la
+   > transición. CTT-143 (autoconflicto) ya quedó demostrado con E en R2b.
 8. **[VOS]** Resolver ese segundo conflicto con Jorge (mismo curl del paso 5, con el nuevo
    `<CONFLICTO_ID>`). **Verificación final:** ninguna fila de `<ITEM_C>` en estado no terminal
-   y **ninguna** fila con `tomado_por` distinto de NULL.
+   y **ninguna fila de C en `enviando`**. (Las filas cerradas conservan `tomado_por`; es
+   inofensivo y ya verificado — no es criterio.)
 
 ## R5 — Huérfana en `enviando` recuperada por lease (CTT-127)
 
