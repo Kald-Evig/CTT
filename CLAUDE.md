@@ -23,3 +23,20 @@ Antes de cualquier desarrollo, modificación o corrección de código:
 5. **Al reportar resultados, mostrar evidencia cruda**: el código real (no un
    resumen parafraseado) y el output completo de los tests (no "X passed"
    reescrito). El revisor valida contra el artefacto real, no contra el resumen.
+
+## Regla de trabajo permanente: DRY con criterio (search-first)
+
+Antes de escribir un helper, componente, función, utilidad, clase o pantalla
+NUEVA —y antes de copiar código existente para una variante— aplicar la
+disciplina `dry-con-criterio`:
+
+1. **Buscar primero (search-first).** `grep`/`Glob` del concepto en TODO el repo
+   antes de crear nada: casi siempre ya existe un helper/patrón que cubre el caso
+   o que conviene parametrizar.
+
+2. **Árbol extraer-vs-duplicar.** Si hay código parecido en dos lugares, decidir
+   explícitamente entre extraer una abstracción, parametrizar lo existente, o
+   duplicar a propósito — no unificar por reflejo ni copiar por inercia.
+
+3. Aplica aunque la tarea parezca chica, aunque copiar parezca más rápido, y
+   aunque el código parecido "obviamente" deba unificarse.
