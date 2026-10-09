@@ -114,6 +114,8 @@ def resolver_item_access(
     item_id: str,
     ctx: AuthContext,
     db: Session,
+    *,
+    for_update: bool = False,
 ) -> Item:
     """Autorización resource-scoped para endpoints de ítem (función pura, sin Depends).
 
@@ -134,7 +136,7 @@ def resolver_item_access(
     """
     empresa_id = requiere_empresa(ctx)
 
-    row = (
+    q = (
         db.query(Item, Proyecto, ProyectoUsuario)
         .join(Proyecto, (Item.proyecto_id == Proyecto.id) & (Proyecto.empresa_id == empresa_id))
         .outerjoin(
@@ -144,8 +146,13 @@ def resolver_item_access(
             & (ProyectoUsuario.estado == UsuarioEstado.ACTIVO),
         )
         .filter(Item.id == item_id)
-        .first()
     )
+    if for_update:
+        # Lock de fila del ítem (Postgres) para serializar escrituras concurrentes del
+        # mismo ítem junto con version_id_col (CTT-143 P1). `of=Item`: no intenta lockear
+        # la tabla outer-joined. SQLite ignora FOR UPDATE (no-op inofensivo en la suite).
+        q = q.with_for_update(of=Item)
+    row = q.first()
     if row is None:
         raise HTTPException(404, "Ítem no encontrado.")
     item, proyecto, membresia = row
@@ -180,6 +187,17 @@ def require_item_access(
     endpoints de ítem que la usan vía `Depends`. transicion_item NO la usa (llama a
     resolver_item_access en el cuerpo para persistir sync_rechazos — CTT-103 D1)."""
     return resolver_item_access(item_id, ctx, db)
+
+
+def require_item_access_for_update(
+    item_id: str,
+    ctx: AuthContext = Depends(get_current_context),
+    db: Session = Depends(get_db),
+) -> Item:
+    """Como [require_item_access] pero toma el ítem con FOR UPDATE (CTT-143 P1).
+    Para los endpoints de ESCRITURA de ítem (editar / asignar / cerrar_problema /
+    revertir), que serializan sus mutaciones junto con version_id_col."""
+    return resolver_item_access(item_id, ctx, db, for_update=True)
 
 
 # ── Scope helpers (CTT-78) ────────────────────────────────────────────────────

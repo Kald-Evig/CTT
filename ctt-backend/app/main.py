@@ -16,9 +16,10 @@ from pathlib import Path
 
 import firebase_admin
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from firebase_admin import credentials as fb_credentials
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.config import settings
 from app.database import Base, engine
@@ -68,6 +69,23 @@ app = FastAPI(
         "Modo de autenticación actual: **%s**." % settings.AUTH_MODE
     ),
 )
+
+@app.exception_handler(StaleDataError)
+async def _stale_data_handler(request: Request, exc: StaleDataError) -> JSONResponse:
+    """CTT-143 P1: una colisión de version_id_col (otra transacción movió el ítem) es
+    TRANSITORIA. Se responde 503 con Retry-After, nunca 500. El 503 es no-2xx, así que el
+    IdempotencyMiddleware libera la reserva y el reintento se reevalúa contra la versión nueva."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "tipo": "version_en_transito",
+                "mensaje": "El ítem se modificó concurrentemente; reintentá.",
+            }
+        },
+        headers={"Retry-After": "1"},
+    )
+
 
 # CTT-105: idempotencia de mutaciones. Registrado ANTES de LoggingMiddleware para
 # quedar por DENTRO (Logging lo envuelve) y que todo request —incluido un replay

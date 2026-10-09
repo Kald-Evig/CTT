@@ -26,7 +26,11 @@ from app.auth import (
     get_current_context,
     requiere_empresa,
 )
-from app.authz import require_item_access, require_project_read, resolver_item_access
+from app.authz import (
+    require_item_access, require_item_access_for_update, require_project_read,
+    resolver_item_access,
+)
+from app.item_events import registrar_escritura_item
 from app.config import settings
 from app.database import get_db
 from app.enums import EvidenciaSyncStatus, ItemEstado, RechazoMotivo, Rol, UsuarioEstado
@@ -164,6 +168,14 @@ def crear_item(
         created_by=ctx.usuario.id,
     )
     db.add(item)
+    # Flush: asigna id, version=1 (version_id_col) y el default de estado antes de
+    # registrar el evento de creación (CTT-143 D1).
+    db.flush()
+    registrar_escritura_item(
+        db, item, accion="creacion",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        estado_nuevo=item.estado.value,
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -333,7 +345,7 @@ def detalle_item(
 def editar_item(
     item_id: str,
     body: ItemUpdate,
-    item: Item = Depends(require_item_access),
+    item: Item = Depends(require_item_access_for_update),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -370,6 +382,12 @@ def editar_item(
         proyecto_id=item.proyecto_id,
         diff=diff,
     )
+    # CTT-143 D1: una fila de historial por escritura, con la version resultante.
+    registrar_escritura_item(
+        db, item, accion="edicion_datos",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        diff=diff,
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -380,7 +398,7 @@ def editar_item(
 def asignar_item(
     item_id: str,
     body: AsignarItemIn,
-    item: Item = Depends(require_item_access),
+    item: Item = Depends(require_item_access_for_update),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -391,7 +409,29 @@ def asignar_item(
     # es miembro activo del proyecto (misma regla que crear_item — CTT-96).
     _validar_asignatario_trabajador(db, body.usuario_id, empresa_id)
     _validar_asignatario_miembro(db, body.usuario_id, item.proyecto_id)
+    asignado_anterior = item.asignado_a
     item.asignado_a = body.usuario_id
+
+    # CTT-143 D1: la asignación ahora deja rastro en audit_log (antes no escribía
+    # ninguno) y una fila de historial con la version resultante. El diff es la MISMA
+    # información para ambos registros: se arma una sola vez (asignado_a son ids/None,
+    # no requieren a_serializable, que solo transforma date).
+    diff_asignacion = {"asignado_a": [asignado_anterior, body.usuario_id]}
+    record_audit(
+        db,
+        empresa_id=empresa_id,
+        **actor_de(ctx),
+        accion="asignacion",
+        entidad_tipo="item",
+        entidad_id=item.id,
+        proyecto_id=item.proyecto_id,
+        diff=diff_asignacion,
+    )
+    registrar_escritura_item(
+        db, item, accion="asignacion",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        diff=diff_asignacion,
+    )
 
     # Notificación: ítem asignado a trabajador (Sección 9.2).
     destino = db.query(Usuario).filter(Usuario.id == body.usuario_id).first()
@@ -510,7 +550,7 @@ def transicion_item(
     # Acceso al ítem en el cuerpo (CTT-103 D1): permite persistir el rechazo en 403/404
     # sin afectar a las otras rutas que usan require_item_access vía Depends.
     try:
-        item = resolver_item_access(item_id, ctx, db)
+        item = resolver_item_access(item_id, ctx, db, for_update=True)
     except HTTPException as e:
         if persistir and e.status_code in (403, 404):
             motivo = (RechazoMotivo.NO_AUTORIZADO if e.status_code == 403
@@ -612,6 +652,15 @@ def transicion_item(
         device_ts=body.device_timestamp,
         synced_offline=body.device_timestamp is not None,
     )
+    # CTT-143 D1: historial del cambio de estado (antes lo escribía state_machine).
+    # dispositivo_id/idempotency_key quedan registrados en la fila (origen del comando).
+    registrar_escritura_item(
+        db, item, accion="cambio_estado",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        estado_anterior=estado_anterior, estado_nuevo=body.nuevo_estado.value,
+        detalle=body.comentario or body.descripcion_problema,
+        dispositivo_id=body.dispositivo_id, idempotency_key=idem_key,
+    )
 
     db.commit()
     db.refresh(item)
@@ -622,7 +671,7 @@ def transicion_item(
 @router.post("/{item_id}/cerrar-problema", response_model=ItemOut)
 def cerrar_problema_item(
     item_id: str,
-    item: Item = Depends(require_item_access),
+    item: Item = Depends(require_item_access_for_update),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -646,6 +695,13 @@ def cerrar_problema_item(
         diff={"estado": [ItemEstado.PROBLEMA.value, estado_restaurado]},
         detalle="Problema cerrado; estado restaurado.",
     )
+    # CTT-143 D1: historial del cierre (antes lo escribía state_machine).
+    registrar_escritura_item(
+        db, item, accion="cierre_problema",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        estado_anterior=ItemEstado.PROBLEMA.value, estado_nuevo=estado_restaurado,
+        detalle="Problema cerrado; estado restaurado.",
+    )
     db.commit()
     db.refresh(item)
     return item
@@ -656,7 +712,7 @@ def cerrar_problema_item(
 def revertir_terminado_item(
     item_id: str,
     motivo: str = Query(..., min_length=1),
-    item: Item = Depends(require_item_access),
+    item: Item = Depends(require_item_access_for_update),
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
@@ -675,6 +731,14 @@ def revertir_terminado_item(
         entidad_id=item.id,
         proyecto_id=item.proyecto_id,
         diff={"estado": [ItemEstado.TERMINADO.value, ItemEstado.PENDIENTE_REVISION.value]},
+        detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
+    )
+    # CTT-143 D1: historial de la reversión (antes lo escribía state_machine).
+    registrar_escritura_item(
+        db, item, accion="reversion_terminado",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        estado_anterior=ItemEstado.TERMINADO.value,
+        estado_nuevo=ItemEstado.PENDIENTE_REVISION.value,
         detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
     )
     db.commit()

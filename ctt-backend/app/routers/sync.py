@@ -36,6 +36,7 @@ from app.enums import (
     RescateEstado,
     UsuarioEstado,
 )
+from app.item_events import registrar_escritura_item
 from app.models import (
     ClaveIdempotencia,
     ColaRescate,
@@ -171,7 +172,8 @@ def resolver_conflicto(
     if conflicto.estado == ConflictoEstado.RESUELTO:
         raise HTTPException(409, "El conflicto ya fue resuelto.")
 
-    item = db.query(Item).filter(Item.id == conflicto.item_id).first()
+    # FOR UPDATE: serializa con las escrituras del ítem (version_id_col, CTT-143 P1).
+    item = db.query(Item).filter(Item.id == conflicto.item_id).with_for_update().first()
 
     if body.version_ganadora == "local":
         # Fix C — antes de aplicar la versión local, verificar que el estado del
@@ -191,7 +193,17 @@ def resolver_conflicto(
 
         nuevo_estado_str = (conflicto.cambio_local or {}).get("estado")
         if nuevo_estado_str:
+            estado_anterior_local = item.estado.value
             item.estado = ItemEstado(nuevo_estado_str)
+            # CTT-143 D1: la resolución que cambia el estado sube version y deja una
+            # fila de historial (accion conflictiva para la clasificación de D9).
+            registrar_escritura_item(
+                db, item, accion="resolucion_conflicto",
+                usuario_id=ctx.usuario.id,
+                actor_rol=ctx.rol.value if ctx.rol else None,
+                estado_anterior=estado_anterior_local, estado_nuevo=nuevo_estado_str,
+                detalle=f"Conflicto {conflicto.id}: ganó local.",
+            )
 
         # Fix A — preservar comentario del cambio local en item_comentarios con
         # prefijo que lo identifique como proveniente de una resolución de conflicto.

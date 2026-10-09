@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.enums import ItemEstado, ProblemaEstado, Rol
-from app.models import Item, ItemHistorial, ItemProblema
+from app.models import Item, ItemProblema
 
 
 class TransicionInvalida(Exception):
@@ -157,16 +157,9 @@ def transicionar(
         ))
 
     item.estado = nuevo_estado
-
-    # Registro en el log de cambios (Sección 10 / "Ver log de cambios").
-    db.add(ItemHistorial(
-        item_id=item.id,
-        usuario_id=usuario_id,
-        accion="cambio_estado",
-        estado_anterior=estado_actual.value,
-        estado_nuevo=nuevo_estado.value,
-        detalle=comentario or descripcion_problema,
-    ))
+    # El log de cambios lo escribe el router vía registrar_escritura_item (CTT-143 D1):
+    # un único helper sube version y escribe UNA fila de item_historial. Esta función
+    # solo valida y muta; captura estado_actual.value antes de devolver para el router.
     return item
 
 
@@ -205,15 +198,7 @@ def cerrar_problema(
     estado_restaurado = item.estado_previo or ItemEstado.EN_PROGRESO
     item.estado = estado_restaurado
     item.estado_previo = None
-
-    db.add(ItemHistorial(
-        item_id=item.id,
-        usuario_id=usuario_id,
-        accion="cierre_problema",
-        estado_anterior=ItemEstado.PROBLEMA.value,
-        estado_nuevo=estado_restaurado.value,
-        detalle="Problema cerrado; estado restaurado.",
-    ))
+    # Historial: lo escribe el router vía registrar_escritura_item (CTT-143 D1).
     return item
 
 
@@ -237,12 +222,5 @@ def revertir_terminado(
         raise TransicionInvalida("Revertir un terminado requiere un motivo.")
 
     item.estado = ItemEstado.PENDIENTE_REVISION
-    db.add(ItemHistorial(
-        item_id=item.id,
-        usuario_id=usuario_id,
-        accion="reversion_terminado",
-        estado_anterior=ItemEstado.TERMINADO.value,
-        estado_nuevo=ItemEstado.PENDIENTE_REVISION.value,
-        detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
-    ))
+    # Historial: lo escribe el router vía registrar_escritura_item (CTT-143 D1).
     return item
