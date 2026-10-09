@@ -23,7 +23,7 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Enum as _SAEnum, Float, ForeignKey, Index, Integer,
-    String, Text, JSON, UniqueConstraint,
+    String, Text, JSON, UniqueConstraint, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -183,6 +183,14 @@ class Item(Base):
     created_by: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+    # CTT-143 (A'): versión autoritativa del servidor. La gestiona version_id_col del
+    # ORM — sube en cada flush de un Item sucio (red de seguridad D2) y agrega version
+    # al WHERE del UPDATE (StaleDataError si otra transacción la movió). NO incrementar
+    # a mano: el helper registrar_escritura_item solo lee el valor post-flush.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+
+    # version_id_col: incremento automático + chequeo optimista en cada UPDATE del ítem.
+    __mapper_args__ = {"version_id_col": version}
 
     # Relaciones
     proyecto: Mapped["Proyecto"] = relationship(back_populates="items")
@@ -269,6 +277,14 @@ class ItemHistorial(Base):
     estado_anterior: Mapped[str | None] = mapped_column(String(50), nullable=True)
     estado_nuevo: Mapped[str | None] = mapped_column(String(50), nullable=True)
     detalle: Mapped[str | None] = mapped_column(Text, nullable=True)  # comentario/descr.
+    # CTT-143 (A' / D1): item_historial pasa a ser el registro COMPLETO de eventos del
+    # ítem. Columnas nullable para las filas previas a esta migración.
+    version: Mapped[int | None] = mapped_column(Integer, nullable=True)      # version del ítem POSTERIOR a esta escritura
+    diff: Mapped[dict | None] = mapped_column(JSON, nullable=True)           # {campo: [anterior, nuevo]}
+    dispositivo_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # actor_rol denormalizado (rol vigente al actuar), mismo criterio que audit_log.actor_rol (D1/P2).
+    actor_rol: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     item: Mapped["Item"] = relationship(back_populates="historial")
@@ -279,11 +295,25 @@ class ItemHistorial(Base):
 # ─────────────────────────────────────────────────────────────────────────────
 class SyncConflicto(Base):
     __tablename__ = "sync_conflictos"
+    __table_args__ = (
+        # CTT-143 (D4 / CTT-136 absorbido): idempotencia del conflicto. UNIQUE PARCIAL
+        # (solo filas con idempotency_key no nulo) para que el lookup previo devuelva el
+        # MISMO conflicto_id en un reintento y no se dupliquen filas. Las filas previas
+        # (idempotency_key NULL) no entran al índice: múltiples NULL conviven.
+        Index(
+            "uq_sync_conflictos_idem", "idempotency_key", unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"))
     cambio_local: Mapped[dict] = mapped_column(JSON)     # snapshot del cambio offline
     cambio_servidor: Mapped[dict] = mapped_column(JSON)  # estado del servidor al conflicto
+    # CTT-143 (D4): clave de idempotencia del comando que originó el conflicto. Nullable:
+    # las filas previas y los conflictos no originados por la cola no la traen.
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     dispositivo_id: Mapped[str] = mapped_column(String(255))
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuarios.id"))
     estado: Mapped[ConflictoEstado] = mapped_column(SAEnum(ConflictoEstado, native_enum=False, create_constraint=True, name="estado"), default=ConflictoEstado.PENDIENTE)
