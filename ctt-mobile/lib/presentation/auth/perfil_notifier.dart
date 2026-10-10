@@ -45,9 +45,12 @@ class PerfilSesion extends _$PerfilSesion {
     }
     await storage.guardarUsuarioId(perfil.id);
 
-    // Persistir sesión en Drift para acceso offline.
+    // Persistir sesión en Drift para acceso offline. firebaseUid = usuario.uid
+    // (Firebase), para que el fallback offline (CTT-138) case contra el uid que
+    // emite authStateChanges(), no contra el id interno de CTT.
     await dao.guardarPerfil(
       perfil: perfil,
+      firebaseUid: usuario.uid,
       empresaId: empresa?.empresaId ?? '',
       empresaNombre: empresa?.empresaNombre ?? '',
       rolActual: empresa?.rol.valor ?? '',

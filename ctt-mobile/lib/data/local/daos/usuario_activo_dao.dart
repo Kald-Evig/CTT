@@ -21,8 +21,13 @@ class UsuarioActivoDao extends DatabaseAccessor<BaseDatosCTT>
   UsuarioActivoDao(super.db);
 
   /// Guarda (o reemplaza) el perfil activo en la tabla.
+  ///
+  /// [firebaseUid] es el UID de Firebase (`usuario.uid`), NO el id interno de CTT
+  /// (`perfil.id`): el fallback offline (CTT-138) casa la fila contra el uid que
+  /// emite `authStateChanges()`, así que debe guardarse ese valor.
   Future<void> guardarPerfil({
     required PerfilUsuario perfil,
+    required String firebaseUid,
     required String empresaId,
     required String empresaNombre,
     required String rolActual,
@@ -31,7 +36,7 @@ class UsuarioActivoDao extends DatabaseAccessor<BaseDatosCTT>
     await into(usuarioActivoTable).insert(
       UsuarioActivoTableCompanion.insert(
         id: perfil.id,
-        firebaseUid: perfil.esSuperAdmin ? '' : perfil.id,
+        firebaseUid: firebaseUid,
         nombreCompleto: perfil.nombreCompleto,
         email: perfil.email,
         rolActual: rolActual,
