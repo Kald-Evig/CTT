@@ -31,8 +31,10 @@ class ExcepcionSinPermiso implements Exception {
 /// un recurso), esto significa que la SESIÓN ya no es válida → la app debe ir a login
 /// (CTT-138). El backend emitirá estos `code` con CTT-88; el cliente ya los clasifica.
 class ExcepcionCuentaRevocada implements Exception {
-  const ExcepcionCuentaRevocada(this.code,
-      [this.mensaje = 'La cuenta fue deshabilitada o la sesión revocada.']);
+  const ExcepcionCuentaRevocada(
+    this.code, [
+    this.mensaje = 'La cuenta fue deshabilitada o la sesión revocada.',
+  ]);
   final String code;
   final String mensaje;
   @override

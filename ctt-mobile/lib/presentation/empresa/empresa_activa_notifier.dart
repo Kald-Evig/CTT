@@ -7,6 +7,7 @@ library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
 import 'package:ctt_mobile/domain/entities/perfil_usuario.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
 
@@ -16,7 +17,7 @@ part 'empresa_activa_notifier.g.dart';
 class EmpresaActiva extends _$EmpresaActiva {
   @override
   String? build() {
-    final perfil = ref.watch(perfilSesionProvider).valueOrNull;
+    final perfil = ref.watch(perfilSesionProvider).valueOrNull?.perfil;
     if (perfil == null) return null;
     // Una sola empresa: auto-selección transparente.
     if (perfil.empresas.length == 1) return perfil.empresas.first.empresaId;
@@ -25,8 +26,15 @@ class EmpresaActiva extends _$EmpresaActiva {
   }
 
   /// Persiste la empresa elegida y actualiza el estado para que el router redirija.
+  /// Además escribe empresa/nombre/rol en `usuario_activo`, para que el fallback
+  /// offline (CTT-138) restaure la ÚLTIMA empresa activa.
   Future<void> seleccionar(EmpresaPerfil empresa) async {
     await ref.read(secureStorageProvider).guardarEmpresaId(empresa.empresaId);
+    await ref.read(usuarioActivoDaoProvider).actualizarEmpresaActiva(
+          empresaId: empresa.empresaId,
+          empresaNombre: empresa.empresaNombre,
+          rolActual: empresa.rol.valor,
+        );
     state = empresa.empresaId;
   }
 }

@@ -13,7 +13,6 @@ import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
 import 'package:ctt_mobile/presentation/arranque/pantalla_recuperacion.dart';
-import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
@@ -53,33 +52,31 @@ abstract final class Rutas {
 
 // ── Estado de autenticación (simplificado para la fase de cimientos) ──────────
 
-/// Estado mínimo de auth para el router.
-/// La implementación completa con FirebaseAuth va en Fase 1.2.
-enum EstadoAuth { cargando, autenticado, sinSesion }
+/// Estado de auth para el router (CTT-138). `autenticadoOffline` = perfil servido
+/// desde Drift porque /me falló por transporte; `sesionRevocada` = 401 o 403 con
+/// code de cuenta (va a login, igual que `sinSesion`).
+enum EstadoAuth { cargando, autenticado, autenticadoOffline, sesionRevocada, sinSesion }
 
 @riverpod
 EstadoAuth estadoAuth(EstadoAuthRef ref) {
-  final userAsync = ref.watch(firebaseAuthStreamProvider);
-  return userAsync.when(
-    data: (user) {
-      if (user == null) return EstadoAuth.sinSesion;
-      // Esperar a que /me complete antes de redirigir al router.
-      // Evita mostrar /inicio como destino intermedio mientras carga el rol.
-      final perfilAsync = ref.watch(perfilSesionProvider);
-      if (perfilAsync.isLoading) return EstadoAuth.cargando;
-      // Si /me falla (red caída, 401, etc.) volver al login.
-      if (perfilAsync.hasError) return EstadoAuth.sinSesion;
-      return EstadoAuth.autenticado;
-    },
+  // PerfilSesion.build ya awaitea el stream de Firebase y clasifica el resultado
+  // (online / offline / revocada / sinSesion), así que estadoAuth deriva solo de él.
+  return ref.watch(perfilSesionProvider).when(
     loading: () => EstadoAuth.cargando,
     error: (_, __) => EstadoAuth.sinSesion,
+    data: (r) => switch (r.modo) {
+      ModoSesion.online => EstadoAuth.autenticado,
+      ModoSesion.offline => EstadoAuth.autenticadoOffline,
+      ModoSesion.revocada => EstadoAuth.sesionRevocada,
+      ModoSesion.sinSesion => EstadoAuth.sinSesion,
+    },
   );
 }
 
 /// Rol en la empresa activa; null mientras no haya empresa seleccionada.
 @riverpod
 String? rolUsuarioActual(RolUsuarioActualRef ref) {
-  final perfil = ref.watch(perfilSesionProvider).valueOrNull;
+  final perfil = ref.watch(perfilSesionProvider).valueOrNull?.perfil;
   final empresaActivaId = ref.watch(empresaActivaProvider);
   if (perfil == null || empresaActivaId == null) return null;
   final empresa = perfil.empresas
@@ -94,7 +91,7 @@ String? rolUsuarioActual(RolUsuarioActualRef ref) {
 GoRouter router(RouterRef ref) {
   final auth = ref.watch(estadoAuthProvider);
   final rol = ref.watch(rolUsuarioActualProvider);
-  final perfil = ref.watch(perfilSesionProvider).valueOrNull;
+  final perfil = ref.watch(perfilSesionProvider).valueOrNull?.perfil;
   final empresaActiva = ref.watch(empresaActivaProvider);
 
   return GoRouter(
@@ -102,13 +99,16 @@ GoRouter router(RouterRef ref) {
     redirect: (context, state) {
       if (auth == EstadoAuth.cargando) return null;
 
-      final sinSesion = auth == EstadoAuth.sinSesion;
+      // Sesión revocada (401/403-code) va al login igual que sin sesión.
+      final vaALogin =
+          auth == EstadoAuth.sinSesion || auth == EstadoAuth.sesionRevocada;
       final ubicacion = state.matchedLocation;
 
-      // Sin sesión: siempre al login.
-      if (sinSesion) {
+      // Sin sesión o revocada: siempre al login.
+      if (vaALogin) {
         return ubicacion == Rutas.login ? null : Rutas.login;
       }
+      // Aquí: autenticado o autenticadoOffline — ambos tienen perfil usable.
 
       // Autenticado pero necesita elegir empresa.
       final multiEmpresa = (perfil?.empresas.length ?? 0) > 1;

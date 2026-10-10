@@ -70,4 +70,30 @@ void main() {
     expect(fila!.firebaseUid, 'super-firebase-uid');
     expect(fila.esSuperAdmin, isTrue);
   });
+
+  test('actualizarEmpresaActiva cambia empresa/nombre/rol sin tocar el resto (CTT-138)',
+      () async {
+    await dao.guardarPerfil(
+      perfil: perfilDe(id: 'ctt-id'),
+      firebaseUid: 'fb-uid',
+      empresaId: 'emp-1',
+      empresaNombre: 'Andes Sur',
+      rolActual: 'trabajador',
+    );
+
+    await dao.actualizarEmpresaActiva(
+      empresaId: 'emp-2',
+      empresaNombre: 'Obras Biobío',
+      rolActual: 'residente',
+    );
+
+    final fila = await dao.obtenerActivo();
+    expect(fila!.empresaId, 'emp-2');
+    expect(fila.empresaNombre, 'Obras Biobío');
+    expect(fila.rolActual, 'residente');
+    // El resto de la identidad no cambia.
+    expect(fila.id, 'ctt-id');
+    expect(fila.firebaseUid, 'fb-uid');
+    expect(fila.email, 'luis@andessur.cl');
+  });
 }

@@ -47,6 +47,22 @@ class UsuarioActivoDao extends DatabaseAccessor<BaseDatosCTT>
     );
   }
 
+  /// Actualiza la empresa activa (id, nombre y rol) de la fila única, para que el
+  /// fallback offline restaure la ÚLTIMA empresa elegida (CTT-138). La llama
+  /// `EmpresaActiva.seleccionar()`. No-op si no hay fila.
+  Future<void> actualizarEmpresaActiva({
+    required String empresaId,
+    required String empresaNombre,
+    required String rolActual,
+  }) =>
+      update(usuarioActivoTable).write(
+        UsuarioActivoTableCompanion(
+          empresaId: Value(empresaId),
+          empresaNombre: Value(empresaNombre),
+          rolActual: Value(rolActual),
+        ),
+      );
+
   Future<UsuarioActivoTableData?> obtenerActivo() =>
       (select(usuarioActivoTable)..limit(1)).getSingleOrNull();
 

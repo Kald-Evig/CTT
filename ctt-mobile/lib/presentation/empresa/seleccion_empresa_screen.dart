@@ -26,7 +26,8 @@ class SeleccionEmpresaScreen extends ConsumerWidget {
       body: perfilAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
-        data: (perfil) {
+        data: (resultado) {
+          final perfil = resultado.perfil;
           if (perfil == null || perfil.empresas.isEmpty) {
             return const Center(
               child: Text('Sin empresas asignadas. Contacta a tu administrador.'),
