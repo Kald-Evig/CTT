@@ -69,6 +69,24 @@ String? extraerTipoDetail(DioException e) => _detailString(e, 'tipo');
 /// inexistente), o null. Es el motivo del SERVIDOR; se persiste junto al rechazo.
 String? extraerMotivoRechazo(DioException e) => _detailString(e, 'motivo');
 
+/// `detail.code` de un error de negocio con código (p. ej. `usuario_deshabilitado`,
+/// `tenant_suspendido` en un 403, o `USUARIO_CON_ITEMS_ACTIVOS` en un 409), o null.
+String? extraerCodeDetail(DioException e) => _detailString(e, 'code');
+
+/// `code` de un 403 que significa que la CUENTA/SESIÓN dejó de ser válida (CTT-138).
+/// Fuente única: la usa [esCuentaRevocada403] para distinguir ese 403 de uno de
+/// permiso. El backend emitirá estos `code` con CTT-88.
+const codigosCuentaRevocada = <String>{
+  'usuario_deshabilitado',
+  'tenant_suspendido',
+};
+
+/// true si [e] es un 403 cuyo `detail.code` está en [codigosCuentaRevocada] — o sea,
+/// una cuenta deshabilitada / tenant suspendido, no un 403 de permiso sobre un recurso.
+bool esCuentaRevocada403(DioException e) =>
+    e.response?.statusCode == 403 &&
+    codigosCuentaRevocada.contains(extraerCodeDetail(e));
+
 /// Lee `detail.<clave>` como String cuando `detail` es un Map; null en cualquier
 /// otra forma (sin body, detail String/List, o sin la clave).
 String? _detailString(DioException e, String clave) {

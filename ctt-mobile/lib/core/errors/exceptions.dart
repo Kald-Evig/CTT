@@ -26,6 +26,19 @@ class ExcepcionSinPermiso implements Exception {
   String toString() => 'ExcepcionSinPermiso: $mensaje';
 }
 
+/// 403 con un `code` de cuenta en el cuerpo (p. ej. `usuario_deshabilitado`,
+/// `tenant_suspendido`). A diferencia de [ExcepcionSinPermiso] (403 de permiso sobre
+/// un recurso), esto significa que la SESIÓN ya no es válida → la app debe ir a login
+/// (CTT-138). El backend emitirá estos `code` con CTT-88; el cliente ya los clasifica.
+class ExcepcionCuentaRevocada implements Exception {
+  const ExcepcionCuentaRevocada(this.code,
+      [this.mensaje = 'La cuenta fue deshabilitada o la sesión revocada.']);
+  final String code;
+  final String mensaje;
+  @override
+  String toString() => 'ExcepcionCuentaRevocada($code): $mensaje';
+}
+
 class ExcepcionValidacion implements Exception {
   const ExcepcionValidacion(this.mensaje);
   final String mensaje;

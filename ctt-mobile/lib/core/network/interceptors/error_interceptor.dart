@@ -37,7 +37,16 @@ class ErrorInterceptor extends Interceptor {
         alCerrarSesion();
         handler.reject(err.copyWith(error: const ExcepcionNoAutorizado()));
       case 403:
-        handler.reject(err.copyWith(error: const ExcepcionSinPermiso()));
+        // Un 403 con `code` de cuenta (usuario_deshabilitado / tenant_suspendido) es
+        // sesión revocada, no permiso sobre un recurso (CTT-138). Se deja de descartar
+        // el body del 403: se lee `detail.code` y se tipa en consecuencia.
+        if (esCuentaRevocada403(err)) {
+          handler.reject(err.copyWith(
+            error: ExcepcionCuentaRevocada(extraerCodeDetail(err)!),
+          ),);
+        } else {
+          handler.reject(err.copyWith(error: const ExcepcionSinPermiso()));
+        }
       case 422:
         // FastAPI devuelve validación Pydantic en el campo detail (lista de
         // errores). El parseo compartido resume los `msg` legibles (CTT-65).

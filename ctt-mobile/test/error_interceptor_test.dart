@@ -1,10 +1,10 @@
-/// error_interceptor_test.dart — CTT-102.
+/// error_interceptor_test.dart — CTT-102 + CTT-138.
 ///
-/// Verifica que el ErrorInterceptor NO descarta `response` al traducir un error
-/// HTTP a excepción tipada. El defecto original (crear una DioException nueva sin
-/// `response`) dejaba a ciclo_sync sin `statusCode`, clasificando un 403 permanente
-/// como error de red transitorio. El fix usa `err.copyWith(error: ...)`, que
-/// preserva `response` vía `?? this.response`.
+/// CTT-102: el ErrorInterceptor NO descarta `response` al traducir un error HTTP a
+/// excepción tipada (el defecto dejaba a ciclo_sync sin `statusCode`).
+/// CTT-138: el 403 deja de descartar el body — un `detail.code` de cuenta
+/// (usuario_deshabilitado / tenant_suspendido) se tipa como ExcepcionCuentaRevocada
+/// (sesión revocada), y un 403 sin ese code sigue siendo ExcepcionSinPermiso.
 library;
 
 import 'dart:typed_data';
@@ -17,57 +17,106 @@ import 'package:ctt_mobile/core/errors/exceptions.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/network/interceptors/error_interceptor.dart';
 
-/// Adapter que responde 403 con el body real del backend, sin tocar la red.
-class _Adapter403 implements HttpClientAdapter {
+/// Adapter que responde un [body]/[status] fijo, sin tocar la red.
+class _AdapterFijo implements HttpClientAdapter {
+  _AdapterFijo(this.body, this.status);
+  final String body;
+  final int status;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) async {
-    return ResponseBody.fromString(
-      '{"detail":"Este ítem no está asignado a usted."}',
-      403,
-      headers: {
-        Headers.contentTypeHeader: [Headers.jsonContentType],
-      },
-    );
-  }
+  ) async =>
+      ResponseBody.fromString(
+        body,
+        status,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
 
   @override
   void close({bool force = false}) {}
 }
 
-void main() {
-  test('403 con body: response sobrevive al ErrorInterceptor (CTT-102)', () async {
-    final dio = Dio(BaseOptions(baseUrl: 'http://test.local'))
-      ..httpClientAdapter = _Adapter403()
+Dio _dioCon(String body, int status) =>
+    Dio(BaseOptions(baseUrl: 'http://test.local'))
+      ..httpClientAdapter = _AdapterFijo(body, status)
       ..interceptors.add(
-        ErrorInterceptor(
-          Logger(level: Level.off),
-          alCerrarSesion: () async {},
-        ),
+        ErrorInterceptor(Logger(level: Level.off), alCerrarSesion: () async {}),
       );
 
-    DioException? capturada;
-    try {
-      await dio.post<void>('/items/x/transicion');
-    } on DioException catch (e) {
-      capturada = e;
-    }
+Future<DioException> _capturar(Dio dio) async {
+  try {
+    await dio.get<void>('/me');
+    fail('la request debía fallar');
+  } on DioException catch (e) {
+    return e;
+  }
+}
 
-    // Debe haber fallado (403 no es 2xx).
-    expect(capturada, isNotNull);
+void main() {
+  test('403 con body: response sobrevive al ErrorInterceptor (CTT-102)', () async {
+    final e = await _capturar(
+      _dioCon('{"detail":"Este ítem no está asignado a usted."}', 403),
+    );
 
     // 1) El statusCode sobrevive: ciclo_sync lo lee de e.response?.statusCode.
-    expect(capturada!.response?.statusCode, 403);
-
+    expect(e.response?.statusCode, 403);
     // 2) El motivo es el string del backend, NO el genérico 'Error de red'.
-    final motivo = extraerDetalleBackend(capturada);
-    expect(motivo, 'Este ítem no está asignado a usted.');
-    expect(motivo, isNot('Error de red'));
+    expect(extraerDetalleBackend(e), 'Este ítem no está asignado a usted.');
+    // 3) 403 de permiso (detail String, sin code) → ExcepcionSinPermiso.
+    expect(e.error, isA<ExcepcionSinPermiso>());
+  });
 
-    // 3) La excepción tipada se conserva (no se rompió la traducción).
-    expect(capturada.error, isA<ExcepcionSinPermiso>());
+  test('403 con detail.code de cuenta → ExcepcionCuentaRevocada (CTT-138)', () async {
+    final e = await _capturar(
+      _dioCon(
+        '{"detail":{"code":"usuario_deshabilitado","mensaje":"Cuenta deshabilitada."}}',
+        403,
+      ),
+    );
+
+    expect(e.response?.statusCode, 403);
+    expect(e.error, isA<ExcepcionCuentaRevocada>());
+    expect((e.error as ExcepcionCuentaRevocada).code, 'usuario_deshabilitado');
+  });
+
+  test('403 con detail.code NO de cuenta → ExcepcionSinPermiso (CTT-138)', () async {
+    final e = await _capturar(
+      _dioCon('{"detail":{"code":"ALGO_RARO"}}', 403),
+    );
+
+    expect(e.error, isA<ExcepcionSinPermiso>());
+    expect(e.error, isNot(isA<ExcepcionCuentaRevocada>()));
+  });
+
+  test('esCuentaRevocada403 sobre bodies fabricados (CTT-138)', () {
+    DioException err403(Object? data) {
+      final ro = RequestOptions(path: '/me');
+      return DioException(
+        requestOptions: ro,
+        response: Response<dynamic>(
+            requestOptions: ro, statusCode: 403, data: data),
+        type: DioExceptionType.badResponse,
+      );
+    }
+
+    expect(
+      esCuentaRevocada403(err403({
+        'detail': {'code': 'tenant_suspendido'}
+      })),
+      isTrue,
+    );
+    expect(
+      esCuentaRevocada403(err403({
+        'detail': {'code': 'otro'}
+      })),
+      isFalse,
+    );
+    // detail String (403 de permiso) → sin code → false.
+    expect(esCuentaRevocada403(err403({'detail': 'sin permiso'})), isFalse);
   });
 }
