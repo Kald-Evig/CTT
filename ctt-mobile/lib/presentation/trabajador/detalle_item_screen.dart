@@ -63,6 +63,7 @@ class _CuerpoDetalle extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const BannerOffline(),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -97,7 +98,7 @@ class _CuerpoDetalle extends ConsumerWidget {
           const SizedBox(height: 32),
           const Divider(),
           const SizedBox(height: 16),
-          _AccionesEstado(item: item, estado: estado),
+          GateCapturaOffline(acciones: _AccionesEstado(item: item, estado: estado)),
         ],
       ),
     );

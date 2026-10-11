@@ -18,6 +18,7 @@ class SecureStorageService {
   static const _claveEmpresaId = '_ctt_empresa_id';
   static const _claveUsuarioId = '_ctt_usuario_id';
   static const _claveFirebaseUid = '_ctt_firebase_uid';
+  static const _claveUltimoContacto = '_ctt_ultimo_contacto';
 
   // ── Token JWT ─────────────────────────────────────────────────────────────
 
@@ -53,6 +54,22 @@ class SecureStorageService {
 
   Future<void> escribirClave(String clave, String valor) =>
       _storage.write(key: clave, value: valor);
+
+  // ── Último contacto con el servidor (CTT-138: ventana offline) ─────────────
+
+  /// Guarda el instante (UTC, ISO-8601) de la última respuesta 2xx autenticada.
+  /// Lo escribe `UltimoContactoInterceptor` en cualquier 2xx del Dio interactivo o
+  /// de sync; ambos isolates comparten esta clave.
+  Future<void> guardarUltimoContacto(DateTime cuando) => _storage.write(
+        key: _claveUltimoContacto,
+        value: cuando.toUtc().toIso8601String(),
+      );
+
+  /// Último contacto con el servidor (UTC), o null si nunca hubo.
+  Future<DateTime?> obtenerUltimoContacto() async {
+    final raw = await _storage.read(key: _claveUltimoContacto);
+    return raw == null ? null : DateTime.tryParse(raw)?.toUtc();
+  }
 
   // ── Logout: limpia TODOS los datos del usuario ────────────────────────────
 

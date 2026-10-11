@@ -16,6 +16,7 @@ import 'package:ctt_mobile/core/sync/transicion_service.dart'
     show SesionNoDisponibleException;
 import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
+import 'package:ctt_mobile/presentation/auth/ventana_offline.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 
@@ -39,6 +40,7 @@ class ItemDetalleCuerpo extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const BannerOffline(),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -526,4 +528,64 @@ String itemDetalleMensajeError(Object e) {
         : 'Sin conexión con el servidor';
   }
   return e.toString();
+}
+
+// ── Sesión offline (CTT-138) ──────────────────────────────────────────────────
+
+/// Banner "Sin conexión · verificado hace X" cuando la sesión es `autenticadoOffline`.
+/// Vacío (sin ocupar espacio) cuando hay conexión o aún no se resolvió el estado.
+class BannerOffline extends ConsumerWidget {
+  const BannerOffline({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final estado = ref.watch(estadoVentanaOfflineProvider).valueOrNull;
+    if (estado == null || !estado.esOffline) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      color: theme.colorScheme.secondaryContainer,
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 18,
+            color: theme.colorScheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Sin conexión · verificado ${verificadoHaceTexto(estado.verificadoHace)}',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSecondaryContainer),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Envuelve la sección de acciones (botones de transición). Si la ventana offline
+/// venció, bloquea la captura y muestra "Conéctate para seguir" (la cola no se toca);
+/// si no, muestra [acciones] tal cual.
+class GateCapturaOffline extends ConsumerWidget {
+  const GateCapturaOffline({super.key, required this.acciones});
+
+  final Widget acciones;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final estado = ref.watch(estadoVentanaOfflineProvider).valueOrNull;
+    if (estado != null && estado.esOffline && estado.vencida) {
+      return const ItemDetalleMensajeEstado(
+        icono: Icons.cloud_off_outlined,
+        texto:
+            'Conéctate para seguir. La ventana sin conexión venció; tus cambios en '
+            'cola se conservan.',
+      );
+    }
+    return acciones;
+  }
 }

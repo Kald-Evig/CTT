@@ -15,6 +15,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/network/interceptors/auth_interceptor.dart';
 import 'package:ctt_mobile/core/network/interceptors/error_interceptor.dart';
+import 'package:ctt_mobile/core/network/interceptors/ultimo_contacto_interceptor.dart';
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 
 part 'dio_client.g.dart';
@@ -75,6 +76,8 @@ Dio dioClient(DioClientRef ref) {
       // TODO Fase 1.3: disparar evento de logout en el AuthNotifier de Riverpod.
     },
   ),);
+  // CTT-138: registra el último contacto 2xx (ventana offline).
+  dio.interceptors.add(UltimoContactoInterceptor(storage));
   _agregarLogDebug(dio, log);
   return dio;
 }
@@ -93,6 +96,8 @@ Dio dioSync(DioSyncRef ref) {
   dio.options.headers['X-Sync-Origen'] = 'cola';
   dio.interceptors.add(AuthInterceptor(storage));
   // Sin ErrorInterceptor a propósito: el sync no desloguea ante 401.
+  // CTT-138: registra el último contacto 2xx (mismo hook que el interactivo).
+  dio.interceptors.add(UltimoContactoInterceptor(storage));
   _agregarLogDebug(dio, log);
   return dio;
 }

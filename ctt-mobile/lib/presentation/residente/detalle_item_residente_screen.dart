@@ -38,7 +38,7 @@ class DetalleItemResidenteScreen extends ConsumerWidget {
         ),
         data: (item) => ItemDetalleCuerpo(
           item: item,
-          acciones: _AccionesResidente(item: item),
+          acciones: GateCapturaOffline(acciones: _AccionesResidente(item: item)),
         ),
       ),
     );
