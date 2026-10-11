@@ -21,6 +21,15 @@ import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 
 part 'conectividad_listener.g.dart';
 
+/// Chequeo PUNTUAL de conectividad (best-effort), para la guardia de cierre de sesión
+/// (CTT-138). Nota: con VPN activa el resultado puede quedar enmascarado (CTT-141), así
+/// que es solo un indicio — la decisión dura la toma el flush real.
+@riverpod
+Future<bool> hayConexion(HayConexionRef ref) async {
+  final resultados = await Connectivity().checkConnectivity();
+  return resultados.any((r) => r != ConnectivityResult.none);
+}
+
 @Riverpod(keepAlive: true)
 class ConectividadListener extends _$ConectividadListener {
   @override

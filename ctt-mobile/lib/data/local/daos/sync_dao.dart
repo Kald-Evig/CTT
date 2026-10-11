@@ -344,4 +344,16 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     final row = await q.getSingle();
     return row.read(count) ?? 0;
   }
+
+  /// Cuenta filas en estados NO terminales (pendiente / enviando / esperando_resolucion):
+  /// cambios que todavía no se sincronizaron. Para la guardia de cierre de sesión
+  /// (CTT-138). Reusa [_estadosBloqueantes] (misma definición de "no terminal").
+  Future<int> contarNoTerminales() async {
+    final count = syncPendientes.id.count();
+    final q = selectOnly(syncPendientes)
+      ..addColumns([count])
+      ..where(syncPendientes.estado.isIn(_estadosBloqueantes));
+    final row = await q.getSingle();
+    return row.read(count) ?? 0;
+  }
 }
