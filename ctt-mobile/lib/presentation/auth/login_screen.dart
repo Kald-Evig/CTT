@@ -7,6 +7,7 @@ library;
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/presentation/auth/auth_notifier.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -41,6 +42,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authNotifierProvider);
     final cargando = authState.isLoading;
+    // CTT-84: aviso PROACTIVO cuando no hay red — el primer ingreso (o cualquier
+    // login) necesita conexión; sin ella signInWithEmailAndPassword no puede funcionar.
+    final sinRed = ref.watch(hayConexionProvider).valueOrNull == false;
 
     // Muestra error como SnackBar cuando falla el login.
     ref.listen(authNotifierProvider, (_, next) {
@@ -87,6 +91,44 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                   ),
+                  if (sinRed) ...[
+                    const SizedBox(height: 24),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.cloud_off_outlined,
+                            size: 18,
+                            color:
+                                Theme.of(context).colorScheme.onErrorContainer,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'El primer ingreso requiere conexión.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onErrorContainer,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 40),
 
                   // ── Campo email ──────────────────────────────────────────
