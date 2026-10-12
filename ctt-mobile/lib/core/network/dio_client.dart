@@ -24,14 +24,19 @@ part 'dio_client.g.dart';
 SecureStorageService secureStorage(SecureStorageRef ref) =>
     SecureStorageService();
 
-@riverpod
-Logger logger(LoggerRef ref) => Logger(
+/// Logger de la app. Fuente ÚNICA de la config (nivel por release + printer): la usan
+/// [logger] (foreground, vía Riverpod) y el isolate headless de WorkManager, que no
+/// tiene ProviderScope (CTT-138 c7).
+Logger crearLogger() => Logger(
       level: Entorno.esRelease ? Level.off : Level.debug,
       printer: PrettyPrinter(
         methodCount: 0,
         dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
       ),
     );
+
+@riverpod
+Logger logger(LoggerRef ref) => crearLogger();
 
 /// Opciones base compartidas por TODOS los Dio de la app: baseUrl, timeouts y headers
 /// comunes. Fuente única — no copiar esta configuración. El mapa de headers es NUEVO
@@ -82,22 +87,27 @@ Dio dioClient(DioClientRef ref) {
   return dio;
 }
 
-/// Dio para la COLA de sync (foreground), separado del interactivo (CTT-103 D4):
-/// mismas opciones base + AuthInterceptor (JWT/empresa), PERO SIN ErrorInterceptor —
-/// su efecto 401→logout no aplica al sync, que PAUSA la cola en vez de desloguear (el
-/// ciclo clasifica el 401). Agrega `X-Sync-Origen: cola`, que habilita en el backend
-/// la persistencia de rechazos deterministas (R2).
+/// Config ÚNICA del Dio de la COLA de sync (CTT-103 D4 + CTT-138 c7): opciones base +
+/// `X-Sync-Origen: cola` + `UltimoContactoInterceptor` (renueva la ventana offline ante
+/// cualquier 2xx) + log de debug. SIN ErrorInterceptor: el 401 lo PAUSA el ciclo, no
+/// desloguea. La AUTENTICACIÓN se agrega aparte: [dioSync] (foreground) con
+/// `AuthInterceptor`; el isolate headless de WorkManager setea Authorization/
+/// X-Empresa-Id a mano. Así el 2xx de una corrida en background también actualiza
+/// `ultimo_contacto_servidor`.
+Dio crearDioSync(SecureStorageService storage, Logger log) {
+  final dio = Dio(opcionesBaseDio());
+  dio.options.headers['X-Sync-Origen'] = 'cola';
+  dio.interceptors.add(UltimoContactoInterceptor(storage));
+  _agregarLogDebug(dio, log);
+  return dio;
+}
+
+/// Dio para la COLA de sync (foreground), separado del interactivo (CTT-103 D4).
+/// Usa [crearDioSync] y le agrega `AuthInterceptor` (JWT/empresa vía Riverpod).
 @riverpod
 Dio dioSync(DioSyncRef ref) {
   final storage = ref.watch(secureStorageProvider);
-  final log = ref.watch(loggerProvider);
-
-  final dio = Dio(opcionesBaseDio());
-  dio.options.headers['X-Sync-Origen'] = 'cola';
+  final dio = crearDioSync(storage, ref.watch(loggerProvider));
   dio.interceptors.add(AuthInterceptor(storage));
-  // Sin ErrorInterceptor a propósito: el sync no desloguea ante 401.
-  // CTT-138: registra el último contacto 2xx (mismo hook que el interactivo).
-  dio.interceptors.add(UltimoContactoInterceptor(storage));
-  _agregarLogDebug(dio, log);
   return dio;
 }

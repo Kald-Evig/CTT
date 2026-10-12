@@ -11,13 +11,13 @@
 ///   5. Detectar conflictos (HTTP 409) y marcarlos para resolución manual.
 library;
 
-import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
-import 'package:ctt_mobile/core/network/dio_client.dart' show opcionesBaseDio;
+import 'package:ctt_mobile/core/network/dio_client.dart'
+    show crearDioSync, crearLogger;
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/data/local/apertura_base.dart';
@@ -113,20 +113,22 @@ Future<void> _ejecutarCicloSync() async {
     if (jwt == null) return;
     final empresaId = await secStorage.read(key: _claveEmpresaId);
 
-    // Mismas opciones base que el resto (CTT-103 D4). SIN ErrorInterceptor (el 401 lo
-    // pausa el ciclo, no desloguea) y con X-Sync-Origen: cola. Authorization/empresa se
-    // setean a mano (el headless no tiene Riverpod ni AuthInterceptor).
-    final dioHeadless = Dio(opcionesBaseDio());
+    // Config de sync compartida con dioSync (CTT-138 c7): X-Sync-Origen +
+    // UltimoContactoInterceptor (renueva ultimo_contacto ante un 2xx en background) +
+    // log, SIN ErrorInterceptor. El headless NO tiene Riverpod ni AuthInterceptor, así
+    // que setea Authorization/X-Empresa-Id a mano. Una sola SecureStorageService para el
+    // interceptor y el DeviceIdService.
+    final storageSvc = SecureStorageService();
+    final dioHeadless = crearDioSync(storageSvc, crearLogger());
     dioHeadless.options.headers['Authorization'] = 'Bearer $jwt';
     if (empresaId != null) {
       dioHeadless.options.headers['X-Empresa-Id'] = empresaId;
     }
-    dioHeadless.options.headers['X-Sync-Origen'] = 'cola';
 
     await CicloSync(
       syncDao: db.syncDao,
       dio: dioHeadless,
-      deviceIdService: DeviceIdService(SecureStorageService()),
+      deviceIdService: DeviceIdService(storageSvc),
       isolateLabel: 'headless',
     ).ejecutar();
   } finally {
