@@ -39,7 +39,7 @@ Future<void> confirmarLogout(BuildContext context, WidgetRef ref) async {
       // conserva; solo se avisa.
       mostrarMensaje(
         context,
-        'No podés cerrar sesión sin conexión: tenés $pendientes '
+        'No puedes cerrar sesión sin conexión: tienes $pendientes '
         '${pendientes == 1 ? "cambio" : "cambios"} sin sincronizar.',
       );
     case CierreSesionRequiereConfirmacion(:final pendientes):
