@@ -41,6 +41,7 @@ part 'app.g.dart';
 // ── Rutas base ────────────────────────────────────────────────────────────────
 
 abstract final class Rutas {
+  static const cargando = '/cargando';
   static const login = '/login';
   static const seleccionEmpresa = '/seleccion-empresa';
   static const inicio = '/inicio';
@@ -95,14 +96,19 @@ GoRouter router(RouterRef ref) {
   final empresaActiva = ref.watch(empresaActivaProvider);
 
   return GoRouter(
-    initialLocation: Rutas.login,
+    initialLocation: Rutas.cargando,
     redirect: (context, state) {
-      if (auth == EstadoAuth.cargando) return null;
+      final ubicacion = state.matchedLocation;
+
+      // Mientras se resuelve la sesión (authStateChanges + /me), mostrar la pantalla
+      // de carga, NO /login (CTT-138): evita el flash de login en el arranque offline.
+      if (auth == EstadoAuth.cargando) {
+        return ubicacion == Rutas.cargando ? null : Rutas.cargando;
+      }
 
       // Sesión revocada (401/403-code) va al login igual que sin sesión.
       final vaALogin =
           auth == EstadoAuth.sinSesion || auth == EstadoAuth.sesionRevocada;
-      final ubicacion = state.matchedLocation;
 
       // Sin sesión o revocada: siempre al login.
       if (vaALogin) {
@@ -117,14 +123,20 @@ GoRouter router(RouterRef ref) {
         return ubicacion == Rutas.seleccionEmpresa ? null : Rutas.seleccionEmpresa;
       }
 
-      // Autenticado con empresa activa: salir del login y de la selección.
-      if (ubicacion == Rutas.login || ubicacion == Rutas.seleccionEmpresa) {
+      // Autenticado con empresa activa: salir de carga/login/selección hacia el rol.
+      if (ubicacion == Rutas.cargando ||
+          ubicacion == Rutas.login ||
+          ubicacion == Rutas.seleccionEmpresa) {
         return _rutaPorRol(rol);
       }
 
       return null;
     },
     routes: [
+      GoRoute(
+        path: Rutas.cargando,
+        builder: (_, __) => const PantallaCarga(),
+      ),
       GoRoute(
         path: Rutas.login,
         builder: (_, __) => const LoginScreen(),
@@ -323,7 +335,7 @@ class _AppCTTState extends ConsumerState<AppCTT> with WidgetsBindingObserver {
     return arranqueAsync.when(
       loading: () => const MaterialApp(
         debugShowCheckedModeBanner: false,
-        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+        home: PantallaCarga(),
       ),
       error: (e, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
@@ -360,6 +372,18 @@ ThemeData _temaCTT() => ThemeData(
       ),
       useMaterial3: true,
     );
+
+/// Pantalla de carga mientras se resuelve el estado de sesión (CTT-138). Reusada por
+/// la compuerta de arranque (DB abriendo) y por la ruta `/cargando` (authStateChanges
+/// + /me en curso), para NO mostrar /login mientras la sesión todavía se resuelve.
+class PantallaCarga extends StatelessWidget {
+  const PantallaCarga({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+}
 
 // ── Placeholder hasta que se construyan las pantallas reales ──────────────────
 
