@@ -40,3 +40,17 @@ disciplina `dry-con-criterio`:
 
 3. Aplica aunque la tarea parezca chica, aunque copiar parezca más rápido, y
    aunque el código parecido "obviamente" deba unificarse.
+
+## Regla de trabajo permanente: idioma neutro (sin voseo)
+
+Todo texto **visible para el usuario** (Text, SnackBar, diálogos, labels,
+mensajes de validación) va en **español latinoamericano NEUTRO**, usando la 2ª
+persona **tú** — nunca voseo argentino:
+
+- "tienes" (no "tenés"), "puedes" (no "podés"), "ingresa" (no "ingresá"),
+  "toca" (no "tocá"), "elige" (no "elegí"), "revisa" (no "revisá").
+
+Los **comentarios** de código quedan como estén (no son de usuario). Al escribir
+o revisar strings, correr
+`grep -rnE "\b(tenés|podés|querés|ingresá|tocá|elegí|revisá|intentá|hacé)\b" lib/`
+y dejar el resultado vacío.

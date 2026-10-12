@@ -128,7 +128,7 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
               Text(
                 switch (conteo) {
                   AsyncData(:final value) when value > 0 =>
-                    'Tenés $value cambio${value == 1 ? '' : 's'} guardado'
+                    'Tienes $value cambio${value == 1 ? '' : 's'} guardado'
                         '${value == 1 ? '' : 's'} en el teléfono, sin enviar.',
                   _ => 'Tus cambios guardados en el teléfono están a salvo.',
                 },

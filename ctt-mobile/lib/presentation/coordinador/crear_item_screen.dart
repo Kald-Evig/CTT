@@ -229,7 +229,7 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return null;
                 if (double.tryParse(v.trim()) == null) {
-                  return 'Ingresá un número válido';
+                  return 'Ingresa un número válido';
                 }
                 return null;
               },
