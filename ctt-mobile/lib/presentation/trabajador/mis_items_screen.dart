@@ -13,6 +13,8 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/shared/chip_estado.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
+import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart'
+    show BannerOffline;
 import 'package:ctt_mobile/presentation/shared/logout_helper.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 
@@ -40,20 +42,29 @@ class MisItemsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: itemsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => ErrorVista(
-          mensaje: 'Sin conexión. Mostrando datos en caché.',
-          onReintento: () => ref.invalidate(misItemsProvider),
-        ),
-        data: (items) {
-          if (items.isEmpty) {
-            return const Center(
-              child: Text('No tienes ítems asignados por el momento.'),
-            );
-          }
-          return _ListaAgrupada(items: items);
-        },
+      body: Column(
+        children: [
+          // CTT-138: banner de sesión offline arriba de la lista (donde aterriza el
+          // Trabajador en el arranque en frío sin red). Reusa el componente del detalle.
+          const BannerOffline(),
+          Expanded(
+            child: itemsAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (_, __) => ErrorVista(
+                mensaje: 'Sin conexión. Mostrando datos en caché.',
+                onReintento: () => ref.invalidate(misItemsProvider),
+              ),
+              data: (items) {
+                if (items.isEmpty) {
+                  return const Center(
+                    child: Text('No tienes ítems asignados por el momento.'),
+                  );
+                }
+                return _ListaAgrupada(items: items);
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
