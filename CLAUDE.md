@@ -54,3 +54,8 @@ Los **comentarios** de código quedan como estén (no son de usuario). Al escrib
 o revisar strings, correr
 `grep -rnE "\b(tenés|podés|querés|ingresá|tocá|elegí|revisá|intentá|hacé)\b" lib/`
 y dejar el resultado vacío.
+
+La regla **también aplica a los mensajes del agente de Code hacia Kald y a los
+mensajes de commit**, no solo a los textos de la UI: "reconecta", "acepta",
+"activa", "abre", "espera", "avísame", "tienes", "puedes" — nunca "reconectá",
+"aceptá", "tenés", "podés".
