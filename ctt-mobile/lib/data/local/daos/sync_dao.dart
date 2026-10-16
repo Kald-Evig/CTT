@@ -206,6 +206,7 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     required DecisionSync decision,
     String? tomadoPor,
     SyncPendientesCompanion extra = const SyncPendientesCompanion(),
+    String? estadoServidor,
   }) =>
       transaction(() async {
         // El flag depende solo de (estadoEsperado, decisión); se resuelve antes de
@@ -221,9 +222,11 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         }
 
         // entidadId se lee ANTES del update: ninguna decisión lo modifica. Solo se
-        // lee si el flag cambia. Si la guarda matchea (afectadas > 0), la fila
-        // existía, así que su entidadId no es null cuando se usa abajo.
-        final entidadId = nuevoFlag == null
+        // lee si hay que tocar items_cache (flag de conflicto y/o base del 200). Si la
+        // guarda matchea (afectadas > 0), la fila existía, así que su entidadId no es
+        // null cuando se usa abajo.
+        final necesitaEntidad = nuevoFlag != null || estadoServidor != null;
+        final entidadId = !necesitaEntidad
             ? null
             : (await (select(syncPendientes)..where((t) => t.id.equals(id)))
                     .getSingleOrNull())
@@ -263,6 +266,11 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         if (nuevoFlag != null) {
           await _escribirFlagConflicto(entidadId!, nuevoFlag);
         }
+        // CTT-144: envío aceptado (200) → escribir la BASE items_cache.estado desde el
+        // ItemOut, en la MISMA transacción que el estado de la cola.
+        if (estadoServidor != null) {
+          await _escribirBaseEstado(entidadId!, estadoServidor);
+        }
         return afectadas;
       });
 
@@ -277,6 +285,23 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     if (filasFlag == 0) {
       debugPrint(
         'CTT-117: tiene_conflicto=$valor no aplicado — ítem $entidadId no está en '
+        'items_cache.',
+      );
+    }
+  }
+
+  /// Escribe la BASE `items_cache.estado` = [estado] para [entidadId] (CTT-144): el
+  /// último estado conocido del servidor, tomado del `ItemOut` de un envío aceptado
+  /// (200). Lo invoca [aplicarDecision] DENTRO de su transacción (simétrico a
+  /// [_escribirFlagConflicto]). Solo `estado`; no toca `updated_at` (la reconciliación
+  /// por versión es CTT-145). Si el ítem no está en caché, deja rastro y sigue.
+  Future<void> _escribirBaseEstado(String entidadId, String estado) async {
+    final filas = await (update(attachedDatabase.itemsCacheTable)
+          ..where((t) => t.id.equals(entidadId)))
+        .write(ItemsCacheTableCompanion(estado: Value(estado)));
+    if (filas == 0) {
+      debugPrint(
+        'CTT-144: base estado=$estado no aplicada — ítem $entidadId no está en '
         'items_cache.',
       );
     }

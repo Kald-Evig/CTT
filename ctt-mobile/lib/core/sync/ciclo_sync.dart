@@ -139,8 +139,9 @@ class CicloSync {
         if (!tomado) continue;
 
         _Clasificacion clas;
+        Map<String, dynamic>? itemOut;
         try {
-          await _enviarCambio(
+          itemOut = await _enviarCambio(
             accion: cambio.accion,
             entidadId: cambio.entidadId,
             payload: cambio.payload,
@@ -189,12 +190,15 @@ class CicloSync {
         final extra = _efectos(cambio, decision, clas, finIntento);
 
         // Cierre condicional (A2): si esta corrida perdió el lease, es un no-op logueado.
+        // En envioOk, el ItemOut del 200 escribe la base items_cache.estado en la MISMA
+        // transacción que el estado de la cola (CTT-144).
         await syncDao.aplicarDecision(
           cambio.id,
           estadoEsperado: EstadoSyncLocal.enviando,
           decision: decision,
           tomadoPor: tomadoPor,
           extra: extra,
+          estadoServidor: itemOut?['estado'] as String?,
         );
 
         if (decision.pausaCola) {
