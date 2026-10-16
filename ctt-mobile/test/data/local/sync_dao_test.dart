@@ -304,7 +304,7 @@ void main() {
       const detalle = 'El ítem está en PROBLEMA. Debe cerrarse el problema '
           'antes de cambiar de estado.';
       final id = await encolar(estado: 'pendiente');
-      when(() => dio.post<void>(any(),
+      when(() => dio.post<Map<String, dynamic>>(any(),
               data: any(named: 'data'), options: any(named: 'options'),),)
           .thenThrow(_err(409, {'detail': detalle}));
 
@@ -324,7 +324,7 @@ void main() {
       // sobrescribe cuando no es null → debe ganar el segundo.
       final mensajes = ['503 intento-1', '503 intento-2'];
       var i = 0;
-      when(() => dio.post<void>(any(),
+      when(() => dio.post<Map<String, dynamic>>(any(),
               data: any(named: 'data'), options: any(named: 'options'),),)
           .thenAnswer((_) async {
         final msg = mensajes[i];

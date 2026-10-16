@@ -263,7 +263,7 @@ void main() {
     }
 
     test('409 de concurrencia: la entrada va a esperando_resolucion con el id', () async {
-      when(() => dio.post<void>(any(),
+      when(() => dio.post<Map<String, dynamic>>(any(),
               data: any(named: 'data'), options: any(named: 'options'),),)
           .thenThrow(_err409(jsonDecode(_bodyConflicto)));
 
@@ -277,7 +277,7 @@ void main() {
 
     test('409 con detail string (sin conflicto_id ni rechazo_id): NO descarta → '
         'falla_servidor, pendiente, intentos_servidor++', () async {
-      when(() => dio.post<void>(any(),
+      when(() => dio.post<Map<String, dynamic>>(any(),
               data: any(named: 'data'), options: any(named: 'options'),),)
           .thenThrow(_err409({'detail': _detalleString}));
 

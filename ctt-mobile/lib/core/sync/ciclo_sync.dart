@@ -395,7 +395,10 @@ class CicloSync {
     }
   }
 
-  Future<void> _enviarCambio({
+  /// Devuelve el `ItemOut` del 200 (para escribir la base `items_cache.estado`,
+  /// CTT-144 commit d) o null si la acción no lo produce. En no-2xx lanza; lo
+  /// clasifica el llamador.
+  Future<Map<String, dynamic>?> _enviarCambio({
     required String accion,
     required String entidadId,
     required String payload,
@@ -407,13 +410,14 @@ class CicloSync {
       case 'cambio_estado_item':
         // La clave va como header, NO en el payload (alimenta el fingerprint del
         // servidor; meterla ahí rompería la deduplicación — CTT-105).
-        await dio.post<void>(
+        final resp = await dio.post<Map<String, dynamic>>(
           '/items/$entidadId/transicion',
           data: data,
           options: idempotencyKey != null
               ? Options(headers: {'Idempotency-Key': idempotencyKey})
               : null,
         );
+        return resp.data;
       case 'subir_foto':
         // Stub deliberado (CTT-99): throw → falla transitoria, nunca éxito sin 2xx.
         throw UnimplementedError(

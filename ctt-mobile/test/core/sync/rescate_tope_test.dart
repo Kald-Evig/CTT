@@ -48,7 +48,7 @@ void main() {
         Response<List<dynamic>>(
             requestOptions: RequestOptions(path: '/m'), data: const [],),);
     // El envío (/transicion) falla con 501 → fallaServidor (incrementa servidor).
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenThrow(_err(501));
   });

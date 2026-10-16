@@ -123,7 +123,7 @@ void main() {
         Response<List<dynamic>>(
             requestOptions: RequestOptions(path: '/m'), data: const [],),);
     var n = 0;
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenAnswer((_) async {
       n++;

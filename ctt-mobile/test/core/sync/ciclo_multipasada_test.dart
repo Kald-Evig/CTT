@@ -72,7 +72,7 @@ void main() {
     final dio = _MockDio();
     final deviceIdService = _MockDeviceIdService();
     when(() => deviceIdService.obtener()).thenAnswer((_) async => 'inst-1');
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
         data: any(named: 'data'),
         options: any(named: 'options'),),).thenAnswer((inv) async {
       final data = inv.namedArguments[#data] as Map<String, dynamic>;
@@ -98,7 +98,9 @@ void main() {
           ),
         );
       }
-      return Response<void>(requestOptions: RequestOptions(path: '/'));
+      return Response<Map<String, dynamic>>(
+          requestOptions: RequestOptions(path: '/'),
+          data: <String, dynamic>{'estado': data['nuevo_estado']},);
     });
     final ciclo = CicloSync(
       syncDao: db.syncDao,

@@ -59,11 +59,12 @@ void main() {
     final deviceIdService = _MockDeviceIdService();
     when(() => deviceIdService.obtener()).thenAnswer((_) async => 'inst-1');
     // Cada envío tarda 60s: avanza el reloj. Devuelve 2xx → envioOk.
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenAnswer((_) async {
       t = t.add(const Duration(seconds: 60));
-      return Response<void>(requestOptions: RequestOptions(path: '/'));
+      return Response<Map<String, dynamic>>(
+          requestOptions: RequestOptions(path: '/'), data: const {},);
     });
 
     final ciclo = CicloSync(

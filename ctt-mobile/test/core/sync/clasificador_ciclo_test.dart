@@ -110,17 +110,18 @@ void main() {
       );
 
   void stubPost(Object error) {
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenThrow(error);
   }
 
   test('2xx → sincronizado', () async {
     await insertar('r', 'item-A');
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
-        .thenAnswer((_) async => Response<void>(
+        .thenAnswer((_) async => Response<Map<String, dynamic>>(
               requestOptions: RequestOptions(path: '/'),
+              data: const {},
             ),);
 
     await ciclo().ejecutar();
@@ -250,11 +251,14 @@ void main() {
     await insertar('C', 'item-C'); // secuencia 3
 
     var n = 0;
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenAnswer((_) async {
       n++;
-      if (n == 1) return Response<void>(requestOptions: RequestOptions(path: '/'));
+      if (n == 1) {
+        return Response<Map<String, dynamic>>(
+            requestOptions: RequestOptions(path: '/'), data: const {},);
+      }
       throw _err(401, data: {'detail': 'token vencido'});
     });
 
@@ -293,10 +297,11 @@ void main() {
       motivo: const Value('error_transitorio'), // motivo de un intento anterior
       intentosRed: const Value(2),
     ),);
-    when(() => dio.post<void>(any(),
+    when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
-        .thenAnswer((_) async => Response<void>(
+        .thenAnswer((_) async => Response<Map<String, dynamic>>(
               requestOptions: RequestOptions(path: '/'),
+              data: const {},
             ),);
 
     await ciclo().ejecutar();
