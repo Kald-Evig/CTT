@@ -11,7 +11,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -242,16 +242,8 @@ class _AccionesEstado extends ConsumerWidget {
     }
   }
 
-  void _mostrarResultado(BuildContext context, ResultadoTransicion resultado) {
-    final msg = switch (resultado) {
-      TransicionAplicadaOnline() => 'Cambio aplicado.',
-      TransicionEncoladaOffline() =>
-        'Sin conexión. Se sincronizará cuando vuelva la señal.',
-      TransicionRechazada(:final detalle) => detalle,
-      TransicionConConflicto() =>
-        'Hay un conflicto que un coordinador debe resolver.',
-    };
-    mostrarMensaje(context, msg);
+  void _mostrarResultado(BuildContext context, ResultadoEspera resultado) {
+    mostrarMensaje(context, mensajeDeResultadoEspera(resultado));
   }
 }
 

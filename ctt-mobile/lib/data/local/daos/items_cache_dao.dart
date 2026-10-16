@@ -77,7 +77,7 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
         readsFrom: _tablasOverlay,
       ).watch().map((filas) => filas
           .map((f) => attachedDatabase.itemsCacheTable.map(f.data))
-          .toList());
+          .toList(),);
 
   /// Un ítem por id con el estado mostrado (base + overlay). Stream REACTIVO.
   Stream<ItemsCacheTableData?> observarPorIdConOverlay(String itemId) =>
@@ -87,7 +87,7 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
         readsFrom: _tablasOverlay,
       ).watch().map((filas) => filas.isEmpty
           ? null
-          : attachedDatabase.itemsCacheTable.map(filas.first.data));
+          : attachedDatabase.itemsCacheTable.map(filas.first.data),);
 
   /// Inserta o actualiza un ítem en caché (upsert por id).
   Future<void> guardarItem(ItemsCacheTableCompanion item) =>

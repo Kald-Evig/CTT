@@ -10,9 +10,10 @@ library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
 import 'package:ctt_mobile/data/repositories/residente_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
+import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'residente_providers.g.dart';
 
@@ -43,15 +44,16 @@ class ItemResidenteDetalle extends _$ItemResidenteDetalle {
   Future<ItemResidente> build(String itemId) =>
       ref.watch(residenteRepositoryProvider).obtenerItem(itemId);
 
-  /// Ejecuta una transición de estado con optimistic UI.
-  Future<ResultadoTransicion> transicionar({
+  /// Ejecuta una transición de estado con optimistic UI (CTT-148: encolar primero).
+  Future<ResultadoEspera> transicionar({
     required String nuevoEstado,
     String? comentario,
     String? descripcionProblema,
   }) async {
     final estadoAnterior = state.valueOrNull;
     if (estadoAnterior == null) {
-      return const TransicionRechazada('Estado del ítem no disponible.');
+      return const ResultadoEspera(EstadoSyncLocal.rechazada,
+          ultimoError: 'Estado del ítem no disponible.',);
     }
 
     // Actualización optimista: la UI refleja el cambio al instante.
@@ -65,18 +67,18 @@ class ItemResidenteDetalle extends _$ItemResidenteDetalle {
             descripcionProblema: descripcionProblema,
           );
 
-      switch (resultado) {
-        case TransicionAplicadaOnline(:final itemActualizado):
-          // Confirmar con los datos reales del servidor.
-          state = AsyncData(ItemResidente.fromJson(itemActualizado));
-          // Refrescar la lista para que refleje el nuevo estado.
+      switch (resultado.estado) {
+        case EstadoSyncLocal.sincronizado:
+          // El servidor aceptó: el estado optimista YA es el correcto. Refrescar la
+          // lista para que refleje el nuevo estado.
           ref.invalidate(itemsProyectoProvider);
-        case TransicionEncoladaOffline():
-          // Mantener el estado optimista hasta que el WorkManager sincronice.
-          break;
-        case TransicionRechazada() || TransicionConConflicto():
-          // Revertir: el servidor no aceptó el cambio.
+        case EstadoSyncLocal.esperandoResolucion:
+        case EstadoSyncLocal.rechazada:
+          // El servidor no aceptó el cambio: revertir al estado anterior.
           state = AsyncData(estadoAnterior);
+        default:
+          // pendiente / otros: mantener el optimista hasta que el ciclo sincronice.
+          break;
       }
 
       return resultado;

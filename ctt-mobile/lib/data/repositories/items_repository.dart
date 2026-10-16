@@ -14,7 +14,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
-import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/core/sync/transicion_service.dart';
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
@@ -75,23 +74,23 @@ class ItemsRepository {
   /// Transiciona el estado de un ítem (CTT-148 "encolar primero"): delega en
   /// [TransicionService.ejecutar], que ENCOLA la intención y dispara el ciclo. NO hay
   /// escritura optimista ni revert en `items_cache`: el estado mostrado sale del overlay
-  /// (base + última fila pendiente/enviando, CTT-144). Devuelve el resultado del primer
-  /// intento, mapeado a [ResultadoTransicion] para la UI actual.
-  Future<ResultadoTransicion> cambiarEstado({
+  /// (base + última fila pendiente/enviando, CTT-144). Devuelve el [ResultadoEspera] del
+  /// primer intento de la fila.
+  Future<ResultadoEspera> cambiarEstado({
     required String itemId,
     required EstadoItem nuevoEstado,
     String? comentario,
     String? descripcionProblema,
-  }) async =>
-      resultadoTransicionDesde(await transicionService.ejecutar(
+  }) =>
+      transicionService.ejecutar(
         itemId: itemId,
         nuevoEstado: nuevoEstado.valor,
         comentario: comentario,
         descripcionProblema: descripcionProblema,
-      ));
+      );
 
   /// Reporta un problema en un ítem (alias de cambiarEstado con estado problema).
-  Future<ResultadoTransicion> reportarProblema({
+  Future<ResultadoEspera> reportarProblema({
     required String itemId,
     required String descripcion,
   }) =>

@@ -11,8 +11,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/red_helpers.dart';
-import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
 import 'package:ctt_mobile/core/sync/transicion_service.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 
 part 'residente_repository.g.dart';
@@ -67,20 +67,20 @@ class ResidenteRepository {
 
   // ── Acciones ─────────────────────────────────────────────────────────────────
 
-  /// Transición de estado online-first con fallback offline (CTT-36).
-  /// Retorna [ResultadoTransicion] para que el llamador sepa qué ocurrió.
-  Future<ResultadoTransicion> transicionarItem(
+  /// Transición de estado: encola y dispara el ciclo (CTT-148). Retorna el
+  /// [ResultadoEspera] del primer intento de la fila.
+  Future<ResultadoEspera> transicionarItem(
     String itemId,
     String nuevoEstado, {
     String? comentario,
     String? descripcionProblema,
-  }) async =>
-      resultadoTransicionDesde(await _transicionService.ejecutar(
+  }) =>
+      _transicionService.ejecutar(
         itemId: itemId,
         nuevoEstado: nuevoEstado,
         comentario: comentario,
         descripcionProblema: descripcionProblema,
-      ));
+      );
 
   Future<ItemResidente> cerrarProblema(String itemId) async {
     final resp =

@@ -10,7 +10,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
 import 'package:ctt_mobile/data/repositories/residente_repository.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -341,18 +341,11 @@ class _AccionesResidente extends ConsumerWidget {
 
   void _mostrarResultado(
     BuildContext context,
-    ResultadoTransicion resultado, {
+    ResultadoEspera resultado, {
     String mensajeExito = 'Cambio aplicado.',
   }) {
-    final msg = switch (resultado) {
-      TransicionAplicadaOnline() => mensajeExito,
-      TransicionEncoladaOffline() =>
-        'Sin conexión. Se sincronizará cuando vuelva la señal.',
-      TransicionRechazada(:final detalle) => detalle,
-      TransicionConConflicto() =>
-        'Hay un conflicto que un coordinador debe resolver.',
-    };
-    mostrarMensaje(context, msg);
+    mostrarMensaje(
+        context, mensajeDeResultadoEspera(resultado, exito: mensajeExito),);
   }
 
   void _mostrarError(BuildContext context, Object e) {
