@@ -74,13 +74,13 @@ class ResidenteRepository {
     String nuevoEstado, {
     String? comentario,
     String? descripcionProblema,
-  }) =>
-      _transicionService.ejecutar(
+  }) async =>
+      resultadoTransicionDesde(await _transicionService.ejecutar(
         itemId: itemId,
         nuevoEstado: nuevoEstado,
         comentario: comentario,
         descripcionProblema: descripcionProblema,
-      );
+      ));
 
   Future<ItemResidente> cerrarProblema(String itemId) async {
     final resp =

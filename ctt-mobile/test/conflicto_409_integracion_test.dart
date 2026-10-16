@@ -1,14 +1,10 @@
-/// conflicto_409_integracion_test.dart — CTT-109 / CTT-115 (adaptado a v4, CTT-117 t2).
+/// conflicto_409_integracion_test.dart — CTT-148: con "encolar primero" hay UN solo
+/// camino al servidor (ciclo_sync). Este test verifica que el ciclo clasifica el 409 y
+/// el 4xx-con-rechazo_id en la señal de dominio correcta (SenalSync → decidir →
+/// aplicarDecision). El camino online directo (transicion_service._manejar409) se retiró.
 ///
-/// Tests de CONDUCTA (no del helper de parseo, que ya cubre
-/// extraer_conflicto_id_test.dart). Verifican los dos sitios que consumen el 409,
-/// ahora sobre el modelo de decisión v4 (SenalSync → decidir → aplicarDecision):
-///   - Camino online: transicion_service._manejar409 — ENCOLA y parquea la fila
-///     en esperando_resolucion (la rama que impedía la pérdida de trabajo).
-///   - Camino cola:   ciclo_sync — clasifica el 409 en señal de dominio.
-///
-/// Se mockea el DAO (mocktail): BaseDatosCTT solo abre un archivo real vía
-/// path_provider; verificamos las LLAMADAS al DAO, que es la conducta pedida.
+/// Se mockea el DAO (mocktail): verificamos la DecisionSync y el companion `extra` con
+/// que se aplica la entrada.
 library;
 
 import 'dart:convert';
@@ -18,11 +14,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:ctt_mobile/core/device/device_id_service.dart';
-import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
-import 'package:ctt_mobile/core/sync/resultado_transicion.dart';
-import 'package:ctt_mobile/core/sync/transicion_service.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -33,264 +26,145 @@ class _MockSyncDao extends Mock implements SyncDao {}
 
 class _MockDeviceIdService extends Mock implements DeviceIdService {}
 
-class _MockSecureStorage extends Mock implements SecureStorageService {}
-
-/// Body 409 de concurrencia con la forma REAL que emite FastAPI:
-/// detail es un objeto con conflicto_id anidado.
+/// Body 409 de concurrencia con la forma REAL de FastAPI: conflicto_id anidado en detail.
 const _bodyConflicto =
-    '{"detail":{"tipo":"conflicto_concurrencia","conflicto_id":"b5a160d2-d97f-411c-9ef5-0172935f6f1c","mensaje":"El ítem fue modificado en el servidor mientras el dispositivo estaba offline.","estado_servidor":"problema"}}';
+    '{"detail":{"tipo":"conflicto_concurrencia","conflicto_id":"b5a160d2-d97f-411c-9ef5-0172935f6f1c","mensaje":"El ítem fue modificado en el servidor.","estado_servidor":"problema"}}';
 
-/// detail String: rechazo de la máquina de estados (items.py:453).
+/// detail String: rechazo no determinista de negocio SIN rechazo_id (solicitud en
+/// proceso u otro 409 sin id) → transitorio (fallaServidor), nunca invisible.
 const _detalleString =
     'El ítem está en PROBLEMA. Debe cerrarse el problema antes de cambiar de estado.';
 
-DioException _err409(Object? data) {
+/// 409 con rechazo_id: el backend, bajo X-Sync-Origen: cola, persiste la
+/// TransicionInvalida y responde con rechazo_id (items.py:522-526, :603-610).
+const _bodyRechazo =
+    '{"detail":{"tipo":"rechazo","rechazo_id":"a1b2c3d4-0000-4000-8000-000000000009","motivo":"transicion_invalida","mensaje":"Transición inválida."}}';
+
+DioException _err(int status, Object? data) {
   final ro = RequestOptions(path: '/items/x/transicion');
   return DioException(
     requestOptions: ro,
-    response: Response<dynamic>(requestOptions: ro, statusCode: 409, data: data),
+    response: Response<dynamic>(requestOptions: ro, statusCode: status, data: data),
+    type: DioExceptionType.badResponse,
   );
 }
 
 void main() {
   setUpAll(() {
-    registerFallbackValue(
-      SyncPendientesCompanion.insert(
-        id: 'fallback',
-        idempotencyKey: 'idem-fallback',
-        empresaId: 'emp',
-        usuarioId: 'user',
-        instalacionId: 'inst',
-        tipoEntidad: 'item',
-        entidadId: 'x',
-        accion: 'cambio_estado_item',
-        payload: '{}',
-        payloadVersion: 1,
-        creadoEnDispositivo: DateTime.utc(2020),
-      ),
-    );
     registerFallbackValue(Options());
     registerFallbackValue(EstadoSyncLocal.pendiente);
-    registerFallbackValue(
-      const DecisionSync(nuevoEstado: EstadoSyncLocal.pendiente),
+    registerFallbackValue(const DecisionSync(nuevoEstado: EstadoSyncLocal.pendiente));
+    registerFallbackValue(const SyncPendientesCompanion());
+  });
+
+  late _MockDio dio;
+  late _MockSyncDao syncDao;
+  late CicloSync ciclo;
+
+  SyncPendiente entrada() => SyncPendiente(
+        secuencia: 1,
+        id: 'entry-1',
+        idempotencyKey: 'idem-1',
+        empresaId: 'emp-1',
+        usuarioId: 'user-1',
+        instalacionId: 'inst-1',
+        tipoEntidad: 'item',
+        entidadId: '82893973',
+        accion: 'cambio_estado_item',
+        payload: jsonEncode({'nuevo_estado': 'pendiente_revision'}),
+        payloadVersion: 1,
+        creadoEnDispositivo: DateTime.utc(2026, 8, 28, 22, 38, 44),
+        estado: 'pendiente',
+        acknowledged: false,
+        intentosRed: 0,
+        intentosServidor: 0,
+      );
+
+  setUp(() {
+    dio = _MockDio();
+    syncDao = _MockSyncDao();
+    final deviceIdService = _MockDeviceIdService();
+    when(() => deviceIdService.obtener()).thenAnswer((_) async => 'inst-1');
+    ciclo = CicloSync(
+      syncDao: syncDao,
+      dio: dio,
+      deviceIdService: deviceIdService,
+      isolateLabel: 'test',
     );
-    registerFallbackValue(DateTime.utc(2020));
-    registerFallbackValue('');
+    when(() => syncDao.filasReclamables(any()))
+        .thenAnswer((_) async => [entrada()]);
+    when(() => syncDao.reclamar(
+          any(),
+          tomadoPor: any(named: 'tomadoPor'),
+          ahora: any(named: 'ahora'),
+          tomadoHasta: any(named: 'tomadoHasta'),
+        ),).thenAnswer((_) async => true);
+    when(() => syncDao.aplicarDecision(
+          any(),
+          estadoEsperado: any(named: 'estadoEsperado'),
+          decision: any(named: 'decision'),
+          tomadoPor: any(named: 'tomadoPor'),
+          extra: any(named: 'extra'),
+          estadoServidor: any(named: 'estadoServidor'),
+        ),).thenAnswer((_) async => 1);
+    // El ciclo reconcilia (pull) al final; con la espera vacía es no-op.
+    when(() => syncDao.ultimaReconciliacion()).thenAnswer((_) async => null);
+    when(() => syncDao.obtenerEnEsperaResolucion()).thenAnswer((_) async => []);
   });
 
-  // ── Camino online: transicion_service._manejar409 ──────────────────────────
-  group('camino online — _manejar409', () {
-    late _MockDio dio;
-    late _MockSyncDao syncDao;
-    late _MockDeviceIdService deviceIdService;
-    late _MockSecureStorage secureStorage;
-    late TransicionService service;
+  /// Captura la DecisionSync y el companion [extra] con que se aplicó la entrada.
+  (DecisionSync, SyncPendientesCompanion) capturarDecision() {
+    final args = verify(() => syncDao.aplicarDecision(
+          'entry-1',
+          estadoEsperado: EstadoSyncLocal.enviando,
+          decision: captureAny(named: 'decision'),
+          tomadoPor: any(named: 'tomadoPor'),
+          extra: captureAny(named: 'extra'),
+          estadoServidor: any(named: 'estadoServidor'),
+        ),).captured;
+    return (args[0] as DecisionSync, args[1] as SyncPendientesCompanion);
+  }
 
-    setUp(() {
-      dio = _MockDio();
-      syncDao = _MockSyncDao();
-      deviceIdService = _MockDeviceIdService();
-      secureStorage = _MockSecureStorage();
-      service = TransicionService(
-        dio: dio,
-        syncDao: syncDao,
-        deviceIdService: deviceIdService,
-        secureStorage: secureStorage,
-      );
-      when(() => deviceIdService.obtener()).thenAnswer((_) async => 'device-test');
-      when(() => secureStorage.obtenerUsuarioId())
-          .thenAnswer((_) async => 'user-1');
-      when(() => secureStorage.obtenerEmpresaId())
-          .thenAnswer((_) async => 'emp-1');
-      when(() => syncDao.encolar(any())).thenAnswer((_) async {});
-      when(() => syncDao.encolarEnConflicto(any(),
-            conflictoId: any(named: 'conflictoId'),)).thenAnswer((_) async {});
-      // El camino online ya NO llama aplicarDecision (usa encolarEnConflicto — L2).
-    });
+  test('409 de concurrencia: la entrada va a esperando_resolucion con el id', () async {
+    when(() => dio.post<Map<String, dynamic>>(any(),
+            data: any(named: 'data'), options: any(named: 'options'),),)
+        .thenThrow(_err(409, jsonDecode(_bodyConflicto)));
 
-    test('409 de concurrencia (body real): extrae el id e inserta el cambio DIRECTO '
-        'en esperando_resolucion con el conflicto_id (un INSERT, sin pendiente)',
-        () async {
-      when(() => dio.post<Map<String, dynamic>>(any(),
-              data: any(named: 'data'), options: any(named: 'options'),),)
-          .thenThrow(_err409(jsonDecode(_bodyConflicto)));
+    await ciclo.ejecutar();
 
-      final r = await service.ejecutar(
-        itemId: '82893973',
-        nuevoEstado: 'pendiente_revision',
-      );
-
-      // (1) Resultado tipado con el id extraído del detail anidado.
-      expect(r, isA<TransicionConConflicto>());
-      expect((r as TransicionConConflicto).conflictoId,
-          'b5a160d2-d97f-411c-9ef5-0172935f6f1c',);
-
-      // (2) UN solo INSERT vía encolarEnConflicto con el conflicto_id. El DAO (no el
-      // service) fija estado/motivo y enciende el flag, en una transacción (L2b).
-      final cap = verify(() => syncDao.encolarEnConflicto(
-            captureAny(),
-            conflictoId: captureAny(named: 'conflictoId'),
-          ),).captured;
-      expect(cap[1], 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
-      final companion = cap[0] as SyncPendientesCompanion;
-      expect(companion.entidadId.value, '82893973');
-
-      // (3) NO pasa por encolar(pendiente) ni aplicarDecision: evita la carrera
-      // CTT-136 y no depende del lease.
-      verifyNever(() => syncDao.encolar(any()));
-      verifyNever(() => syncDao.aplicarDecision(
-            any(),
-            estadoEsperado: any(named: 'estadoEsperado'),
-            decision: any(named: 'decision'),
-            tomadoPor: any(named: 'tomadoPor'),
-            extra: any(named: 'extra'),
-          ),);
-    });
-
-    test('409 con detail string: NO encola, NO aplica decisión, '
-        'devuelve TransicionRechazada', () async {
-      when(() => dio.post<Map<String, dynamic>>(any(),
-              data: any(named: 'data'), options: any(named: 'options'),),)
-          .thenThrow(_err409({'detail': _detalleString}));
-
-      final r = await service.ejecutar(
-        itemId: '82893973',
-        nuevoEstado: 'pendiente_revision',
-      );
-
-      expect(r, isA<TransicionRechazada>());
-      expect((r as TransicionRechazada).detalle, _detalleString);
-      verifyNever(() => syncDao.encolar(any()));
-      verifyNever(() => syncDao.aplicarDecision(
-            any(),
-            estadoEsperado: any(named: 'estadoEsperado'),
-            decision: any(named: 'decision'),
-            tomadoPor: any(named: 'tomadoPor'),
-            extra: any(named: 'extra'),
-          ),);
-    });
-
-    test('409 con detail objeto SIN conflicto_id: no revienta, no encola', () async {
-      when(() => dio.post<Map<String, dynamic>>(any(),
-              data: any(named: 'data'), options: any(named: 'options'),),)
-          .thenThrow(_err409({
-        'detail': {'tipo': 'otro', 'mensaje': 'algo'},
-      }),);
-
-      final r = await service.ejecutar(
-        itemId: '82893973',
-        nuevoEstado: 'pendiente_revision',
-      );
-
-      expect(r, isA<TransicionRechazada>());
-      verifyNever(() => syncDao.encolar(any()));
-    });
+    final (decision, extra) = capturarDecision();
+    expect(decision.nuevoEstado, EstadoSyncLocal.esperandoResolucion);
+    expect(decision.motivo, MotivoSync.conflicto);
+    expect(extra.conflictoId.value, 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
   });
 
-  // ── Camino cola: ciclo_sync ────────────────────────────────────────────────
-  group('camino cola — ciclo_sync', () {
-    late _MockDio dio;
-    late _MockSyncDao syncDao;
-    late CicloSync ciclo;
+  test('409 con rechazo_id (transicion_invalida): rechazada terminal con rechazo_id',
+      () async {
+    when(() => dio.post<Map<String, dynamic>>(any(),
+            data: any(named: 'data'), options: any(named: 'options'),),)
+        .thenThrow(_err(409, jsonDecode(_bodyRechazo)));
 
-    SyncPendiente entrada() => SyncPendiente(
-          secuencia: 1,
-          id: 'entry-1',
-          idempotencyKey: 'idem-1',
-          empresaId: 'emp-1',
-          usuarioId: 'user-1',
-          instalacionId: 'inst-1',
-          tipoEntidad: 'item',
-          entidadId: '82893973',
-          accion: 'cambio_estado_item',
-          payload: jsonEncode({
-            'nuevo_estado': 'pendiente_revision',
-            'device_timestamp': '2026-08-28T22:38:44.000Z',
-            'dispositivo_id': 'dev-1',
-          }),
-          payloadVersion: 1,
-          creadoEnDispositivo: DateTime.utc(2026, 8, 28, 22, 38, 44),
-          estado: 'pendiente',
-          acknowledged: false,
-          intentosRed: 0,
-          intentosServidor: 0,
-        );
+    await ciclo.ejecutar();
 
-    setUp(() {
-      dio = _MockDio();
-      syncDao = _MockSyncDao();
-      final deviceIdService = _MockDeviceIdService();
-      when(() => deviceIdService.obtener()).thenAnswer((_) async => 'inst-1');
-      ciclo = CicloSync(
-        syncDao: syncDao,
-        dio: dio,
-        deviceIdService: deviceIdService,
-        isolateLabel: 'test',
-      );
-      when(() => syncDao.filasReclamables(any()))
-          .thenAnswer((_) async => [entrada()]);
-      when(() => syncDao.reclamar(
-            any(),
-            tomadoPor: any(named: 'tomadoPor'),
-            ahora: any(named: 'ahora'),
-            tomadoHasta: any(named: 'tomadoHasta'),
-          ),).thenAnswer((_) async => true);
-      when(() => syncDao.aplicarDecision(
-            any(),
-            estadoEsperado: any(named: 'estadoEsperado'),
-            decision: any(named: 'decision'),
-            tomadoPor: any(named: 'tomadoPor'),
-            extra: any(named: 'extra'),
-          ),).thenAnswer((_) async => 1);
-      // El ciclo ahora reconcilia (pull) al final de ejecutar (CTT-117 tramo 3).
-      // Con la cola de espera vacía, el pull es un no-op (no consulta /mios): estos
-      // tests solo ejercen la clasificación del push.
-      when(() => syncDao.ultimaReconciliacion()).thenAnswer((_) async => null);
-      when(() => syncDao.obtenerEnEsperaResolucion())
-          .thenAnswer((_) async => []);
-    });
+    final (decision, extra) = capturarDecision();
+    expect(decision.nuevoEstado, EstadoSyncLocal.rechazada);
+    expect(decision.motivo, MotivoSync.rechazoNegocio);
+    expect(extra.rechazoId.value, 'a1b2c3d4-0000-4000-8000-000000000009');
+  });
 
-    /// Captura la DecisionSync y el companion [extra] con que se aplicó la entrada.
-    (DecisionSync, SyncPendientesCompanion) capturarDecision() {
-      final args = verify(() => syncDao.aplicarDecision(
-            'entry-1',
-            estadoEsperado: EstadoSyncLocal.enviando,
-            decision: captureAny(named: 'decision'),
-            tomadoPor: any(named: 'tomadoPor'),
-            extra: captureAny(named: 'extra'),
-          ),).captured;
-      return (args[0] as DecisionSync, args[1] as SyncPendientesCompanion);
-    }
+  test('409 con detail string (sin conflicto_id ni rechazo_id): NO descarta → '
+      'falla_servidor, pendiente, intentos_servidor++', () async {
+    when(() => dio.post<Map<String, dynamic>>(any(),
+            data: any(named: 'data'), options: any(named: 'options'),),)
+        .thenThrow(_err(409, {'detail': _detalleString}));
 
-    test('409 de concurrencia: la entrada va a esperando_resolucion con el id', () async {
-      when(() => dio.post<Map<String, dynamic>>(any(),
-              data: any(named: 'data'), options: any(named: 'options'),),)
-          .thenThrow(_err409(jsonDecode(_bodyConflicto)));
+    await ciclo.ejecutar();
 
-      await ciclo.ejecutar();
-
-      final (decision, extra) = capturarDecision();
-      expect(decision.nuevoEstado, EstadoSyncLocal.esperandoResolucion);
-      expect(decision.motivo, MotivoSync.conflicto);
-      expect(extra.conflictoId.value, 'b5a160d2-d97f-411c-9ef5-0172935f6f1c');
-    });
-
-    test('409 con detail string (sin conflicto_id ni rechazo_id): NO descarta → '
-        'falla_servidor, pendiente, intentos_servidor++', () async {
-      when(() => dio.post<Map<String, dynamic>>(any(),
-              data: any(named: 'data'), options: any(named: 'options'),),)
-          .thenThrow(_err409({'detail': _detalleString}));
-
-      await ciclo.ejecutar();
-
-      // Un 409 sin conflicto_id ni rechazo_id → fallaServidor: la fila NUNCA se
-      // descarta, vuelve a pendiente con backoff por intentos_servidor (CTT-103).
-      final (decision, extra) = capturarDecision();
-      expect(decision.nuevoEstado, EstadoSyncLocal.pendiente);
-      expect(decision.motivo, MotivoSync.fallaServidor);
-      expect(decision.incremento, IncrementoContador.servidor);
-      expect(extra.intentosServidor.value, 1);
-      expect(extra.ultimoError.value, _detalleString);
-    });
+    final (decision, extra) = capturarDecision();
+    expect(decision.nuevoEstado, EstadoSyncLocal.pendiente);
+    expect(decision.motivo, MotivoSync.fallaServidor);
+    expect(decision.incremento, IncrementoContador.servidor);
+    expect(extra.intentosServidor.value, 1);
+    expect(extra.ultimoError.value, _detalleString);
   });
 }

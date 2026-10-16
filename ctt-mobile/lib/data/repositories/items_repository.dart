@@ -72,40 +72,23 @@ class ItemsRepository {
 
   // ── Escrituras (online-first con fallback offline) ───────────────────────────
 
-  /// Transiciona el estado de un ítem.
-  ///
-  /// 1. Aplica el nuevo estado en la caché local de forma optimista.
-  /// 2. Intenta el servidor con timeout corto via TransicionService.
-  /// 3. Si el servidor rechaza o hay conflicto: revierte la caché.
-  /// 4. Si hay error de red: el TransicionService encola; la caché queda con el estado optimista.
+  /// Transiciona el estado de un ítem (CTT-148 "encolar primero"): delega en
+  /// [TransicionService.ejecutar], que ENCOLA la intención y dispara el ciclo. NO hay
+  /// escritura optimista ni revert en `items_cache`: el estado mostrado sale del overlay
+  /// (base + última fila pendiente/enviando, CTT-144). Devuelve el resultado del primer
+  /// intento, mapeado a [ResultadoTransicion] para la UI actual.
   Future<ResultadoTransicion> cambiarEstado({
     required String itemId,
     required EstadoItem nuevoEstado,
     String? comentario,
     String? descripcionProblema,
-  }) async {
-    // Actualización optimista: el estado cambia en UI de inmediato.
-    await cacheDao.actualizarEstado(itemId, nuevoEstado.valor);
-
-    try {
-      final resultado = await transicionService.ejecutar(
+  }) async =>
+      resultadoTransicionDesde(await transicionService.ejecutar(
         itemId: itemId,
         nuevoEstado: nuevoEstado.valor,
         comentario: comentario,
         descripcionProblema: descripcionProblema,
-      );
-
-      if (resultado is TransicionRechazada || resultado is TransicionConConflicto) {
-        await cacheDao.revertirEstado(itemId);
-      }
-
-      return resultado;
-    } catch (e) {
-      // Error inesperado (401, 403, 5xx): revertir la caché.
-      await cacheDao.revertirEstado(itemId);
-      rethrow;
-    }
-  }
+      ));
 
   /// Reporta un problema en un ítem (alias de cambiarEstado con estado problema).
   Future<ResultadoTransicion> reportarProblema({

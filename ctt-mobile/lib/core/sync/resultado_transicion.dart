@@ -4,9 +4,25 @@
 /// servidor OK, sin red, rechazo de negocio, o conflicto de concurrencia.
 library;
 
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
+import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
+
 sealed class ResultadoTransicion {
   const ResultadoTransicion();
 }
+
+/// Mapea el resultado de la espera por fila (CTT-148) a los tipos que consume la UI
+/// ACTUAL. TRANSITORIO: el commit (g) hace que la UI consuma [ResultadoEspera] directo
+/// (con el código de error) y entonces esta función y los subtipos sin uso se retiran.
+ResultadoTransicion resultadoTransicionDesde(ResultadoEspera e) => switch (e.estado) {
+      EstadoSyncLocal.sincronizado =>
+        const TransicionAplicadaOnline(<String, dynamic>{}),
+      EstadoSyncLocal.rechazada =>
+        TransicionRechazada(e.ultimoError ?? 'El servidor rechazó el cambio.'),
+      EstadoSyncLocal.esperandoResolucion => const TransicionConConflicto(null),
+      // pendiente / enviando / enRevision / descartado → "quedó encolado".
+      _ => const TransicionEncoladaOffline(),
+    };
 
 /// El servidor procesó la transición con éxito (HTTP 200).
 /// [itemActualizado] contiene el JSON del ítem retornado por el backend.
