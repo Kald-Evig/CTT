@@ -49,7 +49,8 @@ void main() {
       ProviderScope(
         overrides: [
           itemsRepositoryProvider.overrideWithValue(repo),
-          itemDetalleProvider('item-1').overrideWith((ref) => itemEnProgreso()),
+          itemDetalleProvider('item-1')
+              .overrideWith((ref) => Stream.value(itemEnProgreso())),
         ],
         child: const MaterialApp(home: DetalleItemScreen(itemId: 'item-1')),
       ),

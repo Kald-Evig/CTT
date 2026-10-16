@@ -4,6 +4,7 @@ library;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
@@ -11,19 +12,23 @@ import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'mis_items_provider.g.dart';
 
+/// Ítems del Trabajador con el estado MOSTRADO (base + overlay, CTT-144). Stream:
+/// primero dispara el pull de red (que escribe la base en `items_cache`; offline cae a
+/// la cache) y luego emite el overlay reactivo, que se refresca solo cuando cambia la
+/// cola, sin re-pull.
 @riverpod
-Future<List<ItemsCacheTableData>> misItems(MisItemsRef ref) async {
+Stream<List<ItemsCacheTableData>> misItems(MisItemsRef ref) async* {
   final storage = ref.watch(secureStorageProvider);
   final usuarioId = await storage.obtenerUsuarioId() ?? '';
-  return ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId);
+  await ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId);
+  yield* ref.watch(itemsCacheDaoProvider).observarAsignadosConOverlay(usuarioId);
 }
 
+/// Detalle de un ítem con el estado MOSTRADO (base + overlay). Stream reactivo: los
+/// botones de transición (detalle_item_screen) derivan de este estado.
 @riverpod
-Future<ItemsCacheTableData?> itemDetalle(
-  ItemDetalleRef ref,
-  String itemId,
-) =>
-    ref.watch(itemsRepositoryProvider).obtenerDetalle(itemId);
+Stream<ItemsCacheTableData?> itemDetalle(ItemDetalleRef ref, String itemId) =>
+    ref.watch(itemsCacheDaoProvider).observarPorIdConOverlay(itemId);
 
 /// IDs de ítems con cambios pendientes de sincronizar — Stream REACTIVO (Drift
 /// `.watch()`): el indicador de las listas se refresca solo al cambiar la cola, sin

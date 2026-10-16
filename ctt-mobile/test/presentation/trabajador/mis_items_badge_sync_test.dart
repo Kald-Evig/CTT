@@ -35,12 +35,12 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          misItemsProvider.overrideWith((ref) async => [
+          misItemsProvider.overrideWith((ref) => Stream.value([
                 _item('p', 'en_progreso'), // pendiente → nube
                 _item('r', 'pendiente_revision'), // rechazada → chip
                 _item('v', 'abierto'), // en_revision → chip
                 _item('dos', 'terminado'), // pendiente Y rechazada → gana la nube
-              ]),
+              ])),
           // pendiente/enviando/esperando: 'p' y 'dos'.
           itemsConSyncPendienteProvider
               .overrideWith((ref) => Stream.value({'p', 'dos'})),

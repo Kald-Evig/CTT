@@ -17,7 +17,7 @@ import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
 Widget _app(EstadoVentanaOffline estado) => ProviderScope(
       overrides: [
-        misItemsProvider.overrideWith((ref) async => <ItemsCacheTableData>[]),
+        misItemsProvider.overrideWith((ref) => Stream.value(<ItemsCacheTableData>[])),
         estadoVentanaOfflineProvider.overrideWith((ref) async => estado),
       ],
       child: const MaterialApp(home: MisItemsScreen()),
