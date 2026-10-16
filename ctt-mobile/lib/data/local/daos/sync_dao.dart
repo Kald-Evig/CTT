@@ -5,6 +5,8 @@
 /// decide nada por su cuenta.
 library;
 
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -13,6 +15,16 @@ import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'sync_dao.g.dart';
+
+/// Resultado de esperar por el PRIMER intento de una fila recién encolada (CTT-148).
+/// `estado` es el alcanzado; si quedó `pendiente` tras un intento fallido, trae además
+/// el código/detalle del backend para que la UI muestre "no se pudo enviar (código)".
+class ResultadoEspera {
+  const ResultadoEspera(this.estado, {this.ultimoErrorCodigo, this.ultimoError});
+  final EstadoSyncLocal estado;
+  final int? ultimoErrorCodigo;
+  final String? ultimoError;
+}
 
 @riverpod
 SyncDao syncDao(SyncDaoRef ref) => SyncDao(ref.watch(baseDatosCTTProvider));
@@ -305,6 +317,54 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         'items_cache.',
       );
     }
+  }
+
+  /// Espera el resultado del PRIMER intento de la fila [filaId] (CTT-148). Completa
+  /// cuando la fila SALE de `enviando` tras su intento:
+  ///   - terminal (sincronizado/rechazada/descartado/en_revision) o esperandoResolucion
+  ///     → devuelve ese estado;
+  ///   - `pendiente` CON un intento registrado (bounce por red/servidor) → devuelve
+  ///     `pendiente` + ultimo_error_codigo/ultimo_error (la UI avisa "se reintentará").
+  /// Si no hay intento dentro de [timeout] (filas anteriores por FIFO, o sin red),
+  /// devuelve `pendiente` SIN error. Único consumidor: TransicionService.ejecutar().
+  Future<ResultadoEspera> esperarResultadoFila(
+    String filaId, {
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    final stream = (select(syncPendientes)..where((t) => t.id.equals(filaId)))
+        .watchSingleOrNull();
+    try {
+      return await stream
+          .map(_resolverEspera)
+          .where((r) => r != null)
+          .cast<ResultadoEspera>()
+          .first
+          .timeout(timeout);
+    } on TimeoutException {
+      final fila =
+          await (select(syncPendientes)..where((t) => t.id.equals(filaId)))
+              .getSingleOrNull();
+      // Sin resolución a tiempo: sigue pendiente/enviando → la UI muestra "encolado".
+      return _resolverEspera(fila) ??
+          const ResultadoEspera(EstadoSyncLocal.pendiente);
+    }
+  }
+
+  /// Traduce la fila observada a un [ResultadoEspera], o null si TODAVÍA no hay
+  /// resultado del primer intento (sigue `enviando`, o `pendiente` sin intento).
+  ResultadoEspera? _resolverEspera(SyncPendiente? fila) {
+    if (fila == null) return null;
+    final estado = EstadoSyncLocal.fromString(fila.estado);
+    if (estado == EstadoSyncLocal.enviando) return null;
+    if (estado == EstadoSyncLocal.pendiente) {
+      if (fila.ultimoIntentoEn == null) return null; // aún no se intentó
+      return ResultadoEspera(
+        estado,
+        ultimoErrorCodigo: fila.ultimoErrorCodigo,
+        ultimoError: fila.ultimoError,
+      );
+    }
+    return ResultadoEspera(estado);
   }
 
   /// Stream REACTIVO de entidad_id con sincronización pendiente (estados NO
