@@ -4,6 +4,7 @@ library;
 import 'package:drift/drift.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 part 'items_cache_dao.g.dart';
 
@@ -32,6 +33,61 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
   Future<ItemsCacheTableData?> obtenerPorId(String itemId) =>
       (select(itemsCacheTable)..where((t) => t.id.equals(itemId)))
           .getSingleOrNull();
+
+  // ── Estado MOSTRADO = base + overlay (CTT-144) ───────────────────────────────
+
+  /// Columnas de `items_cache` (alias `ic`) con `estado` reemplazado por el OVERLAY:
+  /// el `nuevo_estado` de la última fila `pendiente`/`enviando` del ítem
+  /// ([estadosIntencionLocal]), o la base (`ic.estado`) si no hay ninguna.
+  /// `esperandoResolucion` y las terminales NO entran: el servidor ya respondió.
+  ///
+  /// La clave del payload es [kPayloadNuevoEstado].
+  /// DUPE: el mismo conocimiento ("nuevo_estado vive en payload") lo ESCRIBE
+  /// transicion_service.dart (_prepararFila) con jsonEncode. Consolidar si cambia el
+  /// contrato del payload.
+  String get _columnasConOverlay {
+    final estados = estadosIntencionLocal.map((e) => "'${e.valor}'").join(', ');
+    return '''
+      ic.id AS id, ic.proyecto_id AS proyecto_id, ic.proyecto_nombre AS proyecto_nombre,
+      ic.parent_item_id AS parent_item_id, ic.nivel_profundidad AS nivel_profundidad,
+      ic.nombre AS nombre, ic.descripcion AS descripcion, ic.asignado_a AS asignado_a,
+      COALESCE(
+        (SELECT json_extract(sp.payload, '\$.$kPayloadNuevoEstado')
+           FROM sync_pendientes sp
+          WHERE sp.tipo_entidad = '${TipoEntidad.item.valor}'
+            AND sp.entidad_id = ic.id
+            AND sp.estado IN ($estados)
+          ORDER BY sp.secuencia DESC LIMIT 1),
+        ic.estado) AS estado,
+      ic.estado_previo AS estado_previo, ic.tiene_conflicto AS tiene_conflicto,
+      ic.updated_at AS updated_at, ic.cachado_en AS cachado_en
+    ''';
+  }
+
+  Set<ResultSetImplementation<dynamic, dynamic>> get _tablasOverlay =>
+      {attachedDatabase.itemsCacheTable, attachedDatabase.syncPendientes};
+
+  /// Ítems asignados al usuario con el estado mostrado (base + overlay). Stream
+  /// REACTIVO: reacciona a cambios en `items_cache` Y en `sync_pendientes`.
+  Stream<List<ItemsCacheTableData>> observarAsignadosConOverlay(String usuarioId) =>
+      customSelect(
+        'SELECT $_columnasConOverlay FROM items_cache ic '
+        'WHERE ic.asignado_a = ?1 ORDER BY ic.updated_at DESC',
+        variables: [Variable.withString(usuarioId)],
+        readsFrom: _tablasOverlay,
+      ).watch().map((filas) => filas
+          .map((f) => attachedDatabase.itemsCacheTable.map(f.data))
+          .toList());
+
+  /// Un ítem por id con el estado mostrado (base + overlay). Stream REACTIVO.
+  Stream<ItemsCacheTableData?> observarPorIdConOverlay(String itemId) =>
+      customSelect(
+        'SELECT $_columnasConOverlay FROM items_cache ic WHERE ic.id = ?1',
+        variables: [Variable.withString(itemId)],
+        readsFrom: _tablasOverlay,
+      ).watch().map((filas) => filas.isEmpty
+          ? null
+          : attachedDatabase.itemsCacheTable.map(filas.first.data));
 
   /// Inserta o actualiza un ítem en caché (upsert por id).
   Future<void> guardarItem(ItemsCacheTableCompanion item) =>

@@ -233,6 +233,23 @@ enum EstadoSyncLocal {
       );
 }
 
+/// Estados de una fila cuya intención local AÚN no fue confrontada con el servidor
+/// (CTT-144 overlay / CTT-148 espera por fila). El estado MOSTRADO de un ítem toma el
+/// `nuevo_estado` de su última fila en uno de estos estados; si no hay ninguna, usa la
+/// base (`items_cache.estado`).
+///
+/// OJO: es DISTINTO de `SyncDao._estadosBloqueantes` (el FIFO de envío), que incluye
+/// `esperandoResolucion`. Acá `esperandoResolucion` NO entra: el servidor ya respondió
+/// (hay conflicto), así que la UI muestra la base + `tieneConflicto`, no la intención.
+const estadosIntencionLocal = <EstadoSyncLocal>[
+  EstadoSyncLocal.pendiente,
+  EstadoSyncLocal.enviando,
+];
+
+/// Clave del `nuevo_estado` dentro del JSON `payload` de una fila de `sync_pendientes`
+/// (payload_version=1). Fuente única del nombre de la clave.
+const kPayloadNuevoEstado = 'nuevo_estado';
+
 // ── Motivo de sync local (razón, no ciclo de vida) ────────────────────────────
 /// Razón asociada a una entrada de la cola. Metadato, muchos valores posibles;
 /// no gobierna transiciones. Se persiste en la columna `motivo` de
