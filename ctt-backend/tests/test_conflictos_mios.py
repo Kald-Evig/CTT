@@ -125,6 +125,8 @@ def test_mios_schema_sin_snapshots(seeded, client, db):
     fila = client.get("/sync/conflictos/mios", headers=d.headers(d.trab)).json()[0]
     assert set(fila.keys()) == {
         "id", "item_id", "dispositivo_id", "version_ganadora", "resuelto_at", "estado",
+        # CTT-143 B4 / P6: versión y estado resultantes para la reconciliación del cliente.
+        "version_resultante", "estado_resultante",
     }
     assert "cambio_local" not in fila
     assert "cambio_servidor" not in fila

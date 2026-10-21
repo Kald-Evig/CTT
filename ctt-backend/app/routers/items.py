@@ -664,6 +664,8 @@ def transicion_item(
                     idempotency_key=idem_key,
                     dispositivo_id=body.dispositivo_id or "desconocido",
                     usuario_id=ctx.usuario.id,
+                    # B4: versión capturada para la precondición de la resolución 'local'.
+                    version_capturada=item.version,
                 )
                 db.add(conflicto)
                 try:

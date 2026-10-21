@@ -322,6 +322,14 @@ class SyncConflicto(Base):
     # 'local' | 'servidor' | None. Null = resuelto antes de que se registrara
     # (filas previas a CTT-117); no se backfillea con un valor inventado.
     version_ganadora: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # CTT-143 (B4): versión del ítem capturada al CREAR el conflicto. Resolver a favor de
+    # 'local' exige items.version == esta versión; si el ítem avanzó, la resolución es
+    # obsoleta (409). Nullable: los conflictos previos a B4 no la traen (fallback por estado).
+    version_capturada: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # CTT-143 (B4 / P6): versión y estado del ítem RESULTANTES de la resolución. Los lee el
+    # reconciliador del cliente (ConflictoMioOut) para escribir base+version sin re-pull.
+    version_resultante: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estado_resultante: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 

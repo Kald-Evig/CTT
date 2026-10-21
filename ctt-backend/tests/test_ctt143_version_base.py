@@ -209,3 +209,68 @@ def test_transicion_no_supera_conflicto_de_otro_usuario(client, seeded, db):
 
     db.expire_all()
     assert db.get(SyncConflicto, cid).estado == ConflictoEstado.PENDIENTE
+
+
+# ── B4: version capturada / resultante en la resolución ───────────────────────
+
+def _conflicto_via_409(client, seeded):
+    """Genera un conflicto REAL (409) de trab y devuelve su conflicto_id. El ítem queda
+    TERMINADO v4 y el conflicto trae version_capturada=4 (lo setea el endpoint)."""
+    _llevar_a_terminado(client, seeded)
+    r = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "en_progreso", "version_base": 3},
+        headers=_cola(seeded, seeded.trab, "k-b4"),
+    )
+    assert r.status_code == 409, r.text
+    return r.json()["detail"]["conflicto_id"]
+
+
+def test_resolucion_local_valida_setea_resultantes(client, seeded, db):
+    cid = _conflicto_via_409(client, seeded)   # item en v4, version_capturada=4
+
+    # El ítem no se movió: resolver 'local' aplica el cambio en disputa (en_progreso, v5).
+    r = client.post(
+        f"/sync/conflictos/{cid}/resolver",
+        json={"version_ganadora": "local"},
+        headers=seeded.headers(seeded.coord, seeded.emp_a),
+    )
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    c = db.get(SyncConflicto, cid)
+    assert c.estado == ConflictoEstado.RESUELTO
+    assert c.version_resultante == 5
+    assert c.estado_resultante == "en_progreso"
+
+    # ConflictoMioOut (pull de reconciliación del cliente) expone los resultantes (P6).
+    rm = client.get("/sync/conflictos/mios", headers=seeded.headers(seeded.trab, seeded.emp_a))
+    assert rm.status_code == 200, rm.text
+    fila = next(x for x in rm.json() if x["id"] == cid)
+    assert fila["version_resultante"] == 5
+    assert fila["estado_resultante"] == "en_progreso"
+
+
+def test_resolucion_local_obsoleta_es_409_sin_escribir(client, seeded, db):
+    cid = _conflicto_via_409(client, seeded)   # version_capturada=4, ítem TERMINADO v4
+
+    # El ítem avanza por otra vía: el admin revierte el terminado (→ pendiente_revision, v5).
+    rv = client.post(
+        f"/items/{seeded.item}/revertir-terminado",
+        params={"motivo": "Rehacer medición"},
+        headers=seeded.headers(seeded.admin, seeded.emp_a),
+    )
+    assert rv.status_code == 200, rv.text
+
+    # Resolver 'local' ahora es OBSOLETO (v5 != v4 capturada) → 409, sin resolver ni escribir.
+    r = client.post(
+        f"/sync/conflictos/{cid}/resolver",
+        json={"version_ganadora": "local"},
+        headers=seeded.headers(seeded.coord, seeded.emp_a),
+    )
+    assert r.status_code == 409, r.text
+
+    db.expire_all()
+    c = db.get(SyncConflicto, cid)
+    assert c.estado == ConflictoEstado.PENDIENTE
+    assert c.version_resultante is None

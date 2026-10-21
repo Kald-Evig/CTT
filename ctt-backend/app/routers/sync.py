@@ -176,20 +176,31 @@ def resolver_conflicto(
     item = db.query(Item).filter(Item.id == conflicto.item_id).with_for_update().first()
 
     if body.version_ganadora == "local":
-        # Fix C — antes de aplicar la versión local, verificar que el estado del
-        # servidor no cambió desde que se registró el conflicto. Si cambió, el
-        # Coordinador estaría decidiendo sobre información desactualizada y puede
-        # pisar un cambio posterior legítimo.
-        estado_servidor_capturado = (conflicto.cambio_servidor or {}).get("estado")
-        if estado_servidor_capturado and item.estado.value != estado_servidor_capturado:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"El ítem cambió de estado desde que se registró este conflicto "
-                    f"(capturado: '{estado_servidor_capturado}', actual: '{item.estado.value}'). "
-                    "Refresca la cola de conflictos antes de reintentar."
-                ),
-            )
+        # B4 — la resolución 'local' pisa el estado del servidor con el cambio en disputa;
+        # solo es válida si el ítem sigue en la versión capturada al crear el conflicto. Si
+        # avanzó, la decisión es OBSOLETA → 409 sin escribir. Para conflictos previos a B4
+        # (sin version_capturada) se cae al chequeo por estado (Fix C histórico).
+        if conflicto.version_capturada is not None:
+            if item.version != conflicto.version_capturada:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"El ítem avanzó desde que se registró este conflicto "
+                        f"(capturada: v{conflicto.version_capturada}, actual: v{item.version}). "
+                        "La resolución quedó obsoleta; refresca la cola de conflictos."
+                    ),
+                )
+        else:
+            estado_servidor_capturado = (conflicto.cambio_servidor or {}).get("estado")
+            if estado_servidor_capturado and item.estado.value != estado_servidor_capturado:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"El ítem cambió de estado desde que se registró este conflicto "
+                        f"(capturado: '{estado_servidor_capturado}', actual: '{item.estado.value}'). "
+                        "Refresca la cola de conflictos antes de reintentar."
+                    ),
+                )
 
         nuevo_estado_str = (conflicto.cambio_local or {}).get("estado")
         if nuevo_estado_str:
@@ -237,6 +248,11 @@ def resolver_conflicto(
     conflicto.resuelto_por = ctx.usuario.id
     conflicto.resuelto_at = datetime.now(timezone.utc)
     conflicto.version_ganadora = body.version_ganadora
+    # B4 / P6: versión y estado del ítem resultantes de la resolución. Para 'local' ya
+    # subieron por registrar_escritura_item; para 'servidor' quedan en los valores actuales.
+    # Los lee el reconciliador del cliente (ConflictoMioOut) para escribir base+version.
+    conflicto.version_resultante = item.version
+    conflicto.estado_resultante = item.estado.value
 
     # Audit de la resolución (CTT-117 tramo 3). Misma transacción que la resolución:
     # record_audit hace db.add, no commit; el db.commit() de abajo es el único.

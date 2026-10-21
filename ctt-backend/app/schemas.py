@@ -289,6 +289,10 @@ class ConflictoMioOut(BaseModel):
     version_ganadora: str | None
     resuelto_at: datetime | None
     estado: ConflictoEstado
+    # CTT-143 (B4 / P6): versión y estado del ítem tras resolver, para que el reconciliador
+    # del cliente escriba base+version sin re-pull. Nullable para conflictos previos a B4.
+    version_resultante: int | None = None
+    estado_resultante: str | None = None
 
 
 # ── Notificaciones ───────────────────────────────────────────────────────────
