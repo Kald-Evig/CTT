@@ -32,10 +32,15 @@ def _get_log(client, seeded, uid=None, **params):
 
 
 def _transicion(client, seeded, item_id, nuevo_estado, uid=None):
+    # CTT-143 D7: version_base es obligatorio. Se lee la versión actual del servidor
+    # (GET /items/{id}, que ahora la expone) para no tener que contarla a mano.
+    headers = _h(seeded, uid or seeded.trab)
+    g = client.get(f"/items/{item_id}", headers=headers)
+    version_base = g.json().get("version", 1) if g.status_code == 200 else 1
     return client.post(
         f"/items/{item_id}/transicion",
-        json={"nuevo_estado": nuevo_estado},
-        headers=_h(seeded, uid or seeded.trab),
+        json={"nuevo_estado": nuevo_estado, "version_base": version_base},
+        headers=headers,
     )
 
 
@@ -101,7 +106,7 @@ def test_accion_cierre_problema(client, seeded, db):
     _transicion(client, seeded, seeded.item, "en_progreso")
     r = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "problema", "descripcion_problema": "Falla detectada"},
+        json={"nuevo_estado": "problema", "version_base": 2, "descripcion_problema": "Falla detectada"},
         headers=_h(seeded, seeded.resid),
     )
     assert r.status_code == 200, r.text
@@ -165,7 +170,7 @@ def test_multitenant_aislamiento(client, seeded, db):
 
     client.post(
         f"/items/{item_b.id}/transicion",
-        json={"nuevo_estado": "en_progreso"},
+        json={"nuevo_estado": "en_progreso", "version_base": 1},
         headers=seeded.headers(trab_b.firebase_uid, seeded.emp_b),
     )
 
@@ -224,7 +229,7 @@ def test_filtro_proyecto_id(client, seeded, db):
     _transicion(client, seeded, seeded.item, "en_progreso")
     # Actividad en proyecto 2
     client.post(f"/items/{item2.id}/transicion",
-                json={"nuevo_estado": "en_progreso"},
+                json={"nuevo_estado": "en_progreso", "version_base": 1},
                 headers=_h(seeded, seeded.trab))
 
     # Filtrar por proyecto original
@@ -255,7 +260,7 @@ def test_folio_correlativo_misma_empresa(client, seeded, db):
 
     _transicion(client, seeded, seeded.item, "en_progreso")
     client.post(f"/items/{item2.id}/transicion",
-                json={"nuevo_estado": "en_progreso"},
+                json={"nuevo_estado": "en_progreso", "version_base": 1},
                 headers=_h(seeded, seeded.trab))
 
     entradas = (
@@ -285,7 +290,7 @@ def test_folio_independiente_entre_empresas(client, seeded, db):
     _transicion(client, seeded, seeded.item, "en_progreso")
     client.post(
         f"/items/{item_b.id}/transicion",
-        json={"nuevo_estado": "en_progreso"},
+        json={"nuevo_estado": "en_progreso", "version_base": 1},
         headers=seeded.headers(trab_b.firebase_uid, seeded.emp_b),
     )
 
@@ -315,7 +320,7 @@ def test_actor_rol_correcto(client, seeded, db):
     _transicion(client, seeded, seeded.item, "en_progreso")
     r = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "problema", "descripcion_problema": "Falla en medición"},
+        json={"nuevo_estado": "problema", "version_base": 2, "descripcion_problema": "Falla en medición"},
         headers=_h(seeded, seeded.resid),
     )
     assert r.status_code == 200, r.text
@@ -335,7 +340,7 @@ def test_actor_rol_coordinador(client, seeded, db):
     _transicion(client, seeded, seeded.item, "en_progreso")
     client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "problema", "descripcion_problema": "Falla detectada"},
+        json={"nuevo_estado": "problema", "version_base": 2, "descripcion_problema": "Falla detectada"},
         headers=_h(seeded, seeded.resid),
     )
     r = client.post(

@@ -92,6 +92,7 @@ class RechazoMotivo(str, Enum):
     TRANSICION_INVALIDA = "transicion_invalida"  # 409: la máquina de estados rechazó la transición
     NO_AUTORIZADO = "no_autorizado"              # 403: el actor no puede operar este ítem
     INEXISTENTE = "inexistente"                  # 404: el ítem no existe / no es visible para el actor
+    VERSION_INVALIDA = "version_invalida"        # 422: version_base ausente (D7) o mayor que la actual (P5)
 
 
 class RechazoResolucion(str, Enum):

@@ -221,6 +221,11 @@ class TransicionIn(BaseModel):
     descripcion_problema: str | None = Field(default=None, max_length=2000)
     device_timestamp: datetime | None = None
     dispositivo_id: str | None = Field(default=None, max_length=255)
+    # CTT-143 (D7/P5): versión del servidor sobre la que el cliente construyó el cambio.
+    # Opcional en el schema a propósito: su ausencia NO es un 422 de Pydantic sino que el
+    # handler la valida (→ 422) para poder persistirla como rechazo con rechazo_id cuando
+    # viene de la cola. Reemplaza la detección de conflicto por device_timestamp.
+    version_base: int | None = None
 
 
 class ComentarioIn(BaseModel):

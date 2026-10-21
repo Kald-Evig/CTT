@@ -452,6 +452,7 @@ _MENSAJE_RECHAZO = {
         "La transición solicitada no es válida para el estado actual del ítem.",
     RechazoMotivo.NO_AUTORIZADO: "Este ítem no está asignado a usted.",
     RechazoMotivo.INEXISTENTE: "Ítem no encontrado.",
+    RechazoMotivo.VERSION_INVALIDA: "El cambio referencia una versión del ítem que no es válida.",
 }
 
 
@@ -507,6 +508,51 @@ def _persistir_rechazo(
     else:
         db.refresh(r)
     return r
+
+
+# ── Conflicto de concurrencia por versión (CTT-143 D5/D9) ────────────────────
+# Acciones de `item_historial` que SIEMPRE son conflicto: cambian el sentido del ítem
+# aunque las haya hecho el mismo usuario (D9: sin exención por usuario ni instalación).
+_ACCIONES_CONFLICTO_SIEMPRE = frozenset(
+    {"cierre_problema", "reversion_terminado", "resolucion_conflicto"}
+)
+
+
+def _evento_no_visto_dict(ev: ItemHistorial) -> dict:
+    """Una fila de `item_historial` como la ve el cliente en `eventos_no_vistos` (D5)."""
+    return {
+        "accion": ev.accion,
+        "usuario": ev.usuario_id,
+        "rol": ev.actor_rol,
+        "detalle": ev.detalle,
+        "version": ev.version,
+        "created_at": ev.created_at.isoformat() if ev.created_at else None,
+    }
+
+
+def _eventos_no_vistos(db: Session, item_id: str, version_base: int) -> list[ItemHistorial]:
+    """Eventos de `item_historial` del tramo (version_base, version_actual], en orden.
+
+    Son los que el cliente NO vio: ocurrieron después de la versión sobre la que armó su
+    cambio. Ninguna fila tiene version > la actual del ítem, así que el filtro basta."""
+    return (
+        db.query(ItemHistorial)
+        .filter(ItemHistorial.item_id == item_id, ItemHistorial.version > version_base)
+        .order_by(ItemHistorial.version)
+        .all()
+    )
+
+
+def _hay_conflicto(eventos: list[ItemHistorial], usuario_actual: str) -> bool:
+    """D9: hay conflicto si algún evento del tramo es una transición (`cambio_estado`)
+    de OTRO actor, o un cierre_problema/reversion_terminado/resolucion_conflicto (siempre).
+    `edicion_datos`, `asignacion` y las transiciones del propio usuario son benignas."""
+    for ev in eventos:
+        if ev.accion in _ACCIONES_CONFLICTO_SIEMPRE:
+            return True
+        if ev.accion == "cambio_estado" and ev.usuario_id != usuario_actual:
+            return True
+    return False
 
 
 # ── Transición de estado ─────────────────────────────────────────────────────
@@ -566,31 +612,81 @@ def transicion_item(
 
     proyecto = db.query(Proyecto).filter(Proyecto.id == item.proyecto_id).first()
 
-    # ── Detección de conflicto de concurrencia (Sección 8) ───────────────────
-    # Si el cliente envía device_timestamp y el ítem fue modificado en el
-    # servidor después de que el dispositivo tomó su snapshot, hay un conflicto.
-    if body.device_timestamp and item.updated_at > body.device_timestamp.replace(tzinfo=None):
-        conflicto = SyncConflicto(
-            item_id=item.id,
-            cambio_local={
-                "estado": body.nuevo_estado.value,
-                "comentario": body.comentario,
-            },
-            cambio_servidor={"estado": item.estado.value},
-            dispositivo_id=body.dispositivo_id or "desconocido",
-            usuario_id=ctx.usuario.id,
+    # ── Precondición de versión (CTT-143 D7/P5) ──────────────────────────────
+    # version_base es OBLIGATORIO: el cliente declara sobre qué versión del servidor
+    # construyó el cambio. Si falta (D7) o es MAYOR que la actual del servidor (P5,
+    # cliente "del futuro", imposible), es 422; desde la cola se persiste como rechazo
+    # pegajoso con rechazo_id (igual que los demás 4xx deterministas).
+    if body.version_base is None or body.version_base > item.version:
+        detalle_422 = (
+            "version_base es obligatorio."
+            if body.version_base is None
+            else (f"version_base ({body.version_base}) es mayor que la versión actual "
+                  f"del servidor ({item.version}).")
         )
-        db.add(conflicto)
-        db.commit()
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "tipo": "conflicto_concurrencia",
-                "conflicto_id": conflicto.id,
-                "mensaje": "El ítem fue modificado en el servidor mientras el dispositivo estaba offline.",
-                "estado_servidor": item.estado.value,
-            },
-        )
+        if persistir:
+            r = _persistir_rechazo(
+                db, ctx, empresa_id, item_id, idem_key, body,
+                codigo=422, motivo=RechazoMotivo.VERSION_INVALIDA, detalle=detalle_422,
+            )
+            raise HTTPException(422, detail=_rechazo_detail(r))
+        raise HTTPException(422, detail=detalle_422)
+
+    # ── Detección de conflicto de concurrencia por versión (CTT-143 D5/D9) ────
+    # Reemplaza la heurística por device_timestamp. Si entre version_base y la versión
+    # actual hubo eventos que el cliente no vio (eventos_no_vistos) y alguno es
+    # conflictivo (D9: transición ajena, cierre/reversión/resolución), se registra un
+    # SyncConflicto y se responde 409. D4: un reintento con la misma idempotency_key
+    # reusa el conflicto existente en vez de duplicarlo.
+    if body.version_base < item.version:
+        eventos = _eventos_no_vistos(db, item.id, body.version_base)
+        if _hay_conflicto(eventos, ctx.usuario.id):
+            conflicto = None
+            if idem_key is not None:
+                conflicto = (db.query(SyncConflicto)
+                             .filter_by(idempotency_key=idem_key).first())
+            if conflicto is None:
+                conflicto = SyncConflicto(
+                    item_id=item.id,
+                    cambio_local={
+                        "estado": body.nuevo_estado.value,
+                        "comentario": body.comentario,
+                    },
+                    # Snapshot del servidor al momento del conflicto (D5): estado, versión
+                    # actual y los eventos que el cliente no vio. Lo lee el aviso del cliente.
+                    cambio_servidor={
+                        "estado": item.estado.value,
+                        "version": item.version,
+                        "eventos_no_vistos": [_evento_no_visto_dict(e) for e in eventos],
+                    },
+                    idempotency_key=idem_key,
+                    dispositivo_id=body.dispositivo_id or "desconocido",
+                    usuario_id=ctx.usuario.id,
+                )
+                db.add(conflicto)
+                try:
+                    db.commit()
+                except IntegrityError:
+                    # Carrera: otro request con la misma clave ganó el INSERT (índice
+                    # UNIQUE parcial uq_sync_conflictos_idem). Reusar esa fila (D4).
+                    db.rollback()
+                    conflicto = (db.query(SyncConflicto)
+                                 .filter_by(idempotency_key=idem_key).one())
+                else:
+                    db.refresh(conflicto)
+            snap = conflicto.cambio_servidor or {}
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "tipo": "conflicto_concurrencia",
+                    "conflicto_id": conflicto.id,
+                    "version_actual": snap.get("version"),
+                    "eventos_no_vistos": snap.get("eventos_no_vistos", []),
+                    "estado_servidor": snap.get("estado"),
+                    "mensaje": ("El ítem fue modificado por otra persona mientras tu "
+                                "cambio estaba en la cola."),
+                },
+            )
 
     estado_anterior = item.estado.value  # capturar ANTES de que transicionar() mute item.estado
     # Defensa en profundidad: la máquina de estados valida rol y transición permitida.

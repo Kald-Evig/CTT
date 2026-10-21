@@ -1,0 +1,169 @@
+"""
+test_ctt143_version_base.py — CTT-143 (D7/P5/D5/D9/D4) B2.
+
+La precondición de conflicto de /items/{id}/transicion pasa de device_timestamp a
+version_base:
+
+  - D7: version_base es OBLIGATORIO; si falta → 422 (desde la cola, rechazo con rechazo_id).
+  - P5: version_base > versión actual → 422 (idem).
+  - D9: entre version_base y la versión actual, una transición de OTRO actor (o un
+        cierre_problema/reversion_terminado/resolucion_conflicto) genera conflicto (409
+        con eventos_no_vistos); una edición de datos/asignación o una transición del
+        propio usuario son benignas (no hay conflicto).
+  - D4: un reintento con la misma idempotency_key reusa el mismo conflicto_id.
+"""
+
+from app.enums import RechazoMotivo
+from app.models import SyncConflicto, SyncRechazo
+
+
+def _cola(seeded, uid, key):
+    """Headers de un comando venido de la cola offline (origen cola + clave)."""
+    return {
+        "Authorization": f"Bearer {uid}",
+        "X-Sync-Origen": "cola",
+        "Idempotency-Key": key,
+    }
+
+
+def _transicion(client, seeded, uid, estado, version_base, **extra):
+    """POST online (con empresa explícita) de una transición sobre el ítem sembrado."""
+    return client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": estado, "version_base": version_base, **extra},
+        headers=seeded.headers(uid, seeded.emp_a),
+    )
+
+
+def _llevar_a_terminado(client, seeded):
+    """Secuencia válida que deja al ítem en TERMINADO v4: trab en_progreso (v2),
+    trab pendiente_revision (v3), resid aprueba terminado (v4, cambio_estado AJENO)."""
+    _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    _transicion(client, seeded, seeded.trab, "pendiente_revision", 2)
+    _transicion(client, seeded, seeded.resid, "terminado", 3)
+
+
+# ── D7: version_base obligatorio ──────────────────────────────────────────────
+
+def test_sin_version_base_desde_cola_es_422_con_rechazo_id(client, seeded, db):
+    r = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "en_progreso"},   # sin version_base
+        headers=_cola(seeded, seeded.trab, "k-novb"),
+    )
+    assert r.status_code == 422, r.text
+    d = r.json()["detail"]
+    assert d["tipo"] == "rechazo"
+    assert d["motivo"] == "version_invalida"
+    assert d["rechazo_id"]
+
+    db.expire_all()
+    f = db.query(SyncRechazo).filter_by(idempotency_key="k-novb").one()
+    assert f.id == d["rechazo_id"]
+    assert f.codigo_http == 422
+    assert f.motivo == RechazoMotivo.VERSION_INVALIDA
+
+
+def test_sin_version_base_online_es_422_sin_rechazo(client, seeded, db):
+    r = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "en_progreso"},
+        headers={"Authorization": f"Bearer {seeded.trab}"},
+    )
+    assert r.status_code == 422, r.text
+    assert isinstance(r.json()["detail"], str)   # fuera de la cola: 422 plano, sin fila
+    db.expire_all()
+    assert db.query(SyncRechazo).count() == 0
+
+
+# ── P5: version_base del "futuro" ─────────────────────────────────────────────
+
+def test_version_base_mayor_que_actual_desde_cola_es_422_con_rechazo_id(client, seeded, db):
+    r = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "en_progreso", "version_base": 999},
+        headers=_cola(seeded, seeded.trab, "k-futura"),
+    )
+    assert r.status_code == 422, r.text
+    d = r.json()["detail"]
+    assert d["rechazo_id"]
+    assert d["motivo"] == "version_invalida"
+    db.expire_all()
+    assert db.query(SyncRechazo).filter_by(idempotency_key="k-futura").count() == 1
+
+
+# ── D9: clasificación benigno vs conflicto ────────────────────────────────────
+
+def test_edicion_de_otro_usuario_no_genera_conflicto(client, seeded, db):
+    # coord edita el ítem (edicion_datos, v1 -> v2). trab transiciona con version_base=1:
+    # el evento intermedio es una edición de datos (benigna) -> NO hay conflicto.
+    re = client.put(
+        f"/items/{seeded.item}",
+        json={"nombre": "Reeditado por coord"},
+        headers=seeded.headers(seeded.coord, seeded.emp_a),
+    )
+    assert re.status_code == 200, re.text
+
+    r = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r.status_code == 200, r.text
+    assert r.json()["estado"] == "en_progreso"
+    db.expire_all()
+    assert db.query(SyncConflicto).count() == 0
+
+
+def test_dos_transiciones_propias_no_generan_conflicto(client, seeded, db):
+    # trab en_progreso (v1 -> v2). Luego trab, desde la cola, con version_base=1 (viejo):
+    # el evento intermedio es una transición del PROPIO trab (benigna, D9) -> sin conflicto.
+    r1 = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r1.status_code == 200, r1.text
+
+    r2 = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "problema", "version_base": 1,
+              "descripcion_problema": "Reviso una falla"},
+        headers=_cola(seeded, seeded.trab, "k-propia"),
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["estado"] == "problema"
+    db.expire_all()
+    assert db.query(SyncConflicto).count() == 0
+
+
+def test_transicion_ajena_es_409_con_eventos_no_vistos(client, seeded, db):
+    _llevar_a_terminado(client, seeded)   # resid aprobó en v4 (cambio_estado ajeno a trab)
+
+    # trab, desde la cola, con version_base=3 (antes de la aprobación ajena). El conflicto
+    # se detecta ANTES de la máquina de estados, así que el nuevo_estado da igual.
+    r = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "en_progreso", "version_base": 3},
+        headers=_cola(seeded, seeded.trab, "k-ajena"),
+    )
+    assert r.status_code == 409, r.text
+    d = r.json()["detail"]
+    assert d["tipo"] == "conflicto_concurrencia"
+    assert d["conflicto_id"]
+    assert d["version_actual"] == 4
+    assert d["estado_servidor"] == "terminado"
+    eventos = [(e["accion"], e["usuario"], e["rol"], e["version"]) for e in d["eventos_no_vistos"]]
+    assert ("cambio_estado", seeded.resid_id, "residente", 4) in eventos
+
+    db.expire_all()
+    assert db.query(SyncConflicto).filter_by(item_id=seeded.item).count() == 1
+
+
+# ── D4: idempotencia del conflicto ────────────────────────────────────────────
+
+def test_reintento_misma_clave_mismo_conflicto_id_una_fila(client, seeded, db):
+    _llevar_a_terminado(client, seeded)
+    h = _cola(seeded, seeded.trab, "k-dup")
+    body = {"nuevo_estado": "en_progreso", "version_base": 3}
+
+    r1 = client.post(f"/items/{seeded.item}/transicion", json=body, headers=h)
+    assert r1.status_code == 409, r1.text
+    r2 = client.post(f"/items/{seeded.item}/transicion", json=body, headers=h)
+    assert r2.status_code == 409, r2.text
+
+    assert r1.json()["detail"]["conflicto_id"] == r2.json()["detail"]["conflicto_id"]
+    db.expire_all()
+    assert db.query(SyncConflicto).filter_by(item_id=seeded.item).count() == 1

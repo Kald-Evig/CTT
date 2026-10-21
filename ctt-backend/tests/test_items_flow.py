@@ -45,21 +45,27 @@ def test_ciclo_completo_item(client, seeded):
     assert r.status_code == 200, r.text
     assert r.json()["asignado_a"] == seeded.trab_id
 
-    # 4) Trabajador inicia (ABIERTO -> EN_PROGRESO).
+    # 4) Trabajador inicia (ABIERTO -> EN_PROGRESO). version_base = versión del servidor
+    #    (CTT-143 D7); se encadena desde la respuesta anterior.
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "en_progreso"}, headers=h_trab)
+                    json={"nuevo_estado": "en_progreso", "version_base": item["version"]},
+                    headers=h_trab)
     assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "en_progreso"
+    item = r.json()
+    assert item["estado"] == "en_progreso"
 
     # 5) Trabajador marca para revisión.
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "pendiente_revision"}, headers=h_trab)
+                    json={"nuevo_estado": "pendiente_revision", "version_base": item["version"]},
+                    headers=h_trab)
     assert r.status_code == 200, r.text
-    assert r.json()["estado"] == "pendiente_revision"
+    item = r.json()
+    assert item["estado"] == "pendiente_revision"
 
     # 6) Residente aprueba (-> TERMINADO).
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "terminado"}, headers=h_resid)
+                    json={"nuevo_estado": "terminado", "version_base": item["version"]},
+                    headers=h_resid)
     assert r.status_code == 200, r.text
     assert r.json()["estado"] == "terminado"
 
@@ -75,7 +81,7 @@ def test_trabajador_no_puede_crear_item(client, seeded):
 def test_transicion_no_permitida_da_409(client, seeded):
     # El ítem sembrado está ABIERTO; saltar directo a TERMINADO no es válido.
     r = client.post(f"/items/{seeded.item}/transicion",
-                    json={"nuevo_estado": "terminado"},
+                    json={"nuevo_estado": "terminado", "version_base": 1},
                     headers=seeded.headers(seeded.resid))
     assert r.status_code == 409
 
@@ -95,7 +101,7 @@ def test_trabajador_sin_acceso_a_item_recibe_404(client, seeded):
 def test_trabajador_con_acceso_transicion_invalida_da_409(client, seeded):
     # seeded.item está asignado al trabajador; saltar directo a TERMINADO → 409 (máquina de estados).
     r = client.post(f"/items/{seeded.item}/transicion",
-                    json={"nuevo_estado": "terminado"},
+                    json={"nuevo_estado": "terminado", "version_base": 1},
                     headers=seeded.headers(seeded.trab))
     assert r.status_code == 409
 
@@ -106,18 +112,19 @@ def test_flujo_problema_y_cierre(client, seeded):
     h_resid = seeded.headers(seeded.resid)
     item_id = seeded.item
 
-    # Llevar a EN_PROGRESO (el ítem sembrado está asignado al trabajador).
+    # Llevar a EN_PROGRESO (el ítem sembrado está asignado al trabajador). seeded.item
+    # nace en versión 1; cada transición aplicada sube la versión en 1 (CTT-143 D7).
     client.post(f"/items/{item_id}/transicion",
-                json={"nuevo_estado": "en_progreso"}, headers=h_trab)
+                json={"nuevo_estado": "en_progreso", "version_base": 1}, headers=h_trab)
 
-    # Marcar problema SIN descripción -> 409.
+    # Marcar problema SIN descripción -> 409 (no cambia estado ni versión).
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "problema"}, headers=h_trab)
+                    json={"nuevo_estado": "problema", "version_base": 2}, headers=h_trab)
     assert r.status_code == 409
 
     # Con descripción -> 200.
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "problema",
+                    json={"nuevo_estado": "problema", "version_base": 2,
                           "descripcion_problema": "Maquinaria averiada"},
                     headers=h_trab)
     assert r.status_code == 200
@@ -125,7 +132,7 @@ def test_flujo_problema_y_cierre(client, seeded):
 
     # Mientras está en problema, no se puede avanzar (R1) -> 409.
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "pendiente_revision"}, headers=h_trab)
+                    json={"nuevo_estado": "pendiente_revision", "version_base": 3}, headers=h_trab)
     assert r.status_code == 409
 
     # Residente cierra el problema -> vuelve a EN_PROGRESO.
@@ -140,18 +147,20 @@ def test_rechazo_requiere_comentario_via_api(client, seeded):
     item_id = seeded.item
 
     client.post(f"/items/{item_id}/transicion",
-                json={"nuevo_estado": "en_progreso"}, headers=h_trab)
+                json={"nuevo_estado": "en_progreso", "version_base": 1}, headers=h_trab)
     client.post(f"/items/{item_id}/transicion",
-                json={"nuevo_estado": "pendiente_revision"}, headers=h_trab)
+                json={"nuevo_estado": "pendiente_revision", "version_base": 2}, headers=h_trab)
 
     # Rechazo (PENDIENTE_REVISION -> EN_PROGRESO) sin comentario -> 409.
+    # Ambas transiciones previas son del trabajador (otro actor que el residente), pero
+    # el residente SÍ las "vio": transiciona sobre la versión actual (3), tramo vacío.
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "en_progreso"}, headers=h_resid)
+                    json={"nuevo_estado": "en_progreso", "version_base": 3}, headers=h_resid)
     assert r.status_code == 409
 
     # Con comentario -> 200.
     r = client.post(f"/items/{item_id}/transicion",
-                    json={"nuevo_estado": "en_progreso",
+                    json={"nuevo_estado": "en_progreso", "version_base": 3,
                           "comentario": "Falta el sello de la inspección."},
                     headers=h_resid)
     assert r.status_code == 200

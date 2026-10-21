@@ -28,10 +28,12 @@ def _h(seeded, uid, key, empresa_id=None):
     return h
 
 
-def _post(client, seeded, uid, estado, headers):
+def _post(client, seeded, uid, estado, headers, version_base=1):
+    # CTT-143 D7: version_base obligatorio. El ítem sembrado está ABIERTO en versión 1;
+    # estos tests prueban rechazos (no avanzan la versión), así que 1 es el valor correcto.
     return client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": estado},
+        json={"nuevo_estado": estado, "version_base": version_base},
         headers=headers,
     )
 
@@ -170,7 +172,7 @@ def test_aislamiento_por_empresa_de_las_filas(client, seeded, db):
 def test_sin_header_origen_no_persiste_y_cuerpo_igual(client, seeded, db):
     r = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "terminado"},
+        json={"nuevo_estado": "terminado", "version_base": 1},
         headers={"Authorization": f"Bearer {seeded.trab}"},
     )
     assert r.status_code == 409, r.text
@@ -182,7 +184,7 @@ def test_sin_header_origen_no_persiste_y_cuerpo_igual(client, seeded, db):
 def test_origen_sin_idempotency_key_no_persiste(client, seeded, db):
     r = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "terminado"},
+        json={"nuevo_estado": "terminado", "version_base": 1},
         headers={"Authorization": f"Bearer {seeded.trab}", "X-Sync-Origen": "cola"},
     )
     assert r.status_code == 409, r.text

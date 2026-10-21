@@ -93,7 +93,7 @@ def test_historial_incluye_nombre_usuario(client, seeded):
     # Transición que escribe en historial (trab es el asignado → puede iniciar)
     r = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "en_progreso"},
+        json={"nuevo_estado": "en_progreso", "version_base": 1},
         headers=_h(seeded, seeded.trab),
     )
     assert r.status_code == 200, r.text

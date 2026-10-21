@@ -43,13 +43,13 @@ def _put_item(client, seeded, item_id, payload, uid=None):
 def _llevar_a_terminado(client, seeded, item_id):
     """Lleva un ítem ABIERTO a TERMINADO en tres transiciones."""
     client.post(f"/items/{item_id}/transicion",
-                json={"nuevo_estado": "en_progreso"},
+                json={"nuevo_estado": "en_progreso", "version_base": 1},
                 headers=_h(seeded, seeded.trab))
     client.post(f"/items/{item_id}/transicion",
-                json={"nuevo_estado": "pendiente_revision"},
+                json={"nuevo_estado": "pendiente_revision", "version_base": 2},
                 headers=_h(seeded, seeded.trab))
     client.post(f"/items/{item_id}/transicion",
-                json={"nuevo_estado": "terminado"},
+                json={"nuevo_estado": "terminado", "version_base": 3},
                 headers=_h(seeded, seeded.resid))
 
 
@@ -186,7 +186,7 @@ def test_put_item_edicion_abierto_200(client, seeded):
 def test_put_item_edicion_en_progreso_200(client, seeded):
     """Ítem en estado EN_PROGRESO también puede editarse."""
     client.post(f"/items/{seeded.item}/transicion",
-                json={"nuevo_estado": "en_progreso"},
+                json={"nuevo_estado": "en_progreso", "version_base": 1},
                 headers=_h(seeded, seeded.trab))
 
     r = _put_item(client, seeded, seeded.item, {"nombre": "En progreso editado"})

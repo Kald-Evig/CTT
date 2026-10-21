@@ -80,7 +80,7 @@ def _caso_cambio_estado(client, seeded, db):
     item_id = seeded.item  # ABIERTO, asignado a trab → abierto→en_progreso válido
     v, h = _version(db, item_id), _hist_count(db, item_id)
     r = client.post(f"/items/{item_id}/transicion", headers=_h(seeded, seeded.trab),
-                    json={"nuevo_estado": "en_progreso"})
+                    json={"nuevo_estado": "en_progreso", "version_base": v})
     return item_id, v, h, r, "cambio_estado"
 
 
@@ -88,9 +88,9 @@ def _caso_cierre_problema(client, seeded, db):
     item_id = seeded.item
     # abierto→en_progreso (trab), en_progreso→problema (trab, con descripción).
     client.post(f"/items/{item_id}/transicion", headers=_h(seeded, seeded.trab),
-                json={"nuevo_estado": "en_progreso"})
+                json={"nuevo_estado": "en_progreso", "version_base": 1})
     client.post(f"/items/{item_id}/transicion", headers=_h(seeded, seeded.trab),
-                json={"nuevo_estado": "problema", "descripcion_problema": "Fuga"})
+                json={"nuevo_estado": "problema", "version_base": 2, "descripcion_problema": "Fuga"})
     v, h = _version(db, item_id), _hist_count(db, item_id)
     r = client.post(f"/items/{item_id}/cerrar-problema", headers=_h(seeded, seeded.coord))
     return item_id, v, h, r, "cierre_problema"
@@ -99,11 +99,11 @@ def _caso_cierre_problema(client, seeded, db):
 def _caso_reversion(client, seeded, db):
     item_id = seeded.item
     client.post(f"/items/{item_id}/transicion", headers=_h(seeded, seeded.trab),
-                json={"nuevo_estado": "en_progreso"})
+                json={"nuevo_estado": "en_progreso", "version_base": 1})
     client.post(f"/items/{item_id}/transicion", headers=_h(seeded, seeded.trab),
-                json={"nuevo_estado": "pendiente_revision"})
+                json={"nuevo_estado": "pendiente_revision", "version_base": 2})
     client.post(f"/items/{item_id}/transicion", headers=_h(seeded, seeded.resid),
-                json={"nuevo_estado": "terminado"})
+                json={"nuevo_estado": "terminado", "version_base": 3})
     v, h = _version(db, item_id), _hist_count(db, item_id)
     r = client.post(f"/items/{item_id}/revertir-terminado",
                     headers=_h(seeded, seeded.admin), params={"motivo": "Rehacer medición"})

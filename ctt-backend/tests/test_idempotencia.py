@@ -21,7 +21,7 @@ def _headers_key(seeded, uid, empresa_id, key):
 def test_sin_header_comportamiento_normal(client, seeded, db):
     r = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "en_progreso"},
+        json={"nuevo_estado": "en_progreso", "version_base": 1},
         headers=seeded.headers(seeded.trab, seeded.emp_a),
     )
     assert r.status_code == 200, r.text
@@ -35,7 +35,7 @@ def test_sin_header_comportamiento_normal(client, seeded, db):
 # 2 — FUNCIONALIDAD: misma clave + mismo body, dos veces → la 2da es replay.
 def test_misma_clave_mismo_body_replay(client, seeded, db):
     h = _headers_key(seeded, seeded.trab, seeded.emp_a, "k-replay")
-    payload = {"nuevo_estado": "en_progreso"}
+    payload = {"nuevo_estado": "en_progreso", "version_base": 1}
 
     r1 = client.post(f"/items/{seeded.item}/transicion", json=payload, headers=h)
     assert r1.status_code == 200, r1.text
@@ -69,7 +69,7 @@ def test_misma_clave_body_distinto_422(client, seeded, db):
 
     r1 = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "en_progreso"},
+        json={"nuevo_estado": "en_progreso", "version_base": 1},
         headers=h,
     )
     assert r1.status_code == 200, r1.text
@@ -103,7 +103,7 @@ def test_scope_empresa_nivel_modelo(db, seeded):
 def test_no_2xx_no_persiste_y_reintentable(client, seeded, db):
     h = _headers_key(seeded, seeded.trab, seeded.emp_a, "k-409")
     # abierto → terminado es una transición inválida → 409 de la máquina de estados.
-    payload = {"nuevo_estado": "terminado"}
+    payload = {"nuevo_estado": "terminado", "version_base": 1}
 
     r1 = client.post(f"/items/{seeded.item}/transicion", json=payload, headers=h)
     assert r1.status_code == 409, r1.text
@@ -123,7 +123,7 @@ def test_no_2xx_no_persiste_y_reintentable(client, seeded, db):
 # 6 — CONTADOR: solo el replay incrementa la métrica diaria, no el primer request.
 def test_replay_incrementa_contador_diario(client, seeded, db):
     h = _headers_key(seeded, seeded.trab, seeded.emp_a, "k-metrica")
-    payload = {"nuevo_estado": "en_progreso"}
+    payload = {"nuevo_estado": "en_progreso", "version_base": 1}
 
     r1 = client.post(f"/items/{seeded.item}/transicion", json=payload, headers=h)
     assert r1.status_code == 200, r1.text

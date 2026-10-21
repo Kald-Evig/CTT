@@ -119,10 +119,10 @@ def test_historial_proyecto_agrega_items(client, seeded, db):
 
     # Transicionar ambos ítems para generar entradas de historial
     client.post(f"/items/{seeded.item}/transicion",
-                json={"nuevo_estado": "en_progreso"},
+                json={"nuevo_estado": "en_progreso", "version_base": 1},
                 headers=_h(seeded, seeded.trab))
     client.post(f"/items/{item2.id}/transicion",
-                json={"nuevo_estado": "en_progreso"},
+                json={"nuevo_estado": "en_progreso", "version_base": 1},
                 headers=_h(seeded, seeded.trab))
 
     r = client.get(f"/proyectos/{seeded.proyecto}/historial",
