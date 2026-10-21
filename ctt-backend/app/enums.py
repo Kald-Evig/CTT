@@ -68,6 +68,10 @@ class EvidenciaSyncStatus(str, Enum):
 class ConflictoEstado(str, Enum):
     PENDIENTE = "pendiente"
     RESUELTO = "resuelto"
+    # CTT-143 (21-oct): el mismo usuario aplicó una transición posterior sobre el ítem, así
+    # que su conflicto quedó obsoleto. Sale de la bandeja del Coordinador (que muestra solo
+    # PENDIENTE). Lo marca transicion_item en la misma transacción que la escritura.
+    SUPERADO = "superado"
 
 
 class IdempotenciaEstado(str, Enum):

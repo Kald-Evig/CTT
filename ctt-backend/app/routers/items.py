@@ -33,7 +33,9 @@ from app.authz import (
 from app.item_events import registrar_escritura_item
 from app.config import settings
 from app.database import get_db
-from app.enums import EvidenciaSyncStatus, ItemEstado, RechazoMotivo, Rol, UsuarioEstado
+from app.enums import (
+    ConflictoEstado, EvidenciaSyncStatus, ItemEstado, RechazoMotivo, Rol, UsuarioEstado,
+)
 from app.models import (
     AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial,
     Proyecto, ProyectoUsuario, SyncConflicto, SyncRechazo, Usuario,
@@ -759,6 +761,17 @@ def transicion_item(
         detalle=body.comentario or body.descripcion_problema,
         dispositivo_id=body.dispositivo_id, idempotency_key=idem_key,
     )
+
+    # CTT-143 (21-oct): esta transición del propio usuario sobre el ítem deja OBSOLETO
+    # cualquier conflicto suyo que siga abierto (PENDIENTE) → SUPERADO. En la MISMA
+    # transacción que registrar_escritura_item (el cambio y el superado son atómicos). La
+    # bandeja del Coordinador (GET /sync/conflictos, default PENDIENTE) deja de mostrarlo.
+    (db.query(SyncConflicto)
+     .filter(SyncConflicto.item_id == item.id,
+             SyncConflicto.usuario_id == ctx.usuario.id,
+             SyncConflicto.estado == ConflictoEstado.PENDIENTE)
+     .update({SyncConflicto.estado: ConflictoEstado.SUPERADO},
+             synchronize_session=False))
 
     db.commit()
     db.refresh(item)

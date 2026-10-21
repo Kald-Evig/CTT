@@ -13,8 +13,21 @@ version_base:
   - D4: un reintento con la misma idempotency_key reusa el mismo conflicto_id.
 """
 
-from app.enums import RechazoMotivo
+from app.enums import ConflictoEstado, RechazoMotivo
 from app.models import SyncConflicto, SyncRechazo
+
+
+def _conflicto_pendiente(db, item_id, usuario_id, dispositivo_id="disp-1"):
+    """Siembra un SyncConflicto PENDIENTE (como el que deja el 409) y devuelve su id."""
+    c = SyncConflicto(
+        item_id=item_id,
+        cambio_local={"estado": "problema"},
+        cambio_servidor={"estado": "abierto", "version": 1, "eventos_no_vistos": []},
+        dispositivo_id=dispositivo_id, usuario_id=usuario_id,
+    )
+    db.add(c)
+    db.commit()
+    return c.id
 
 
 def _cola(seeded, uid, key):
@@ -167,3 +180,32 @@ def test_reintento_misma_clave_mismo_conflicto_id_una_fila(client, seeded, db):
     assert r1.json()["detail"]["conflicto_id"] == r2.json()["detail"]["conflicto_id"]
     db.expire_all()
     assert db.query(SyncConflicto).filter_by(item_id=seeded.item).count() == 1
+
+
+# ── B3: estado SUPERADO (21-oct) ──────────────────────────────────────────────
+
+def test_transicion_propia_posterior_marca_conflicto_superado(client, seeded, db):
+    # trab tiene un conflicto PENDIENTE; luego aplica una transición válida sobre el ítem.
+    cid = _conflicto_pendiente(db, seeded.item, seeded.trab_id)
+
+    r = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    assert db.get(SyncConflicto, cid).estado == ConflictoEstado.SUPERADO
+
+    # La bandeja del Coordinador (GET /sync/conflictos, default PENDIENTE) ya no lo muestra.
+    rb = client.get("/sync/conflictos", headers=seeded.headers(seeded.coord, seeded.emp_a))
+    assert rb.status_code == 200, rb.text
+    assert all(x["id"] != cid for x in rb.json())
+
+
+def test_transicion_no_supera_conflicto_de_otro_usuario(client, seeded, db):
+    # El conflicto es del RESIDENTE; una transición del TRABAJADOR no lo toca.
+    cid = _conflicto_pendiente(db, seeded.item, seeded.resid_id, dispositivo_id="disp-r")
+
+    r = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r.status_code == 200, r.text
+
+    db.expire_all()
+    assert db.get(SyncConflicto, cid).estado == ConflictoEstado.PENDIENTE
