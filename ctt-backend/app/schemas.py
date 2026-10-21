@@ -177,6 +177,9 @@ class ItemOut(BaseModel):
     asignado_a: str | None
     asignado_nombre: str | None = None
     estado: ItemEstado
+    # CTT-143 (d): versión autoritativa del servidor del ítem (version_id_col). El cliente la
+    # guarda como base y la manda en version_base al encolar la próxima transición.
+    version: int
     fecha_limite: date | None
     duracion_estimada_horas: float | None = None
     orden: int = 0
@@ -306,6 +309,8 @@ class MisItemOut(BaseModel):
     descripcion: str | None
     asignado_a: str | None
     estado: ItemEstado
+    # CTT-143 (d): versión autoritativa del servidor (ver ItemOut.version).
+    version: int
     fecha_limite: date | None
 
 

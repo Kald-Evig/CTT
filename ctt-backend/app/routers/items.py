@@ -232,6 +232,7 @@ def _item_dict(item: Item, asignado_nombre, ult_actor, ult_fecha) -> dict:
         "asignado_a": item.asignado_a,
         "asignado_nombre": asignado_nombre,
         "estado": item.estado,
+        "version": item.version,
         "fecha_limite": item.fecha_limite,
         "duracion_estimada_horas": item.duracion_estimada_horas,
         "orden": item.orden,
@@ -312,6 +313,7 @@ def mis_items(
             descripcion=item.descripcion,
             asignado_a=item.asignado_a,
             estado=item.estado,
+            version=item.version,
             fecha_limite=item.fecha_limite,
         )
         for item, nombre in filas
