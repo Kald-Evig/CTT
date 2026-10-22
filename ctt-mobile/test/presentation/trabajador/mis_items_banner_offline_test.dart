@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart' show ItemConOverlay;
 import 'package:ctt_mobile/presentation/auth/ventana_offline.dart';
 import 'package:ctt_mobile/presentation/shared/item_detalle_widgets.dart'
     show BannerOffline;
@@ -17,7 +17,7 @@ import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
 Widget _app(EstadoVentanaOffline estado) => ProviderScope(
       overrides: [
-        misItemsProvider.overrideWith((ref) => Stream.value(<ItemsCacheTableData>[])),
+        misItemsProvider.overrideWith((ref) => Stream.value(<ItemConOverlay>[])),
         estadoVentanaOfflineProvider.overrideWith((ref) async => estado),
       ],
       child: const MaterialApp(home: MisItemsScreen()),

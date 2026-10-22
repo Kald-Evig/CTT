@@ -81,7 +81,7 @@ void main() {
             id: _itemId,
             proyectoId: 'proy-1',
             nombre: 'Tarea',
-            estado: estado,
+            estadoServidor: estado,
             updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
@@ -110,7 +110,7 @@ void main() {
 
     expect(r.estado, EstadoSyncLocal.sincronizado);
     expect(await estadoFila(), EstadoSyncLocal.sincronizado.valor);
-    expect((await leerCache()).estado, 'en_progreso'); // base desde el ItemOut
+    expect((await leerCache()).estadoServidor, 'en_progreso'); // base desde el ItemOut
   });
 
   test('(a/b) 409 con conflicto_id: fila esperando_resolucion, tieneConflicto, sin revert',
@@ -127,7 +127,7 @@ void main() {
     expect(await estadoFila(), EstadoSyncLocal.esperandoResolucion.valor);
     final cache = await leerCache();
     expect(cache.tieneConflicto, isTrue);
-    expect(cache.estado, 'abierto'); // base intacta (sin revert, sin optimista)
+    expect(cache.estadoServidor, 'abierto'); // base intacta (sin revert, sin optimista)
   });
 
   test('(c) 409 con rechazo_id: fila rechazada; resultado rechazada', () async {
@@ -141,7 +141,7 @@ void main() {
 
     expect(r.estado, EstadoSyncLocal.rechazada);
     expect(await estadoFila(), EstadoSyncLocal.rechazada.valor);
-    expect((await leerCache()).estado, 'abierto'); // base intacta
+    expect((await leerCache()).estadoServidor, 'abierto'); // base intacta
   });
 
   test('(e) error de red: fila pendiente (bounce); resultado pendiente, base intacta',
@@ -157,7 +157,7 @@ void main() {
 
     expect(r.estado, EstadoSyncLocal.pendiente);
     expect(await estadoFila(), EstadoSyncLocal.pendiente.valor);
-    expect((await leerCache()).estado, 'abierto');
+    expect((await leerCache()).estadoServidor, 'abierto');
   });
 
   test('sin sesión: lanza SesionNoDisponibleException y NO encola', () async {

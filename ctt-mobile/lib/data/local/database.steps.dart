@@ -408,8 +408,176 @@ class Shape3 extends i0.VersionedTable {
 i1.GeneratedColumn<DateTime> _column_47(String aliasedName) =>
     i1.GeneratedColumn<DateTime>('ultima_reconciliacion', aliasedName, true,
         type: i1.DriftSqlType.dateTime);
+
+final class Schema8 extends i0.VersionedSchema {
+  Schema8({required super.database}) : super(version: 8);
+  @override
+  late final List<i1.DatabaseSchemaEntity> entities = [
+    syncPendientes,
+    itemsCache,
+    usuarioActivo,
+    syncReconciliacion,
+    uxSyncIdempotency,
+    ixSyncEnvio,
+    ixSyncEntidad,
+    ixSyncUsuario,
+  ];
+  late final Shape0 syncPendientes = Shape0(
+      source: i0.VersionedTable(
+        entityName: 'sync_pendientes',
+        withoutRowId: false,
+        isStrict: true,
+        tableConstraints: [],
+        columns: [
+          _column_0,
+          _column_1,
+          _column_2,
+          _column_3,
+          _column_4,
+          _column_5,
+          _column_6,
+          _column_7,
+          _column_8,
+          _column_9,
+          _column_10,
+          _column_11,
+          _column_12,
+          _column_13,
+          _column_14,
+          _column_15,
+          _column_16,
+          _column_17,
+          _column_18,
+          _column_19,
+          _column_20,
+          _column_21,
+          _column_22,
+          _column_23,
+          _column_24,
+          _column_25,
+          _column_26,
+          _column_27,
+        ],
+        attachedDatabase: database,
+      ),
+      alias: null);
+  late final Shape4 itemsCache = Shape4(
+      source: i0.VersionedTable(
+        entityName: 'items_cache',
+        withoutRowId: false,
+        isStrict: false,
+        tableConstraints: [
+          'PRIMARY KEY(id)',
+        ],
+        columns: [
+          _column_28,
+          _column_29,
+          _column_30,
+          _column_31,
+          _column_32,
+          _column_33,
+          _column_34,
+          _column_35,
+          _column_48,
+          _column_49,
+          _column_50,
+          _column_38,
+          _column_39,
+          _column_40,
+        ],
+        attachedDatabase: database,
+      ),
+      alias: null);
+  late final Shape2 usuarioActivo = Shape2(
+      source: i0.VersionedTable(
+        entityName: 'usuario_activo',
+        withoutRowId: false,
+        isStrict: false,
+        tableConstraints: [
+          'PRIMARY KEY(id)',
+        ],
+        columns: [
+          _column_28,
+          _column_41,
+          _column_42,
+          _column_43,
+          _column_44,
+          _column_3,
+          _column_45,
+          _column_46,
+        ],
+        attachedDatabase: database,
+      ),
+      alias: null);
+  late final Shape3 syncReconciliacion = Shape3(
+      source: i0.VersionedTable(
+        entityName: 'sync_reconciliacion',
+        withoutRowId: false,
+        isStrict: false,
+        tableConstraints: [
+          'PRIMARY KEY(id)',
+        ],
+        columns: [
+          _column_28,
+          _column_47,
+        ],
+        attachedDatabase: database,
+      ),
+      alias: null);
+  final i1.Index uxSyncIdempotency = i1.Index('ux_sync_idempotency',
+      'CREATE UNIQUE INDEX ux_sync_idempotency ON sync_pendientes (idempotency_key)');
+  final i1.Index ixSyncEnvio = i1.Index('ix_sync_envio',
+      'CREATE INDEX ix_sync_envio ON sync_pendientes (estado, secuencia)');
+  final i1.Index ixSyncEntidad = i1.Index('ix_sync_entidad',
+      'CREATE INDEX ix_sync_entidad ON sync_pendientes (tipo_entidad, entidad_id, secuencia)');
+  final i1.Index ixSyncUsuario = i1.Index('ix_sync_usuario',
+      'CREATE INDEX ix_sync_usuario ON sync_pendientes (usuario_id, estado)');
+}
+
+class Shape4 extends i0.VersionedTable {
+  Shape4({required super.source, required super.alias}) : super.aliased();
+  i1.GeneratedColumn<String> get id =>
+      columnsByName['id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get proyectoId =>
+      columnsByName['proyecto_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get proyectoNombre =>
+      columnsByName['proyecto_nombre']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get parentItemId =>
+      columnsByName['parent_item_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get nivelProfundidad =>
+      columnsByName['nivel_profundidad']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<String> get nombre =>
+      columnsByName['nombre']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get descripcion =>
+      columnsByName['descripcion']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get asignadoA =>
+      columnsByName['asignado_a']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get empresaId =>
+      columnsByName['empresa_id']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<String> get estadoServidor =>
+      columnsByName['estado_servidor']! as i1.GeneratedColumn<String>;
+  i1.GeneratedColumn<int> get version =>
+      columnsByName['version']! as i1.GeneratedColumn<int>;
+  i1.GeneratedColumn<bool> get tieneConflicto =>
+      columnsByName['tiene_conflicto']! as i1.GeneratedColumn<bool>;
+  i1.GeneratedColumn<DateTime> get updatedAt =>
+      columnsByName['updated_at']! as i1.GeneratedColumn<DateTime>;
+  i1.GeneratedColumn<DateTime> get cachadoEn =>
+      columnsByName['cachado_en']! as i1.GeneratedColumn<DateTime>;
+}
+
+i1.GeneratedColumn<String> _column_48(String aliasedName) =>
+    i1.GeneratedColumn<String>('empresa_id', aliasedName, true,
+        type: i1.DriftSqlType.string);
+i1.GeneratedColumn<String> _column_49(String aliasedName) =>
+    i1.GeneratedColumn<String>('estado_servidor', aliasedName, false,
+        type: i1.DriftSqlType.string);
+i1.GeneratedColumn<int> _column_50(String aliasedName) =>
+    i1.GeneratedColumn<int>('version', aliasedName, true,
+        type: i1.DriftSqlType.int);
 i0.MigrationStepWithVersion migrationSteps({
   required Future<void> Function(i1.Migrator m, Schema7 schema) from6To7,
+  required Future<void> Function(i1.Migrator m, Schema8 schema) from7To8,
 }) {
   return (currentVersion, database) async {
     switch (currentVersion) {
@@ -418,6 +586,11 @@ i0.MigrationStepWithVersion migrationSteps({
         final migrator = i1.Migrator(database, schema);
         await from6To7(migrator, schema);
         return 7;
+      case 7:
+        final schema = Schema8(database: database);
+        final migrator = i1.Migrator(database, schema);
+        await from7To8(migrator, schema);
+        return 8;
       default:
         throw ArgumentError.value('Unknown migration from $currentVersion');
     }
@@ -426,8 +599,10 @@ i0.MigrationStepWithVersion migrationSteps({
 
 i1.OnUpgrade stepByStep({
   required Future<void> Function(i1.Migrator m, Schema7 schema) from6To7,
+  required Future<void> Function(i1.Migrator m, Schema8 schema) from7To8,
 }) =>
     i0.VersionedSchema.stepByStepHelper(
         step: migrationSteps(
       from6To7: from6To7,
+      from7To8: from7To8,
     ));

@@ -65,7 +65,7 @@ void main() {
         id: id,
         proyectoId: 'p1',
         nombre: 'Tarea $id',
-        estado: 'abierto',
+        estadoServidor: 'abierto',
         updatedAt: DateTime.utc(2026, 1, 1),
         cachadoEn: DateTime.utc(2026, 1, 1),
         tieneConflicto: const Value(true),

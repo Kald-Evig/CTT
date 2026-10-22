@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:ctt_mobile/core/sync/transicion_service.dart';
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -22,16 +23,19 @@ class _FakeItemsRepository extends Mock implements ItemsRepository {}
 void main() {
   setUpAll(() => registerFallbackValue(EstadoItem.enProgreso));
 
-  ItemsCacheTableData itemEnProgreso() => ItemsCacheTableData(
-        id: 'item-1',
-        proyectoId: 'p1',
-        proyectoNombre: 'Proyecto X',
-        nivelProfundidad: 0,
-        nombre: 'Tarea de prueba',
-        estado: 'en_progreso',
-        tieneConflicto: false,
-        updatedAt: DateTime.utc(2026, 1, 1),
-        cachadoEn: DateTime.utc(2026, 1, 1),
+  ItemConOverlay itemEnProgreso() => ItemConOverlay(
+        base: ItemsCacheTableData(
+          id: 'item-1',
+          proyectoId: 'p1',
+          proyectoNombre: 'Proyecto X',
+          nivelProfundidad: 0,
+          nombre: 'Tarea de prueba',
+          estadoServidor: 'en_progreso',
+          tieneConflicto: false,
+          updatedAt: DateTime.utc(2026, 1, 1),
+          cachadoEn: DateTime.utc(2026, 1, 1),
+        ),
+        estadoMostrado: 'en_progreso',
       );
 
   testWidgets(

@@ -285,7 +285,7 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   Future<void> _escribirBaseEstado(String entidadId, String estado) async {
     final filas = await (update(attachedDatabase.itemsCacheTable)
           ..where((t) => t.id.equals(entidadId)))
-        .write(ItemsCacheTableCompanion(estado: Value(estado)));
+        .write(ItemsCacheTableCompanion(estadoServidor: Value(estado)));
     if (filas == 0) {
       debugPrint(
         'CTT-144: base estado=$estado no aplicada — ítem $entidadId no está en '

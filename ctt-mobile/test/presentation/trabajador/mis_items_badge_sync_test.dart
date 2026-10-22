@@ -9,21 +9,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
-ItemsCacheTableData _item(String id, String estado) => ItemsCacheTableData(
-      id: id,
-      proyectoId: 'p1',
-      proyectoNombre: 'Obra',
-      nivelProfundidad: 0,
-      nombre: 'Ítem $id',
-      estado: estado,
-      tieneConflicto: false,
-      updatedAt: DateTime.utc(2026, 1, 1),
-      cachadoEn: DateTime.utc(2026, 1, 1),
+ItemConOverlay _item(String id, String estado) => ItemConOverlay(
+      base: ItemsCacheTableData(
+        id: id,
+        proyectoId: 'p1',
+        proyectoNombre: 'Obra',
+        nivelProfundidad: 0,
+        nombre: 'Ítem $id',
+        estadoServidor: estado,
+        tieneConflicto: false,
+        updatedAt: DateTime.utc(2026, 1, 1),
+        cachadoEn: DateTime.utc(2026, 1, 1),
+      ),
+      estadoMostrado: estado,
     );
 
 const _txtRechazada = 'Envío rechazado — lo revisa coordinación';

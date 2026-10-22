@@ -5,9 +5,9 @@
 /// T2: re-chequeo — si user_version ya está en destino, los pasos no se ejecutan.
 /// (Extra) user_version es transaccional: se revierte con el ROLLBACK.
 ///
-/// La línea base es v7 (CTT-103); el paso real v6→v7 lo valida el SchemaVerifier
+/// La línea base es v8 (CTT-143 d); los pasos reales los valida el SchemaVerifier
 /// (test/drift/app_db/migration_test.dart). Acá se prueba migrarAtomico en abstracto
-/// con pasos SINTÉTICOS por encima de la baseline (7→8).
+/// con pasos SINTÉTICOS por encima de la baseline (8→9).
 library;
 
 import 'package:drift/drift.dart' show Value;
@@ -52,25 +52,25 @@ void main() {
   test('T1 — falla en el paso 2: revierte pasos Y versión; la cola queda intacta; '
       'un segundo intento con pasos corregidos migra bien', () async {
     await encolarFila('r1');
-    expect(await leerUserVersion(db), 7); // onCreate dejó v7 (línea base)
+    expect(await leerUserVersion(db), 8); // onCreate dejó v8 (línea base)
 
     // Paso 1 crea una tabla (cambio observable); paso 2 revienta; paso 3 no debería correr.
     final pasosFallidos = <PasoMigracion>[
-      (d) => d.customStatement('CREATE TABLE probe_v8 (x INTEGER)'),
+      (d) => d.customStatement('CREATE TABLE probe_v9 (x INTEGER)'),
       (d) async => throw Exception('falla inyectada en el paso 2'),
-      (d) => d.customStatement('CREATE TABLE probe_v8_b (x INTEGER)'),
+      (d) => d.customStatement('CREATE TABLE probe_v9_b (x INTEGER)'),
     ];
 
     await expectLater(
-      migrarAtomico(db, from: 7, to: 8, pasos: pasosFallidos),
+      migrarAtomico(db, from: 8, to: 9, pasos: pasosFallidos),
       throwsA(isA<Exception>()),
     );
 
     // user_version NO avanzó.
-    expect(await leerUserVersion(db), 7);
+    expect(await leerUserVersion(db), 8);
     // El cambio del paso 1 se revirtió.
-    expect(await existeTabla('probe_v8'), isFalse);
-    expect(await existeTabla('probe_v8_b'), isFalse);
+    expect(await existeTabla('probe_v9'), isFalse);
+    expect(await existeTabla('probe_v9_b'), isFalse);
     // La fila de la cola sigue intacta, campo por campo.
     final fila = await (db.select(db.syncPendientes)
           ..where((t) => t.id.equals('r1')))
@@ -86,27 +86,27 @@ void main() {
 
     // Segundo intento con pasos corregidos: migra bien.
     final pasosOk = <PasoMigracion>[
-      (d) => d.customStatement('CREATE TABLE probe_v8 (x INTEGER)'),
-      (d) => d.customStatement('CREATE TABLE probe_v8_b (x INTEGER)'),
+      (d) => d.customStatement('CREATE TABLE probe_v9 (x INTEGER)'),
+      (d) => d.customStatement('CREATE TABLE probe_v9_b (x INTEGER)'),
     ];
-    await migrarAtomico(db, from: 7, to: 8, pasos: pasosOk);
-    expect(await leerUserVersion(db), 8);
-    expect(await existeTabla('probe_v8'), isTrue);
-    expect(await existeTabla('probe_v8_b'), isTrue);
+    await migrarAtomico(db, from: 8, to: 9, pasos: pasosOk);
+    expect(await leerUserVersion(db), 9);
+    expect(await existeTabla('probe_v9'), isTrue);
+    expect(await existeTabla('probe_v9_b'), isTrue);
   });
 
   test('T2 — re-chequeo: si user_version ya está en destino, los pasos NO corren',
       () async {
     var corrio = false;
-    // to = 7 y la base ya está en 7: actual >= to → no ejecuta pasos.
+    // to = 8 y la base ya está en 8: actual >= to → no ejecuta pasos.
     await migrarAtomico(
       db,
-      from: 7,
-      to: 7,
+      from: 8,
+      to: 8,
       pasos: [(d) async => corrio = true],
     );
     expect(corrio, isFalse);
-    expect(await leerUserVersion(db), 7);
+    expect(await leerUserVersion(db), 8);
   });
 
   test('user_version es transaccional: se revierte con el ROLLBACK', () async {
@@ -117,6 +117,6 @@ void main() {
       });
     } catch (_) {/* esperado */}
     // Si esto diera 99, user_version NO sería transaccional y el diseño caería.
-    expect(await leerUserVersion(db), 7);
+    expect(await leerUserVersion(db), 8);
   });
 }

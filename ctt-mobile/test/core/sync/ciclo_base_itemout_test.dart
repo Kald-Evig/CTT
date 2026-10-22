@@ -42,7 +42,7 @@ void main() {
             id: id,
             proyectoId: 'proy-1',
             nombre: 'Tarea',
-            estado: estado,
+            estadoServidor: estado,
             updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
@@ -74,7 +74,7 @@ void main() {
   Future<String> estadoBase(String id) async =>
       (await (db.select(db.itemsCacheTable)..where((t) => t.id.equals(id)))
               .getSingle())
-          .estado;
+          .estadoServidor;
 
   test('200: base items_cache.estado = ItemOut.estado (misma transacción)', () async {
     await cacheBase('X', 'abierto');

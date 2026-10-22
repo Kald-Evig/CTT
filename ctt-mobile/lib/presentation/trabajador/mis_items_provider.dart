@@ -17,17 +17,21 @@ part 'mis_items_provider.g.dart';
 /// la cache) y luego emite el overlay reactivo, que se refresca solo cuando cambia la
 /// cola, sin re-pull.
 @riverpod
-Stream<List<ItemsCacheTableData>> misItems(MisItemsRef ref) async* {
+Stream<List<ItemConOverlay>> misItems(MisItemsRef ref) async* {
   final storage = ref.watch(secureStorageProvider);
   final usuarioId = await storage.obtenerUsuarioId() ?? '';
+  // CTT-143 v8 (opción A): la lista se filtra por (usuario, empresa activa).
+  final empresaId = await storage.obtenerEmpresaId() ?? '';
   await ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId);
-  yield* ref.watch(itemsCacheDaoProvider).observarAsignadosConOverlay(usuarioId);
+  yield* ref
+      .watch(itemsCacheDaoProvider)
+      .observarAsignadosConOverlay(usuarioId, empresaId);
 }
 
 /// Detalle de un ítem con el estado MOSTRADO (base + overlay). Stream reactivo: los
 /// botones de transición (detalle_item_screen) derivan de este estado.
 @riverpod
-Stream<ItemsCacheTableData?> itemDetalle(ItemDetalleRef ref, String itemId) =>
+Stream<ItemConOverlay?> itemDetalle(ItemDetalleRef ref, String itemId) =>
     ref.watch(itemsCacheDaoProvider).observarPorIdConOverlay(itemId);
 
 /// IDs de ítems con cambios pendientes de sincronizar — Stream REACTIVO (Drift

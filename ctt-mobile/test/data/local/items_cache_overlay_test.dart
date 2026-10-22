@@ -22,7 +22,8 @@ void main() {
             proyectoId: 'proy-1',
             nombre: 'Tarea $id',
             asignadoA: Value(asignadoA),
-            estado: estado,
+            empresaId: const Value('emp-1'),
+            estadoServidor: estado,
             updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
@@ -47,7 +48,7 @@ void main() {
           ));
 
   Future<String?> estadoMostrado(String id) async =>
-      (await db.itemsCacheDao.observarPorIdConOverlay(id).first)?.estado;
+      (await db.itemsCacheDao.observarPorIdConOverlay(id).first)?.estadoMostrado;
 
   test('sin filas en la cola → muestra la base', () async {
     await cache('A', 'abierto');
@@ -99,8 +100,9 @@ void main() {
     await cache('H', 'abierto');
     await cache('I', 'abierto');
     await cola('h1', 'H', 'pendiente', 'en_progreso');
-    final lista = await db.itemsCacheDao.observarAsignadosConOverlay('user-1').first;
-    final porId = {for (final it in lista) it.id: it.estado};
+    final lista =
+        await db.itemsCacheDao.observarAsignadosConOverlay('user-1', 'emp-1').first;
+    final porId = {for (final it in lista) it.id: it.estadoMostrado};
     expect(porId['H'], 'en_progreso'); // overlay
     expect(porId['I'], 'abierto'); // base
   });

@@ -112,8 +112,11 @@ class ItemsRepository {
         nombre: json['nombre'] as String,
         descripcion: Value(json['descripcion'] as String?),
         asignadoA: Value(json['asignado_a'] as String?),
-        estado: json['estado'] as String,
-        estadoPrevio: const Value(null),
+        // La base = estado del servidor (antes `estado`). version la trae ItemOut/MisItemOut
+        // (B1); NULL si el backend aún no la expone. empresa_id NO se estampa aquí: lo hace
+        // sincronizarPull con la empresa activa (CTT-149 / opción A, C0).
+        estadoServidor: json['estado'] as String,
+        version: Value(json['version'] as int?),
         updatedAt: DateTime.now().toUtc(),
         cachadoEn: DateTime.now().toUtc(),
       );

@@ -8,6 +8,7 @@ import 'generated/schema.dart';
 
 import 'generated/schema_v6.dart' as v6;
 import 'generated/schema_v7.dart' as v7;
+import 'generated/schema_v8.dart' as v8;
 
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
@@ -164,6 +165,60 @@ void main() {
             expectedNewUsuarioActivoData);
         expect(await newDb.select(newDb.syncReconciliacion).get(),
             expectedNewSyncReconciliacionData);
+      },
+    );
+  });
+
+  // Fixture dorado v7→v8 (CTT-143 d): la migración renombra `estado`→`estado_servidor`
+  // (hereda el valor), descarta `estado_previo`, agrega `version` (NULL hasta el primer
+  // pull) y backfillea `empresa_id` desde la única fila de usuario_activo. El resto de los
+  // campos quedan intactos.
+  test('migración v7→v8: estado→estado_servidor, empresa_id backfill desde usuario_activo, '
+      'estado_previo descartado, version null', () async {
+    final cachado = DateTime.utc(2026, 4, 1, 9);
+    final oldItemsCacheData = <v7.ItemsCacheData>[
+      v7.ItemsCacheData(
+        id: 'item-A', proyectoId: 'proy-1', proyectoNombre: 'Obra 1',
+        nivelProfundidad: 0, nombre: 'Tarea A', descripcion: 'desc A',
+        asignadoA: 'user-1', estado: 'en_progreso', estadoPrevio: 'abierto',
+        tieneConflicto: true, updatedAt: cachado, cachadoEn: cachado,
+      ),
+    ];
+    final oldUsuarioActivoData = <v7.UsuarioActivoData>[
+      v7.UsuarioActivoData(
+        id: 'user-1', firebaseUid: 'fb-1', nombreCompleto: 'Luis',
+        email: 'luis@a.cl', rolActual: 'trabajador', empresaId: 'emp-1',
+        empresaNombre: 'Empresa 1', esSuperAdmin: false,
+      ),
+    ];
+    // En v8: estado_servidor = viejo estado; empresa_id backfilleado; version NULL;
+    // estado_previo ya no existe. Los demás campos intactos.
+    final expectedNewItemsCacheData = <v8.ItemsCacheData>[
+      v8.ItemsCacheData(
+        id: 'item-A', proyectoId: 'proy-1', proyectoNombre: 'Obra 1',
+        nivelProfundidad: 0, nombre: 'Tarea A', descripcion: 'desc A',
+        asignadoA: 'user-1', empresaId: 'emp-1', estadoServidor: 'en_progreso',
+        version: null, tieneConflicto: true, updatedAt: cachado, cachadoEn: cachado,
+      ),
+    ];
+
+    await verifier.testWithDataIntegrity(
+      oldVersion: 7,
+      newVersion: 8,
+      createOld: v7.DatabaseAtV7.new,
+      createNew: v8.DatabaseAtV8.new,
+      openTestedDatabase: BaseDatosCTT.conConexion,
+      createItems: (batch, oldDb) {
+        // usuario_activo primero: la migración lo lee para backfillear empresa_id.
+        batch.insertAll(oldDb.usuarioActivo, oldUsuarioActivoData);
+        batch.insertAll(oldDb.itemsCache, oldItemsCacheData);
+      },
+      validateItems: (newDb) async {
+        final filas = await newDb.select(newDb.itemsCache).get();
+        expect(filas, expectedNewItemsCacheData);
+        expect(filas.single.estadoServidor, 'en_progreso'); // heredó `estado`
+        expect(filas.single.empresaId, 'emp-1');            // backfill
+        expect(filas.single.version, null);                 // NULL hasta el 1er pull
       },
     );
   });

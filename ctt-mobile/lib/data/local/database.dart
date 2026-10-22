@@ -29,7 +29,7 @@ part 'database.g.dart';
 /// Versión del esquema local: **v7** (CTT-103 agregó `rechazo_id` sobre la línea
 /// base v6 de CTT-130). Fuente única: la usan el getter [BaseDatosCTT.schemaVersion]
 /// y la pre-apertura con sqlite3 crudo (apertura_base.dart) para decidir si migrar.
-const kSchemaVersionApp = 7;
+const kSchemaVersionApp = 8;
 
 // ── Tablas ────────────────────────────────────────────────────────────────────
 
@@ -111,9 +111,18 @@ class ItemsCacheTable extends Table {
   TextColumn get nombre => text()();
   TextColumn get descripcion => text().nullable()();
   TextColumn get asignadoA => text().nullable()();
-  /// EstadoItem.valor — ver enums_ctt.dart.
-  TextColumn get estado => text()();
-  TextColumn get estadoPrevio => text().nullable()();
+  /// Empresa dueña de la fila (CTT-143 v8, opción A). La estampa el pull con la empresa
+  /// activa; la migración v7→v8 la rellena desde `usuario_activo`. Nullable solo por el
+  /// ADD COLUMN de SQLite; en operación nunca es NULL (el pull siempre la fija). Da el
+  /// scope (usuario, empresa) al listado y al retiro.
+  TextColumn get empresaId => text().nullable()();
+  /// EstadoItem.valor del ÚLTIMO estado conocido del SERVIDOR (la base). Antes `estado`.
+  /// El estado MOSTRADO (base + overlay de la cola) lo calcula ItemsCacheDao aparte.
+  TextColumn get estadoServidor => text()();
+  /// Versión autoritativa del servidor (CTT-143 d). NULL hasta el primer pull que la traiga
+  /// (ItemOut.version). REGLA pendiente C2: una `version` NULL NO se envía como 0 en
+  /// `version_base` (en el servidor el tramo (0, actual] incluye 'creacion' = conflicto).
+  IntColumn get version => integer().nullable()();
   /// El ítem tiene un conflicto de sync sin resolver (CTT-117 tramo 2).
   BoolColumn get tieneConflicto =>
       boolean().withDefault(const Constant(false))();
@@ -194,7 +203,7 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   // estático y NO resuelve una referencia a const. Debe coincidir con
   // kSchemaVersionApp (lo garantiza un test). Ver CTT-130 fase 7.
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -236,6 +245,38 @@ class BaseDatosCTT extends _$BaseDatosCTT {
         final schema = Schema7(database: db);
         await Migrator(db, schema)
             .addColumn(schema.syncPendientes, schema.syncPendientes.rechazoId);
+      });
+    }
+    // v7 → v8 (CTT-143 d): items_cache gana `version` (int) y `empresa_id` (opción A),
+    // renombra `estado`→`estado_servidor` y descarta `estado_previo`. El rename+drop obliga
+    // a RECONSTRUIR la tabla (TableMigration) al shape congelado v8 (Schema8): el DDL
+    // resultante es idéntico a createAll (lo valida el SchemaVerifier), dentro de
+    // migrarAtomico (atómico pasos+user_version).
+    if (desde < 8 && hasta >= 8) {
+      pasos.add((db) async {
+        final schema = Schema8(database: db);
+        // TableMigration es la vía Drift sancionada para rename/drop de columnas (reconstruye
+        // la tabla al shape nuevo). Está marcada @experimental en Drift; el ignore es por esa
+        // marca, no por un uso dudoso.
+        await Migrator(db, schema).alterTable(
+          // ignore: experimental_member_use
+          TableMigration(
+            schema.itemsCache,
+            columnTransformer: {
+              // estado_servidor (nuevo nombre) hereda el valor de la vieja columna `estado`.
+              schema.itemsCache.estadoServidor:
+                  const CustomExpression<String>('estado'),
+            },
+            // version y empresa_id son nuevas y nullable → nacen NULL. empresa_id se rellena
+            // acto seguido desde la empresa activa; version queda NULL hasta el primer pull.
+            newColumns: [schema.itemsCache.version, schema.itemsCache.empresaId],
+          ),
+        );
+        // Backfill de empresa_id desde la única fila de usuario_activo (sesión activa).
+        await db.customStatement(
+          'UPDATE items_cache SET empresa_id = '
+          '(SELECT empresa_id FROM usuario_activo LIMIT 1)',
+        );
       });
     }
     return pasos;

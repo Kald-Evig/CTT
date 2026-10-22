@@ -11,8 +11,8 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart' show ItemConOverlay;
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
-import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
@@ -52,11 +52,11 @@ class DetalleItemScreen extends ConsumerWidget {
 
 class _CuerpoDetalle extends ConsumerWidget {
   const _CuerpoDetalle({required this.item});
-  final ItemsCacheTableData item;
+  final ItemConOverlay item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final estado = EstadoItem.fromString(item.estado);
+    final estado = EstadoItem.fromString(item.estadoMostrado);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -74,7 +74,7 @@ class _CuerpoDetalle extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              BadgeEstadoItem(estado: item.estado),
+              BadgeEstadoItem(estado: item.estadoMostrado),
             ],
           ),
           const SizedBox(height: 8),
@@ -109,7 +109,7 @@ class _CuerpoDetalle extends ConsumerWidget {
 
 class _AccionesEstado extends ConsumerWidget {
   const _AccionesEstado({required this.item, required this.estado});
-  final ItemsCacheTableData item;
+  final ItemConOverlay item;
   final EstadoItem estado;
 
   @override

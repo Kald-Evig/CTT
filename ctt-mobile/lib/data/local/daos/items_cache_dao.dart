@@ -36,10 +36,15 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
 
   // ── Estado MOSTRADO = base + overlay (CTT-144) ───────────────────────────────
 
-  /// Columnas de `items_cache` (alias `ic`) con `estado` reemplazado por el OVERLAY:
-  /// el `nuevo_estado` de la última fila `pendiente`/`enviando` del ítem
-  /// ([estadosIntencionLocal]), o la base (`ic.estado`) si no hay ninguna.
+  /// Columnas de `items_cache` (alias `ic`): TODAS las de la tabla (para reconstruir la
+  /// base con `itemsCacheTable.map`, tipos y fechas incluidos) MÁS `estado_mostrado`, el
+  /// OVERLAY = `nuevo_estado` de la última fila `pendiente`/`enviando` del ítem
+  /// ([estadosIntencionLocal]), o la base (`ic.estado_servidor`) si no hay ninguna.
   /// `esperandoResolucion` y las terminales NO entran: el servidor ya respondió.
+  ///
+  /// CTT-143 §6.2: la base (`estado_servidor`) y lo mostrado (`estado_mostrado`) van como
+  /// columnas SEPARADAS en [ItemConOverlay] (el aviso de conflicto de C4 necesita ambas);
+  /// NO se colapsan en el mapper de la tabla, que solo tiene una columna de estado.
   ///
   /// La clave del payload es [kPayloadNuevoEstado].
   /// DUPE: el mismo conocimiento ("nuevo_estado vive en payload") lo ESCRIBE
@@ -51,6 +56,9 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
       ic.id AS id, ic.proyecto_id AS proyecto_id, ic.proyecto_nombre AS proyecto_nombre,
       ic.parent_item_id AS parent_item_id, ic.nivel_profundidad AS nivel_profundidad,
       ic.nombre AS nombre, ic.descripcion AS descripcion, ic.asignado_a AS asignado_a,
+      ic.empresa_id AS empresa_id, ic.estado_servidor AS estado_servidor,
+      ic.version AS version, ic.tiene_conflicto AS tiene_conflicto,
+      ic.updated_at AS updated_at, ic.cachado_en AS cachado_en,
       COALESCE(
         (SELECT json_extract(sp.payload, '\$.$kPayloadNuevoEstado')
            FROM sync_pendientes sp
@@ -58,76 +66,78 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
             AND sp.entidad_id = ic.id
             AND sp.estado IN ($estados)
           ORDER BY sp.secuencia DESC LIMIT 1),
-        ic.estado) AS estado,
-      ic.estado_previo AS estado_previo, ic.tiene_conflicto AS tiene_conflicto,
-      ic.updated_at AS updated_at, ic.cachado_en AS cachado_en
+        ic.estado_servidor) AS estado_mostrado
     ''';
   }
 
   Set<ResultSetImplementation<dynamic, dynamic>> get _tablasOverlay =>
       {attachedDatabase.itemsCacheTable, attachedDatabase.syncPendientes};
 
-  /// Ítems asignados al usuario con el estado mostrado (base + overlay). Stream
-  /// REACTIVO: reacciona a cambios en `items_cache` Y en `sync_pendientes`.
-  Stream<List<ItemsCacheTableData>> observarAsignadosConOverlay(String usuarioId) =>
+  /// Reconstruye la base con el mapper de la tabla (tipos y fechas correctos) y le agrega
+  /// `estado_mostrado` leído de la fila cruda.
+  ItemConOverlay _aItemConOverlay(QueryRow f) => ItemConOverlay(
+        base: attachedDatabase.itemsCacheTable.map(f.data),
+        estadoMostrado: f.read<String>('estado_mostrado'),
+      );
+
+  /// Ítems del usuario en la EMPRESA ACTIVA con el estado mostrado (base + overlay). Stream
+  /// REACTIVO (reacciona a `items_cache` Y `sync_pendientes`). Filtra por (usuario, empresa)
+  /// — opción A, CTT-143 §6.1.
+  Stream<List<ItemConOverlay>> observarAsignadosConOverlay(
+    String usuarioId,
+    String empresaId,
+  ) =>
       customSelect(
         'SELECT $_columnasConOverlay FROM items_cache ic '
-        'WHERE ic.asignado_a = ?1 ORDER BY ic.updated_at DESC',
-        variables: [Variable.withString(usuarioId)],
+        'WHERE ic.asignado_a = ?1 AND ic.empresa_id = ?2 ORDER BY ic.updated_at DESC',
+        variables: [Variable.withString(usuarioId), Variable.withString(empresaId)],
         readsFrom: _tablasOverlay,
-      ).watch().map((filas) => filas
-          .map((f) => attachedDatabase.itemsCacheTable.map(f.data))
-          .toList(),);
+      ).watch().map((filas) => filas.map(_aItemConOverlay).toList());
 
-  /// Un ítem por id con el estado mostrado (base + overlay). Stream REACTIVO.
-  Stream<ItemsCacheTableData?> observarPorIdConOverlay(String itemId) =>
+  /// Un ítem por id con el estado mostrado (base + overlay). Stream REACTIVO. Por id global
+  /// (el detalle se abre por id; NO filtra empresa — CTT-143 §6.1).
+  Stream<ItemConOverlay?> observarPorIdConOverlay(String itemId) =>
       customSelect(
         'SELECT $_columnasConOverlay FROM items_cache ic WHERE ic.id = ?1',
         variables: [Variable.withString(itemId)],
         readsFrom: _tablasOverlay,
-      ).watch().map((filas) => filas.isEmpty
-          ? null
-          : attachedDatabase.itemsCacheTable.map(filas.first.data),);
+      ).watch().map(
+          (filas) => filas.isEmpty ? null : _aItemConOverlay(filas.first));
 
   /// Inserta o actualiza un ítem en caché (upsert por id).
   Future<void> guardarItem(ItemsCacheTableCompanion item) =>
       into(itemsCacheTable).insertOnConflictUpdate(item);
+}
 
-  /// Reemplaza todos los ítems de un proyecto (descarga completa).
-  Future<void> reemplazarPorProyecto(
-    String proyectoId,
-    List<ItemsCacheTableCompanion> items,
-  ) async {
-    await (delete(itemsCacheTable)
-          ..where((t) => t.proyectoId.equals(proyectoId)))
-        .go();
-    await batch((b) => b.insertAll(itemsCacheTable, items));
-  }
+/// Fila de `items_cache` CON el estado MOSTRADO ya calculado (base + overlay de la cola).
+/// Lleva [estadoServidor] (la base = último estado conocido del servidor) y [estadoMostrado]
+/// (lo que ve el usuario) por SEPARADO: el aviso de conflicto (C4) necesita ambos. [base] es
+/// la fila cruda de la tabla; los getters delegan para que la UI lea `item.nombre`,
+/// `item.estadoMostrado`, etc., sin desenvolver [base].
+class ItemConOverlay {
+  const ItemConOverlay({required this.base, required this.estadoMostrado});
 
-  /// Actualiza el estado de un ítem cacheado y guarda el estado anterior en estadoPrevio.
-  /// Permite revertir el cambio si el servidor rechaza la transición.
-  Future<void> actualizarEstado(String itemId, String nuevoEstado) async {
-    final actual = await obtenerPorId(itemId);
-    await (update(itemsCacheTable)..where((t) => t.id.equals(itemId))).write(
-      ItemsCacheTableCompanion(
-        estado: Value(nuevoEstado),
-        estadoPrevio: Value(actual?.estado),
-        updatedAt: Value(DateTime.now().toUtc()),
-      ),
-    );
-  }
+  /// Fila cruda de `items_cache` (ya con tipos correctos vía el mapper de la tabla).
+  final ItemsCacheTableData base;
 
-  /// Revierte al estado anterior guardado en estadoPrevio.
-  /// No-op si no hay estado previo registrado.
-  Future<void> revertirEstado(String itemId) async {
-    final actual = await obtenerPorId(itemId);
-    if (actual?.estadoPrevio == null) return;
-    await (update(itemsCacheTable)..where((t) => t.id.equals(itemId))).write(
-      ItemsCacheTableCompanion(
-        estado: Value(actual!.estadoPrevio!),
-        estadoPrevio: const Value(null),
-        updatedAt: Value(DateTime.now().toUtc()),
-      ),
-    );
-  }
+  /// `EstadoItem.valor` mostrado: `nuevo_estado` de la última fila pendiente/enviando del
+  /// ítem, o [estadoServidor] si no hay ninguna.
+  final String estadoMostrado;
+
+  String get id => base.id;
+  String get proyectoId => base.proyectoId;
+  String get proyectoNombre => base.proyectoNombre;
+  String? get parentItemId => base.parentItemId;
+  int get nivelProfundidad => base.nivelProfundidad;
+  String get nombre => base.nombre;
+  String? get descripcion => base.descripcion;
+  String? get asignadoA => base.asignadoA;
+  String? get empresaId => base.empresaId;
+
+  /// Último estado conocido del servidor (la base).
+  String get estadoServidor => base.estadoServidor;
+  int? get version => base.version;
+  bool get tieneConflicto => base.tieneConflicto;
+  DateTime get updatedAt => base.updatedAt;
+  DateTime get cachadoEn => base.cachadoEn;
 }

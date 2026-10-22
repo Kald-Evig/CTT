@@ -211,8 +211,8 @@ void main() {
     });
 
     test('from > to (base más nueva que la app) lanza', () async {
-      // App en v7: una base v8 es "más nueva" → debe lanzar (no hay downgrade).
-      await expectLater(abrir(8), throwsA(isA<StateError>()));
+      // App en v8: una base v9 es "más nueva" → debe lanzar (no hay downgrade).
+      await expectLater(abrir(9), throwsA(isA<StateError>()));
     });
   });
 }

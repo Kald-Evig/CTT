@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart' show ItemConOverlay;
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/shared/chip_estado.dart';
@@ -74,11 +74,11 @@ class MisItemsScreen extends ConsumerWidget {
 
 class _ListaAgrupada extends StatelessWidget {
   const _ListaAgrupada({required this.items});
-  final List<ItemsCacheTableData> items;
+  final List<ItemConOverlay> items;
 
   @override
   Widget build(BuildContext context) {
-    final grupos = <String, List<ItemsCacheTableData>>{};
+    final grupos = <String, List<ItemConOverlay>>{};
     for (final item in items) {
       grupos.putIfAbsent(item.proyectoId, () => []).add(item);
     }
@@ -115,7 +115,7 @@ class _CabeceraProyecto extends StatelessWidget {
 
 class _TarjetaItem extends ConsumerWidget {
   const _TarjetaItem({required this.item});
-  final ItemsCacheTableData item;
+  final ItemConOverlay item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -164,7 +164,7 @@ class _TarjetaItem extends ConsumerWidget {
                 color: Colors.orange.shade700,
               ),
             ),
-          BadgeEstadoItem(estado: item.estado),
+          BadgeEstadoItem(estado: item.estadoMostrado),
         ],
       ),
       onTap: () => context.push('/trabajador/${item.id}'),
