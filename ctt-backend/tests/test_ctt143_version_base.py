@@ -319,3 +319,43 @@ def test_resolucion_local_obsoleta_es_409_sin_escribir(client, seeded, db):
     c = db.get(SyncConflicto, cid)
     assert c.estado == ConflictoEstado.PENDIENTE
     assert c.version_resultante is None
+
+
+# ── B5b: SUPERADO visible en /conflictos/mios (21-oct) ────────────────────────
+
+def test_superado_aparece_en_mios(client, seeded, db):
+    # trab tiene un conflicto PENDIENTE; luego aplica una transición → SUPERADO. El
+    # reconciliador del cliente debe verlo en /mios para desbloquear la fila local.
+    # Arma: un conflicto PENDIENTE de trab + una transición válida de trab (lo marca
+    # superado). Verifica: /mios de trab lo lista con estado "superado".
+    cid = _conflicto_pendiente(db, seeded.item, seeded.trab_id)
+    r = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r.status_code == 200, r.text
+
+    rm = client.get("/sync/conflictos/mios", headers=seeded.headers(seeded.trab, seeded.emp_a))
+    assert rm.status_code == 200, rm.text
+    fila = next(x for x in rm.json() if x["id"] == cid)
+    assert fila["estado"] == "superado"
+
+
+def test_mios_no_muestra_superado_de_otro_usuario(client, seeded, db):
+    # Un SUPERADO del RESIDENTE no aparece en el /mios del TRABAJADOR (filtro por usuario),
+    # pero SÍ en el del residente (control positivo).
+    c = SyncConflicto(
+        item_id=seeded.item, cambio_local={"estado": "problema"},
+        cambio_servidor={"estado": "abierto"}, dispositivo_id="dev-r",
+        usuario_id=seeded.resid_id, estado=ConflictoEstado.SUPERADO,
+    )
+    db.add(c)
+    db.commit()
+    cid = c.id
+
+    rm_trab = client.get("/sync/conflictos/mios",
+                         headers=seeded.headers(seeded.trab, seeded.emp_a))
+    assert rm_trab.status_code == 200, rm_trab.text
+    assert all(x["id"] != cid for x in rm_trab.json())
+
+    rm_resid = client.get("/sync/conflictos/mios",
+                          headers=seeded.headers(seeded.resid, seeded.emp_a))
+    assert rm_resid.status_code == 200, rm_resid.text
+    assert any(x["id"] == cid and x["estado"] == "superado" for x in rm_resid.json())

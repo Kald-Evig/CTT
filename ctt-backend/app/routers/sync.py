@@ -121,12 +121,17 @@ def listar_conflictos_mios(
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
 ):
-    """[TEMPORAL — CTT-117] Conflictos RESUELTOS originados por el usuario del token.
+    """[TEMPORAL — CTT-117] Conflictos del usuario del token ya CERRADOS para el cliente.
 
-    Una sola regla de autorización: estado == RESUELTO y usuario_id == sujeto del
-    token. Sin ramas por rol — cualquier rol autenticado ve únicamente los suyos.
-    Permite al dispositivo saber qué versión ganó y reconciliar su cola local
-    (sync_pendientes).
+    Una sola regla de autorización: usuario_id == sujeto del token. Sin ramas por rol —
+    cualquier rol autenticado ve únicamente los suyos. Devuelve los estados que el
+    reconciliador debe consumir para desbloquear la fila local (sync_pendientes): RESUELTO
+    (lo resolvió el Coordinador) y SUPERADO (CTT-143 21-oct: el propio usuario aplicó una
+    transición posterior, el conflicto quedó obsoleto). Sin SUPERADO aquí, la fila del
+    dispositivo quedaría en esperando_resolucion para siempre (bloquea logout y el indicador).
+
+    Orden por created_at DESC (no por resuelto_at: es NULL en los SUPERADO; created_at
+    siempre está y da un orden estable para ambos estados).
 
     Se retira cuando se implemente CTT-104 (version_id_col / If-Match), que hará
     innecesario este canal de reconciliación por pull.
@@ -135,9 +140,11 @@ def listar_conflictos_mios(
         db.query(SyncConflicto)
         .filter(
             SyncConflicto.usuario_id == ctx.usuario.id,
-            SyncConflicto.estado == ConflictoEstado.RESUELTO,
+            SyncConflicto.estado.in_(
+                [ConflictoEstado.RESUELTO, ConflictoEstado.SUPERADO]
+            ),
         )
-        .order_by(SyncConflicto.resuelto_at.desc())
+        .order_by(SyncConflicto.created_at.desc())
         .all()
     )
 
