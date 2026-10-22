@@ -513,11 +513,13 @@ def _persistir_rechazo(
 
 
 # ── Conflicto de concurrencia por versión (CTT-143 D5/D9) ────────────────────
-# Acciones de `item_historial` que SIEMPRE son conflicto: cambian el sentido del ítem
-# aunque las haya hecho el mismo usuario (D9: sin exención por usuario ni instalación).
-_ACCIONES_CONFLICTO_SIEMPRE = frozenset(
-    {"cierre_problema", "reversion_terminado", "resolucion_conflicto"}
-)
+# D9 (Jira 10495): NO hay exención por instalación NI por usuario. Con envío serial por
+# ítem más rebase, los comandos propios nunca quedan en el tramo no visto; si uno aparece
+# ahí (otro dispositivo del mismo usuario, o un rebase fallido) ES un conflicto. Por eso la
+# clasificación es una ALLOWLIST de benignos (lado seguro: una acción nueva cae en conflicto
+# por defecto). Benignos = solo edición de datos y (re)asignación; todo lo demás —cualquier
+# cambio_estado, cierre_problema, reversion_terminado, resolucion_conflicto— es conflicto.
+_ACCIONES_BENIGNAS = frozenset({"edicion_datos", "asignacion"})
 
 
 def _evento_no_visto_dict(ev: ItemHistorial) -> dict:
@@ -545,16 +547,11 @@ def _eventos_no_vistos(db: Session, item_id: str, version_base: int) -> list[Ite
     )
 
 
-def _hay_conflicto(eventos: list[ItemHistorial], usuario_actual: str) -> bool:
-    """D9: hay conflicto si algún evento del tramo es una transición (`cambio_estado`)
-    de OTRO actor, o un cierre_problema/reversion_terminado/resolucion_conflicto (siempre).
-    `edicion_datos`, `asignacion` y las transiciones del propio usuario son benignas."""
-    for ev in eventos:
-        if ev.accion in _ACCIONES_CONFLICTO_SIEMPRE:
-            return True
-        if ev.accion == "cambio_estado" and ev.usuario_id != usuario_actual:
-            return True
-    return False
+def _hay_conflicto(eventos: list[ItemHistorial]) -> bool:
+    """D9: hay conflicto si algún evento del tramo NO es benigno. Benignos = edicion_datos
+    y asignacion; cualquier otra acción (toda `cambio_estado` —sin importar el actor—,
+    cierre_problema, reversion_terminado, resolucion_conflicto) es conflicto (Jira 10495)."""
+    return any(ev.accion not in _ACCIONES_BENIGNAS for ev in eventos)
 
 
 # ── Transición de estado ─────────────────────────────────────────────────────
@@ -642,7 +639,7 @@ def transicion_item(
     # reusa el conflicto existente en vez de duplicarlo.
     if body.version_base < item.version:
         eventos = _eventos_no_vistos(db, item.id, body.version_base)
-        if _hay_conflicto(eventos, ctx.usuario.id):
+        if _hay_conflicto(eventos):
             conflicto = None
             if idem_key is not None:
                 conflicto = (db.query(SyncConflicto)

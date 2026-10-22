@@ -124,22 +124,67 @@ def test_edicion_de_otro_usuario_no_genera_conflicto(client, seeded, db):
     assert db.query(SyncConflicto).count() == 0
 
 
-def test_dos_transiciones_propias_no_generan_conflicto(client, seeded, db):
-    # trab en_progreso (v1 -> v2). Luego trab, desde la cola, con version_base=1 (viejo):
-    # el evento intermedio es una transición del PROPIO trab (benigna, D9) -> sin conflicto.
+def test_transicion_propia_rebaseada_no_genera_conflicto(client, seeded, db):
+    # D9 (10495): el envío serial con rebase NO genera conflicto. trab en_progreso (v1->v2);
+    # el 200 devuelve version=2; trab rebasa y manda la siguiente con version_base=2 (la
+    # versión resultante). El tramo (2,2] queda vacío -> sin conflicto.
+    # Arma: una 1ra transición REAL cuyo 200 expone version=2. Verifica: la 2da con esa
+    # versión da 200 y no deja conflicto (el código evalúa _hay_conflicto sobre tramo vacío).
+    r1 = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r1.status_code == 200, r1.text
+    v = r1.json()["version"]
+    assert v == 2
+
+    r2 = _transicion(client, seeded, seeded.trab, "pendiente_revision", v)
+    assert r2.status_code == 200, r2.text
+    db.expire_all()
+    assert db.query(SyncConflicto).count() == 0
+
+
+def test_transicion_propia_con_version_base_vencido_es_409(client, seeded, db):
+    # D9 (10495): SIN exención por usuario. trab en_progreso (v1->v2); luego trab, desde la
+    # cola, con version_base=1 VENCIDO (rebase fallido): su PROPIO cambio_estado quedó en el
+    # tramo (1,2] y ahora ES conflicto.
+    # Arma: una transición propia real que deja un cambio_estado del trab en el tramo, y una
+    # 2da con base vencida. Verifica: 409 con eventos_no_vistos que incluye SU propio cambio.
     r1 = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
     assert r1.status_code == 200, r1.text
 
     r2 = client.post(
         f"/items/{seeded.item}/transicion",
-        json={"nuevo_estado": "problema", "version_base": 1,
-              "descripcion_problema": "Reviso una falla"},
-        headers=_cola(seeded, seeded.trab, "k-propia"),
+        json={"nuevo_estado": "pendiente_revision", "version_base": 1},
+        headers=_cola(seeded, seeded.trab, "k-vencido"),
     )
-    assert r2.status_code == 200, r2.text
-    assert r2.json()["estado"] == "problema"
+    assert r2.status_code == 409, r2.text
+    d = r2.json()["detail"]
+    assert d["tipo"] == "conflicto_concurrencia"
+    assert d["version_actual"] == 2
+    eventos = [(e["accion"], e["usuario"]) for e in d["eventos_no_vistos"]]
+    assert ("cambio_estado", seeded.trab_id) in eventos   # su PROPIO cambio, igual conflicto
     db.expire_all()
-    assert db.query(SyncConflicto).count() == 0
+    assert db.query(SyncConflicto).filter_by(item_id=seeded.item).count() == 1
+
+
+def test_mismo_usuario_otro_dispositivo_base_vencida_es_409(client, seeded, db):
+    # D9 (10495): tampoco hay exención por instalación. trab inicia desde el dispositivo A
+    # (en_progreso, v2). Luego trab, desde OTRO dispositivo (dispositivo-B) y con base
+    # vencida, intenta otra transición.
+    # Arma: una transición propia real (deja cambio_estado en el tramo) y una 2da desde otro
+    # dispositivo_id con base vencida. Verifica: 409 y que el conflicto registra el dispositivo B.
+    r1 = _transicion(client, seeded, seeded.trab, "en_progreso", 1)
+    assert r1.status_code == 200, r1.text
+
+    r2 = client.post(
+        f"/items/{seeded.item}/transicion",
+        json={"nuevo_estado": "pendiente_revision", "version_base": 1,
+              "dispositivo_id": "dispositivo-B"},
+        headers=_cola(seeded, seeded.trab, "k-dispB"),
+    )
+    assert r2.status_code == 409, r2.text
+    assert r2.json()["detail"]["tipo"] == "conflicto_concurrencia"
+    db.expire_all()
+    c = db.query(SyncConflicto).filter_by(item_id=seeded.item).one()
+    assert c.dispositivo_id == "dispositivo-B"
 
 
 def test_transicion_ajena_es_409_con_eventos_no_vistos(client, seeded, db):
