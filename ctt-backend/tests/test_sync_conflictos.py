@@ -137,7 +137,8 @@ def test_resolver_conflicto_ya_resuelto_devuelve_409(client, seeded, db):
         headers=_h(seeded, seeded.coord),
     )
     assert r.status_code == 409, r.text
-    assert "ya fue resuelto" in r.json()["detail"]
+    # B5c: el mensaje pasó a ser genérico para RESUELTO y SUPERADO ("ya no está pendiente").
+    assert "no está pendiente" in r.json()["detail"]
 
     # El estado del conflicto no debe haber cambiado.
     db.expire_all()

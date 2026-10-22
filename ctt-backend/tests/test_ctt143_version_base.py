@@ -359,3 +359,30 @@ def test_mios_no_muestra_superado_de_otro_usuario(client, seeded, db):
                           headers=seeded.headers(seeded.resid, seeded.emp_a))
     assert rm_resid.status_code == 200, rm_resid.text
     assert any(x["id"] == cid and x["estado"] == "superado" for x in rm_resid.json())
+
+
+# ── B5c: resolver solo acepta conflictos PENDIENTE ────────────────────────────
+
+def test_resolver_superado_da_409_con_local_y_servidor_sin_cambiar_estado(client, seeded, db):
+    # Un conflicto SUPERADO es terminal: no se resuelve ni 'local' ni 'servidor' → 409.
+    # Arma: un conflicto en estado SUPERADO. Verifica: ambos version_ganadora dan 409 y el
+    # estado sigue SUPERADO (no escribió).
+    c = SyncConflicto(
+        item_id=seeded.item, cambio_local={"estado": "en_progreso"},
+        cambio_servidor={"estado": "abierto"}, dispositivo_id="dev-s",
+        usuario_id=seeded.trab_id, estado=ConflictoEstado.SUPERADO,
+    )
+    db.add(c)
+    db.commit()
+    cid = c.id
+
+    for ganadora in ("local", "servidor"):
+        r = client.post(
+            f"/sync/conflictos/{cid}/resolver",
+            json={"version_ganadora": ganadora},
+            headers=seeded.headers(seeded.coord, seeded.emp_a),
+        )
+        assert r.status_code == 409, (ganadora, r.text)
+
+    db.expire_all()
+    assert db.get(SyncConflicto, cid).estado == ConflictoEstado.SUPERADO

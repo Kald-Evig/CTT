@@ -176,8 +176,12 @@ def resolver_conflicto(
     conflicto = scope_orm(q, ctx).first()
     if conflicto is None:
         raise HTTPException(404, "Conflicto no encontrado.")
-    if conflicto.estado == ConflictoEstado.RESUELTO:
-        raise HTTPException(409, "El conflicto ya fue resuelto.")
+    # B5c: solo se resuelve un conflicto PENDIENTE. RESUELTO (ya cerrado) y SUPERADO (el
+    # usuario avanzó con una transición posterior, 21-oct) son terminales → 409 sin escribir.
+    if conflicto.estado != ConflictoEstado.PENDIENTE:
+        raise HTTPException(
+            409, f"El conflicto ya no está pendiente (estado: {conflicto.estado.value})."
+        )
 
     # FOR UPDATE: serializa con las escrituras del ítem (version_id_col, CTT-143 P1).
     item = db.query(Item).filter(Item.id == conflicto.item_id).with_for_update().first()
