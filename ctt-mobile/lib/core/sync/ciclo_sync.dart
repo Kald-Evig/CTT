@@ -146,6 +146,7 @@ class CicloSync {
             entidadId: cambio.entidadId,
             payload: cambio.payload,
             idempotencyKey: cambio.idempotencyKey,
+            versionBase: cambio.versionBase,
           );
           clas = _clas(SenalSync.envioOk);
         } catch (e) {
@@ -407,11 +408,15 @@ class CicloSync {
     required String entidadId,
     required String payload,
     String? idempotencyKey,
+    int? versionBase,
   }) async {
     final data = jsonDecode(payload) as Map<String, dynamic>;
 
     switch (accion) {
       case 'cambio_estado_item':
+        // CTT-143 D7: version_base viaja en el CUERPO. Vive en la columna de la fila (no en
+        // el payload) porque el rebase (C3) la actualiza; acá se agrega al body del POST.
+        if (versionBase != null) data['version_base'] = versionBase;
         // La clave va como header, NO en el payload (alimenta el fingerprint del
         // servidor; meterla ahí rompería la deduplicación — CTT-105).
         final resp = await dio.post<Map<String, dynamic>>(

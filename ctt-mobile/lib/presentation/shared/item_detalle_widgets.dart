@@ -13,7 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/sync/transicion_service.dart'
-    show SesionNoDisponibleException;
+    show SesionNoDisponibleException, VersionBaseNoDisponibleException;
 import 'package:ctt_mobile/core/util/formato_fecha.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/auth/ventana_offline.dart';
@@ -515,6 +515,11 @@ String itemDetalleMensajeError(Object e) {
   // El cambio NO se guardó: el trabajador debe verlo, no un fallo silencioso.
   if (e is SesionNoDisponibleException) {
     return 'Tu sesión no está activa. Iniciá sesión de nuevo para guardar el cambio.';
+  }
+  // CTT-143 C2: la base del ítem aún no tiene la versión del servidor (migración v7→v8 sin
+  // re-pull). No se encola; hay que sincronizar primero (con red el pull la trae).
+  if (e is VersionBaseNoDisponibleException) {
+    return 'Sincroniza para continuar: este ítem aún no está actualizado desde el servidor.';
   }
   if (e is DioException) {
     // Prioriza el `detail` legible del backend (parseo compartido, CTT-65);

@@ -76,12 +76,15 @@ void main() {
   });
   tearDown(() => db.close());
 
-  Future<void> cacheBase(String estado) =>
+  Future<void> cacheBase(String estado, {int? version = 1}) =>
       db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
             id: _itemId,
             proyectoId: 'proy-1',
             nombre: 'Tarea',
             estadoServidor: estado,
+            // C2: la base necesita version para que la transición se pueda encolar
+            // (version_base). version NULL es el caso "sin pull de migración".
+            version: Value(version),
             updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));

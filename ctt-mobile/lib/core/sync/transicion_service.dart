@@ -39,6 +39,17 @@ class SesionNoDisponibleException implements Exception {
   String toString() => 'SesionNoDisponibleException: $mensaje';
 }
 
+/// Se lanza al intentar encolar una transición de un ítem cuya base NO tiene `version` del
+/// servidor (version NULL en items_cache): ítem migrado de v7 sin re-pull, o aún sin pull.
+/// NO se encola (CTT-143 D7: nunca se envía version_base=0 ni un valor inventado). Con red
+/// hay que pullear primero; sin red, la UI pide sincronizar.
+class VersionBaseNoDisponibleException implements Exception {
+  const VersionBaseNoDisponibleException(this.mensaje);
+  final String mensaje;
+  @override
+  String toString() => 'VersionBaseNoDisponibleException: $mensaje';
+}
+
 @riverpod
 TransicionService transicionService(TransicionServiceRef ref) => TransicionService(
       syncDao: ref.watch(syncDaoProvider),
@@ -88,8 +99,15 @@ class TransicionService {
       itemId, nuevoEstado, comentario, descripcionProblema, ahora, deviceId,
       idempotencyKey,
     );
-    // Encolar primero (lazy writes): la intención queda en la cola ANTES de enviar.
-    await syncDao.encolar(fila.companion);
+    // Encolar primero (lazy writes): la intención queda en la cola ANTES de enviar. C2: el
+    // encolado estampa version_base = items_cache.version en la MISMA transacción; si la
+    // base no tiene versión (NULL), NO encola → se avisa (nunca se envía 0 ni inventado).
+    final encolado = await syncDao.encolarConVersionBase(fila.companion, itemId);
+    if (!encolado) {
+      throw const VersionBaseNoDisponibleException(
+        'Este ítem todavía no tiene la versión del servidor; sincroniza para continuar.',
+      );
+    }
     // Disparar el ciclo en la UI. Fire-and-forget: la fila ya está encolada, así que si
     // el disparo falla o ya hay un ciclo corriendo, el lease (CTT-127) + el FIFO la
     // envían en esa corrida o una encadenada; los disparadores de reconexión / periódico

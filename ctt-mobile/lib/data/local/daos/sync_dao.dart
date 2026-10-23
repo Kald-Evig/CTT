@@ -44,6 +44,28 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   Future<void> encolar(SyncPendientesCompanion entrada) =>
       into(syncPendientes).insert(entrada);
 
+  /// Encola [entrada] estampando `version_base` desde `items_cache.version` del ítem
+  /// [entidadId], en UNA transacción (CTT-143 D7/C2): la versión leída y el insert son
+  /// atómicos. Si la base no tiene versión (version NULL: ítem migrado de v7 que aún no se
+  /// re-pulleó, o ausente de la caché), NO encola y devuelve false — NUNCA se envía 0 ni un
+  /// valor inventado. El llamador traduce el false a "sincroniza primero". Devuelve true si
+  /// encoló. (La `version` NULL por ítem ES el flag de "pull de migración pendiente": el
+  /// primer pull 200 la setea vía sincronizarPull.)
+  Future<bool> encolarConVersionBase(
+    SyncPendientesCompanion entrada,
+    String entidadId,
+  ) =>
+      transaction(() async {
+        final base = await (select(attachedDatabase.itemsCacheTable)
+              ..where((t) => t.id.equals(entidadId)))
+            .getSingleOrNull();
+        final version = base?.version;
+        if (version == null) return false;
+        await into(syncPendientes)
+            .insert(entrada.copyWith(versionBase: Value(version)));
+        return true;
+      });
+
   /// Pendientes ordenados por `secuencia` ASC (FIFO por orden de encolado, no por
   /// reloj del dispositivo — CTT-130: `secuencia` es monótona, el reloj no).
   /// Excluye los que están enviándose.
