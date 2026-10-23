@@ -48,19 +48,24 @@ class ItemsRepository {
 
   // ── Lecturas ────────────────────────────────────────────────────────────────
 
-  /// Ítems asignados al usuario autenticado. API primero; caché si falla.
-  Future<List<ItemsCacheTableData>> obtenerMisItems(String usuarioId) async {
+  /// Ítems asignados al usuario autenticado en [empresaId] (la empresa activa). API
+  /// primero; caché si falla.
+  Future<List<ItemsCacheTableData>> obtenerMisItems(
+    String usuarioId,
+    String empresaId,
+  ) async {
     try {
       final resp = await dio.get<List<dynamic>>('/items/mis-items');
       final items = (resp.data ?? [])
           .cast<Map<String, dynamic>>()
           .map(_jsonACompanion)
           .toList();
-      for (final item in items) {
-        await cacheDao.guardarItem(item);
-      }
+      // CTT-149 (opción A): UPSERT (estampando la empresa activa) + RETIRO de ausentes
+      // dentro de (usuario, empresa) sin cola no terminal, en UNA transacción, SOLO en el
+      // camino 200. La rama DioException NO retira nada.
+      await cacheDao.sincronizarPull(usuarioId, empresaId, items);
     } on DioException {
-      // Sin conexión — continúa con la caché.
+      // Sin conexión — no se retira nada; continúa con la caché.
     }
     return cacheDao.obtenerAsignadosA(usuarioId);
   }

@@ -34,6 +34,45 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
       (select(itemsCacheTable)..where((t) => t.id.equals(itemId)))
           .getSingleOrNull();
 
+  /// Sincroniza la caché con el pull COMPLETO de /mis-items (CTT-149, opción A): UPSERT de
+  /// todos los [items] devueltos (estampando [empresaId] = la empresa activa, que el JSON no
+  /// trae) y RETIRO de los asignados a [usuarioId] EN [empresaId] que ya NO vinieron en el
+  /// pull Y que NO tienen filas no terminales en `sync_pendientes` ([estadosNoTerminales]);
+  /// esos se conservan y se retiran cuando su cola termine. Todo en UNA transacción. El
+  /// llamador lo invoca SOLO tras un pull 200 (nunca en la rama de error de red), para no
+  /// vaciar la caché cuando no hay servidor. El retiro NO toca ítems de OTRA empresa del
+  /// mismo usuario (multiempresa).
+  Future<void> sincronizarPull(
+    String usuarioId,
+    String empresaId,
+    List<ItemsCacheTableCompanion> items,
+  ) =>
+      transaction(() async {
+        for (final it in items) {
+          await into(itemsCacheTable)
+              .insertOnConflictUpdate(it.copyWith(empresaId: Value(empresaId)));
+        }
+        final presentes = items.map((i) => i.id.value).toSet();
+        final sp = attachedDatabase.syncPendientes;
+        final conCola = (await (selectOnly(sp)
+                  ..addColumns([sp.entidadId])
+                  ..where(sp.tipoEntidad.equals(TipoEntidad.item.valor) &
+                      sp.estado.isIn(estadosNoTerminalesValores)))
+                .map((r) => r.read(sp.entidadId))
+                .get())
+            .whereType<String>()
+            .toSet();
+        final conservar = {...presentes, ...conCola}.toList();
+        // Scope del retiro: (usuario, empresa activa). Un ítem de la empresa B del mismo
+        // usuario NO se retira al hacer pull de la empresa A.
+        await (delete(itemsCacheTable)
+              ..where((t) =>
+                  t.asignadoA.equals(usuarioId) &
+                  t.empresaId.equals(empresaId) &
+                  t.id.isNotIn(conservar)))
+            .go();
+      });
+
   // ── Estado MOSTRADO = base + overlay (CTT-144) ───────────────────────────────
 
   /// Columnas de `items_cache` (alias `ic`): TODAS las de la tabla (para reconstruir la

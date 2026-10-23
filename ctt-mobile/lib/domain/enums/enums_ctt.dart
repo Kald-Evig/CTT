@@ -246,6 +246,29 @@ const estadosIntencionLocal = <EstadoSyncLocal>[
   EstadoSyncLocal.enviando,
 ];
 
+/// Estados NO terminales de una fila de `sync_pendientes`: todavía queda trabajo sin
+/// cerrar para esa fila. A diferencia de [estadosIntencionLocal], incluye
+/// `esperandoResolucion` (la fila fue recibida, pero el conflicto sigue abierto y NO es
+/// un estado terminal). Lo usa el retiro del pull (CTT-149,
+/// `ItemsCacheDao.sincronizarPull`).
+///
+/// OJO: NO es el concepto del FIFO de envío. HOY el FIFO (`SyncDao._estadosBloqueantes`,
+/// sync_dao.dart:69-73) TODAVÍA incluye `esperandoResolucion`: una fila en ese estado sigue
+/// bloqueando a las posteriores del mismo agregado. En C4 el FIFO pasará a usar
+/// [estadosIntencionLocal] (pendiente/enviando) y `esperandoResolucion` dejará de bloquear
+/// (diseño 21-oct). Hoy `SyncDao.contarNoTerminales` y `observarIdsPendienteSet` repiten
+/// estos mismos valores como literales; su consolidación sobre esta constante se hará en
+/// C4 (refactor propio), no en CTT-149.
+const estadosNoTerminales = <EstadoSyncLocal>[
+  EstadoSyncLocal.pendiente,
+  EstadoSyncLocal.enviando,
+  EstadoSyncLocal.esperandoResolucion,
+];
+
+/// Los valores String de [estadosNoTerminales], para las consultas Drift (`estado.isIn`).
+List<String> get estadosNoTerminalesValores =>
+    estadosNoTerminales.map((e) => e.valor).toList();
+
 /// Clave del `nuevo_estado` dentro del JSON `payload` de una fila de `sync_pendientes`
 /// (payload_version=1). Fuente única del nombre de la clave.
 const kPayloadNuevoEstado = 'nuevo_estado';

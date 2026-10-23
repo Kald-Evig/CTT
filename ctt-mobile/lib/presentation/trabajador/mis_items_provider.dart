@@ -6,7 +6,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
-import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
@@ -20,9 +19,10 @@ part 'mis_items_provider.g.dart';
 Stream<List<ItemConOverlay>> misItems(MisItemsRef ref) async* {
   final storage = ref.watch(secureStorageProvider);
   final usuarioId = await storage.obtenerUsuarioId() ?? '';
-  // CTT-143 v8 (opción A): la lista se filtra por (usuario, empresa activa).
+  // CTT-143 v8 (opción A): el pull estampa la empresa activa y el listado se filtra por
+  // (usuario, empresa activa).
   final empresaId = await storage.obtenerEmpresaId() ?? '';
-  await ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId);
+  await ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId, empresaId);
   yield* ref
       .watch(itemsCacheDaoProvider)
       .observarAsignadosConOverlay(usuarioId, empresaId);
