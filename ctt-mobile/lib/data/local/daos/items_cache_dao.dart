@@ -17,19 +17,9 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
     with _$ItemsCacheDaoMixin {
   ItemsCacheDao(super.db);
 
-  Future<List<ItemsCacheTableData>> obtenerPorProyecto(String proyectoId) =>
-      (select(itemsCacheTable)
-            ..where((t) => t.proyectoId.equals(proyectoId))
-            ..orderBy([(t) => OrderingTerm.asc(t.updatedAt)]))
-          .get();
-
-  /// Devuelve todos los ítems asignados al usuario (para la vista del trabajador).
-  Future<List<ItemsCacheTableData>> obtenerAsignadosA(String usuarioId) =>
-      (select(itemsCacheTable)
-            ..where((t) => t.asignadoA.equals(usuarioId))
-            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
-          .get();
-
+  /// Lectura por id (global y único). NO lleva filtro de empresa a propósito: el detalle se
+  /// abre por un id ya conocido (CTT-143 §6.1), no es una partición multiempresa. El listado
+  /// (partición por empresa) va por [observarAsignadosConOverlay].
   Future<ItemsCacheTableData?> obtenerPorId(String itemId) =>
       (select(itemsCacheTable)..where((t) => t.id.equals(itemId)))
           .getSingleOrNull();

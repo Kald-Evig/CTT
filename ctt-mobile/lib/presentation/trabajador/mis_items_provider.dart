@@ -18,10 +18,21 @@ part 'mis_items_provider.g.dart';
 @riverpod
 Stream<List<ItemConOverlay>> misItems(MisItemsRef ref) async* {
   final storage = ref.watch(secureStorageProvider);
-  final usuarioId = await storage.obtenerUsuarioId() ?? '';
-  // CTT-143 v8 (opción A): el pull estampa la empresa activa y el listado se filtra por
-  // (usuario, empresa activa).
-  final empresaId = await storage.obtenerEmpresaId() ?? '';
+  final usuarioId = await storage.obtenerUsuarioId();
+  final empresaId = await storage.obtenerEmpresaId();
+  // CTT-143 v8 (opción A): la partición es (usuario, empresa activa). Sin usuario o sin
+  // empresa NO hay partición válida: no se hace pull ni se lista — NUNCA '' como empresa
+  // (vaciaría/mezclaría la caché). El router ya redirige a la selección de empresa cuando
+  // corresponde (multiempresa); este caso es transitorio/borde y se muestra lista vacía.
+  if (usuarioId == null ||
+      usuarioId.isEmpty ||
+      empresaId == null ||
+      empresaId.isEmpty) {
+    yield const <ItemConOverlay>[];
+    return;
+  }
+  // El pull estampa la empresa activa y retira dentro de (usuario, empresa); el listado se
+  // lee reactivo y aislado por empresa.
   await ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId, empresaId);
   yield* ref
       .watch(itemsCacheDaoProvider)

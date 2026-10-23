@@ -48,12 +48,11 @@ class ItemsRepository {
 
   // ── Lecturas ────────────────────────────────────────────────────────────────
 
-  /// Ítems asignados al usuario autenticado en [empresaId] (la empresa activa). API
-  /// primero; caché si falla.
-  Future<List<ItemsCacheTableData>> obtenerMisItems(
-    String usuarioId,
-    String empresaId,
-  ) async {
+  /// Sincroniza la caché de ítems del usuario en [empresaId] (la empresa activa) desde la
+  /// API. Es SOLO efecto de lado (pull + retiro); NO devuelve la lista: el listado se lee
+  /// reactivo y AISLADO por empresa vía [ItemsCacheDao.observarAsignadosConOverlay]. Sin red
+  /// no hace nada (se sigue con la caché).
+  Future<void> obtenerMisItems(String usuarioId, String empresaId) async {
     try {
       final resp = await dio.get<List<dynamic>>('/items/mis-items');
       final items = (resp.data ?? [])
@@ -67,7 +66,6 @@ class ItemsRepository {
     } on DioException {
       // Sin conexión — no se retira nada; continúa con la caché.
     }
-    return cacheDao.obtenerAsignadosA(usuarioId);
   }
 
   /// Detalle de un ítem — busca en caché (ya poblada por obtenerMisItems).
