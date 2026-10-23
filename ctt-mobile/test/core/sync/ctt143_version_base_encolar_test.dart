@@ -145,4 +145,89 @@ void main() {
     final body = capt.first as Map<String, dynamic>;
     expect(body['version_base'], 3);
   });
+
+  // ── Ruta del Residente: versión EXPLÍCITA, ítem NO en items_cache (C2-fix) ──
+
+  test('Residente: encola con la versión explícita del ItemResidente SIN items_cache, y el '
+      'POST la lleva', () async {
+    // Arma: NO hay fila en items_cache para 'R' (el Residente carga online). Encola con la
+    // versión explícita 9 (la del ItemResidente que mostró la pantalla). Verifica: encola
+    // (versionBase=9) y el ciclo la manda en el cuerpo del POST.
+    final ok = await db.syncDao
+        .encolarConVersionBaseExplicita(compFila('r1', 'R'), 9);
+    expect(ok, isTrue);
+    final fila = await (db.select(db.syncPendientes)..where((t) => t.id.equals('r1')))
+        .getSingle();
+    expect(fila.versionBase, 9);
+
+    final dio = _MockDio();
+    final dev = _MockDeviceIdService();
+    when(() => dev.obtener()).thenAnswer((_) async => 'inst-1');
+    when(() => dio.get<List<dynamic>>(any())).thenThrow(DioException(
+        requestOptions: RequestOptions(path: '/m'),
+        type: DioExceptionType.connectionError));
+    when(() => dio.post<Map<String, dynamic>>(any(),
+            data: any(named: 'data'), options: any(named: 'options')))
+        .thenAnswer((_) async => Response<Map<String, dynamic>>(
+              requestOptions: RequestOptions(path: '/items/R/transicion'),
+              data: {'id': 'R', 'estado': 'en_progreso'},
+            ));
+    final ciclo = CicloSync(
+      syncDao: db.syncDao,
+      dio: dio,
+      deviceIdService: dev,
+      isolateLabel: 'test',
+      reloj: () => DateTime.utc(2026, 5, 1, 12),
+    );
+    await ciclo.ejecutar();
+    final body = verify(() => dio.post<Map<String, dynamic>>(any(),
+            data: captureAny(named: 'data'), options: any(named: 'options')))
+        .captured
+        .first as Map<String, dynamic>;
+    expect(body['version_base'], 9);
+  });
+
+  test('Residente sin versión (null) NO encola', () async {
+    final ok = await db.syncDao
+        .encolarConVersionBaseExplicita(compFila('r2', 'R'), null);
+    expect(ok, isFalse);
+    expect(await db.select(db.syncPendientes).get(), isEmpty);
+  });
+
+  test('ejecutar con versionBase explícita (Residente) encola SIN items_cache; con valor '
+      'null lanza y NO encola', () async {
+    final sec = _MockSecureStorage();
+    final dev = _MockDeviceIdService();
+    when(() => sec.obtenerUsuarioId()).thenAnswer((_) async => 'user-1');
+    when(() => sec.obtenerEmpresaId()).thenAnswer((_) async => 'emp-1');
+    when(() => dev.obtener()).thenAnswer((_) async => 'inst-1');
+    final svc = TransicionService(
+      syncDao: db.syncDao,
+      deviceIdService: dev,
+      secureStorage: sec,
+      dispararCiclo: () async {},
+      timeoutEspera: const Duration(milliseconds: 50),
+    );
+
+    // Explícita con valor → encola (sin items_cache), con versionBase=9.
+    await svc.ejecutar(
+      itemId: 'R',
+      nuevoEstado: 'en_progreso',
+      versionBase: const VersionBaseExplicita(9),
+    );
+    final filas = await db.select(db.syncPendientes).get();
+    expect(filas.length, 1);
+    expect(filas.single.versionBase, 9);
+
+    // Explícita con valor null → no encola, lanza.
+    await expectLater(
+      svc.ejecutar(
+        itemId: 'R2',
+        nuevoEstado: 'en_progreso',
+        versionBase: const VersionBaseExplicita(null),
+      ),
+      throwsA(isA<VersionBaseNoDisponibleException>()),
+    );
+    expect(await db.select(db.syncPendientes).get(), hasLength(1)); // no agregó otra
+  });
 }

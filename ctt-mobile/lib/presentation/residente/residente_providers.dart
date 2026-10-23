@@ -63,6 +63,9 @@ class ItemResidenteDetalle extends _$ItemResidenteDetalle {
       final resultado = await ref.read(residenteRepositoryProvider).transicionarItem(
             estadoAnterior.id,
             nuevoEstado,
+            // C2-fix: version del MISMO ItemResidente que el usuario estaba viendo (state),
+            // no una re-consulta antes de enviar.
+            version: estadoAnterior.version,
             comentario: comentario,
             descripcionProblema: descripcionProblema,
           );

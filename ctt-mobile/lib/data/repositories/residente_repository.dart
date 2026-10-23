@@ -72,6 +72,7 @@ class ResidenteRepository {
   Future<ResultadoEspera> transicionarItem(
     String itemId,
     String nuevoEstado, {
+    required int? version,
     String? comentario,
     String? descripcionProblema,
   }) =>
@@ -80,6 +81,9 @@ class ResidenteRepository {
         nuevoEstado: nuevoEstado,
         comentario: comentario,
         descripcionProblema: descripcionProblema,
+        // C2-fix: version EXPLÍCITA = la ItemResidente.version que mostró la pantalla (el
+        // ítem del Residente no está en items_cache). NULL → no encola ("sincroniza").
+        versionBase: VersionBaseExplicita(version),
       );
 
   Future<ItemResidente> cerrarProblema(String itemId) async {

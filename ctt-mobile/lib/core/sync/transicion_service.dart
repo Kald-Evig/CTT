@@ -50,6 +50,17 @@ class VersionBaseNoDisponibleException implements Exception {
   String toString() => 'VersionBaseNoDisponibleException: $mensaje';
 }
 
+/// Versión EXPLÍCITA para encolar, usada por la ruta del Residente (que no escribe
+/// `items_cache`: lee los ítems online como `ItemResidente`). Envolverla permite distinguir
+/// dos casos que `int?` solo no distingue:
+///   - parámetro AUSENTE (null como wrapper) → ruta del Trabajador: leer `items_cache.version`.
+///   - parámetro PRESENTE con [valor] null → el ItemResidente no tiene versión → NO se encola.
+/// [valor] es la `ItemResidente.version` que el usuario estaba viendo (no una re-consulta).
+class VersionBaseExplicita {
+  const VersionBaseExplicita(this.valor);
+  final int? valor;
+}
+
 @riverpod
 TransicionService transicionService(TransicionServiceRef ref) => TransicionService(
       syncDao: ref.watch(syncDaoProvider),
@@ -91,6 +102,7 @@ class TransicionService {
     required String nuevoEstado,
     String? comentario,
     String? descripcionProblema,
+    VersionBaseExplicita? versionBase,
   }) async {
     final deviceId = await deviceIdService.obtener();
     final ahora = reloj();
@@ -100,9 +112,15 @@ class TransicionService {
       idempotencyKey,
     );
     // Encolar primero (lazy writes): la intención queda en la cola ANTES de enviar. C2: el
-    // encolado estampa version_base = items_cache.version en la MISMA transacción; si la
-    // base no tiene versión (NULL), NO encola → se avisa (nunca se envía 0 ni inventado).
-    final encolado = await syncDao.encolarConVersionBase(fila.companion, itemId);
+    // encolado estampa version_base en la MISMA transacción; si no hay versión (NULL), NO
+    // encola → se avisa (nunca se envía 0 ni inventado). La versión sale de la que vio el
+    // usuario, POR RUTA (C2-fix):
+    //   - Residente (versionBase presente): la ItemResidente.version que mostró la pantalla.
+    //   - Trabajador (versionBase ausente): items_cache.version leída en la transacción.
+    final encolado = versionBase == null
+        ? await syncDao.encolarConVersionBase(fila.companion, itemId)
+        : await syncDao.encolarConVersionBaseExplicita(
+            fila.companion, versionBase.valor);
     if (!encolado) {
       throw const VersionBaseNoDisponibleException(
         'Este ítem todavía no tiene la versión del servidor; sincroniza para continuar.',

@@ -34,6 +34,7 @@ class ItemResidente {
     this.asignadoA,
     this.asignadoNombre,
     required this.estado,
+    this.version,
     this.fechaLimite,
     this.duracionEstimadaHoras,
     this.orden = 0,
@@ -50,6 +51,10 @@ class ItemResidente {
   final String? asignadoA;
   final String? asignadoNombre;
   final String estado;
+  /// Versión autoritativa del servidor (ItemOut.version, CTT-143 B1). La usa la transición
+  /// del Residente como version_base (el ítem no está en items_cache). NULL si el backend
+  /// aún no la expone → no se encola (C2).
+  final int? version;
   final String? fechaLimite;
   final double? duracionEstimadaHoras;
   final int orden;
@@ -66,6 +71,7 @@ class ItemResidente {
         asignadoA: json['asignado_a'] as String?,
         asignadoNombre: json['asignado_nombre'] as String?,
         estado: json['estado'] as String,
+        version: json['version'] as int?,
         fechaLimite: json['fecha_limite'] as String?,
         duracionEstimadaHoras:
             (json['duracion_estimada_horas'] as num?)?.toDouble(),

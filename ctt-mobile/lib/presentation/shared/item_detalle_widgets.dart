@@ -514,7 +514,7 @@ String itemDetalleMensajeError(Object e) {
   // Sin sesión activa al encolar (v6: usuario_id/empresa_id NOT NULL, CTT-130).
   // El cambio NO se guardó: el trabajador debe verlo, no un fallo silencioso.
   if (e is SesionNoDisponibleException) {
-    return 'Tu sesión no está activa. Iniciá sesión de nuevo para guardar el cambio.';
+    return 'Tu sesión no está activa. Inicia sesión de nuevo para guardar el cambio.';
   }
   // CTT-143 C2: la base del ítem aún no tiene la versión del servidor (migración v7→v8 sin
   // re-pull). No se encola; hay que sincronizar primero (con red el pull la trae).

@@ -59,12 +59,30 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         final base = await (select(attachedDatabase.itemsCacheTable)
               ..where((t) => t.id.equals(entidadId)))
             .getSingleOrNull();
-        final version = base?.version;
-        if (version == null) return false;
-        await into(syncPendientes)
-            .insert(entrada.copyWith(versionBase: Value(version)));
-        return true;
+        return _encolarConVersion(entrada, base?.version);
       });
+
+  /// Variante de [encolarConVersionBase] para la ruta del Residente (CTT-143 C2-fix): el
+  /// ítem del Residente NO está en `items_cache` (se carga online como ItemResidente), así
+  /// que la versión viene EXPLÍCITA de la que mostró la pantalla. [version] NULL → no encola
+  /// (devuelve false). No necesita transacción: es un solo insert sin lectura previa.
+  Future<bool> encolarConVersionBaseExplicita(
+    SyncPendientesCompanion entrada,
+    int? version,
+  ) =>
+      _encolarConVersion(entrada, version);
+
+  /// Núcleo compartido: estampa `version_base` = [version] y encola; [version] NULL → NO
+  /// encola y devuelve false (CTT-143 D7: nunca 0 ni inventado). Devuelve true si encoló.
+  Future<bool> _encolarConVersion(
+    SyncPendientesCompanion entrada,
+    int? version,
+  ) async {
+    if (version == null) return false;
+    await into(syncPendientes)
+        .insert(entrada.copyWith(versionBase: Value(version)));
+    return true;
+  }
 
   /// Pendientes ordenados por `secuencia` ASC (FIFO por orden de encolado, no por
   /// reloj del dispositivo — CTT-130: `secuencia` es monótona, el reloj no).
