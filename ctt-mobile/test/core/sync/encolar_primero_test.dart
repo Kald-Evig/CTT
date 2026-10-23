@@ -119,7 +119,7 @@ void main() {
     when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenThrow(_err409(jsonDecode(
-            '{"detail":{"tipo":"conflicto_concurrencia","conflicto_id":"c-1"}}',),),);
+            '{"detail":{"tipo":"conflicto_concurrencia","conflicto_id":"c-1"}}',) as Object,),);
 
     final r = await service.ejecutar(itemId: _itemId, nuevoEstado: 'pendiente_revision');
 
@@ -135,7 +135,7 @@ void main() {
     when(() => dio.post<Map<String, dynamic>>(any(),
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenThrow(_err409(jsonDecode(
-            '{"detail":{"tipo":"rechazo","rechazo_id":"r-1","motivo":"transicion_invalida"}}',),),);
+            '{"detail":{"tipo":"rechazo","rechazo_id":"r-1","motivo":"transicion_invalida"}}',) as Object,),);
 
     final r = await service.ejecutar(itemId: _itemId, nuevoEstado: 'pendiente_revision');
 
