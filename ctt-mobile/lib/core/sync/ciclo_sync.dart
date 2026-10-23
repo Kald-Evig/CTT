@@ -200,6 +200,8 @@ class CicloSync {
           tomadoPor: tomadoPor,
           extra: extra,
           estadoServidor: itemOut?['estado'] as String?,
+          // C3: la version del ItemOut (B1) escribe la base monótona y dispara el rebase.
+          versionServidor: itemOut?['version'] as int?,
         );
 
         if (decision.pausaCola) {

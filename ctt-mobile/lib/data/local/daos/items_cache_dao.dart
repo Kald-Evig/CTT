@@ -39,8 +39,20 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
   ) =>
       transaction(() async {
         for (final it in items) {
-          await into(itemsCacheTable)
-              .insertOnConflictUpdate(it.copyWith(empresaId: Value(empresaId)));
+          final comp = it.copyWith(empresaId: Value(empresaId));
+          // Base MONÓTONA (C3b): una respuesta de pull vieja NO baja la base. Si el ítem ya
+          // está cacheado con una version MAYOR que la entrante, se salta el upsert (no se
+          // pisa). version entrante NULL (backend sin la columna) → upsert normal.
+          final incoming = comp.version.present ? comp.version.value : null;
+          if (incoming != null) {
+            final existente = await (select(itemsCacheTable)
+                  ..where((t) => t.id.equals(comp.id.value)))
+                .getSingleOrNull();
+            if (existente?.version != null && existente!.version! > incoming) {
+              continue;
+            }
+          }
+          await into(itemsCacheTable).insertOnConflictUpdate(comp);
         }
         final presentes = items.map((i) => i.id.value).toSet();
         final sp = attachedDatabase.syncPendientes;

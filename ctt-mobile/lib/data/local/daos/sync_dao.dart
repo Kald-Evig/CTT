@@ -234,6 +234,7 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     String? tomadoPor,
     SyncPendientesCompanion extra = const SyncPendientesCompanion(),
     String? estadoServidor,
+    int? versionServidor,
   }) =>
       transaction(() async {
         // El flag depende solo de (estadoEsperado, decisión); se resuelve antes de
@@ -248,16 +249,18 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
           nuevoFlag = null;
         }
 
-        // entidadId se lee ANTES del update: ninguna decisión lo modifica. Solo se
-        // lee si hay que tocar items_cache (flag de conflicto y/o base del 200). Si la
-        // guarda matchea (afectadas > 0), la fila existía, así que su entidadId no es
-        // null cuando se usa abajo.
-        final necesitaEntidad = nuevoFlag != null || estadoServidor != null;
-        final entidadId = !necesitaEntidad
+        // La fila se lee ANTES del update: ninguna decisión toca entidad_id/secuencia/
+        // version_base. Solo se lee si hay que escribir items_cache (flag/base) o rebasear.
+        // Si la guarda matchea (afectadas > 0), la fila existía, así que no es null abajo.
+        final rebasear = decision.nuevoEstado == EstadoSyncLocal.sincronizado &&
+            versionServidor != null;
+        final necesitaFila =
+            nuevoFlag != null || estadoServidor != null || rebasear;
+        final fila = !necesitaFila
             ? null
-            : (await (select(syncPendientes)..where((t) => t.id.equals(id)))
-                    .getSingleOrNull())
-                ?.entidadId;
+            : await (select(syncPendientes)..where((t) => t.id.equals(id)))
+                .getSingleOrNull();
+        final entidadId = fila?.entidadId;
 
         final afectadas = await (update(syncPendientes)
               ..where((t) {
@@ -293,10 +296,25 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         if (nuevoFlag != null) {
           await _escribirFlagConflicto(entidadId!, nuevoFlag);
         }
-        // CTT-144: envío aceptado (200) → escribir la BASE items_cache.estado desde el
-        // ItemOut, en la MISMA transacción que el estado de la cola.
+        // Base del servidor (estado_servidor + version), MONÓTONA, en la MISMA transacción
+        // que el estado de la cola: del ItemOut del 200 (CTT-144) o del detalle del 409 (C3c).
         if (estadoServidor != null) {
-          await _escribirBaseEstado(entidadId!, estadoServidor);
+          await _escribirBaseEstado(entidadId!, estadoServidor, versionServidor);
+        }
+        // Rebase (C3a): la version del 200 pasa a ser version_base de las filas PENDIENTE
+        // posteriores del MISMO agregado con el MISMO version_base que la fila confirmada.
+        // Nunca toca enviando/esperando_resolucion/terminales. Opera sobre
+        // sync_pendientes.version_base (no items_cache) → sirve también a las filas del
+        // Residente, cuyo ítem no está en la caché.
+        if (rebasear && fila != null && fila.versionBase != null) {
+          await (update(syncPendientes)
+                ..where((t) =>
+                    t.tipoEntidad.equals(fila.tipoEntidad) &
+                    t.entidadId.equals(fila.entidadId) &
+                    t.estado.equals(EstadoSyncLocal.pendiente.valor) &
+                    t.secuencia.isBiggerThanValue(fila.secuencia) &
+                    t.versionBase.equals(fila.versionBase!)))
+              .write(SyncPendientesCompanion(versionBase: Value(versionServidor)));
         }
         return afectadas;
       });
@@ -317,22 +335,27 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     }
   }
 
-  /// Escribe la BASE `items_cache.estado` = [estado] para [entidadId] (CTT-144): el
-  /// último estado conocido del servidor, tomado del `ItemOut` de un envío aceptado
-  /// (200). Lo invoca [aplicarDecision] DENTRO de su transacción (simétrico a
-  /// [_escribirFlagConflicto]). Solo `estado`; no toca `updated_at` (la reconciliación
-  /// por versión es CTT-145). Si el ítem no está en caché, deja rastro y sigue.
-  Future<void> _escribirBaseEstado(String entidadId, String estado) async {
-    final filas = await (update(attachedDatabase.itemsCacheTable)
-          ..where((t) => t.id.equals(entidadId)))
-        .write(ItemsCacheTableCompanion(estadoServidor: Value(estado)));
-    if (filas == 0) {
-      debugPrint(
-        'CTT-144: base estado=$estado no aplicada — ítem $entidadId no está en '
-        'items_cache.',
-      );
-    }
-  }
+  /// Escribe la BASE (`estado_servidor` + `version`) de [entidadId] de forma MONÓTONA
+  /// (CTT-143 C3b): solo pisa si la `version` cacheada es NULL o <= [version] entrante — una
+  /// respuesta vieja NUNCA baja la base. La invocan el 200 y el 409 (vía [aplicarDecision]),
+  /// dentro de su transacción. Si [version] es null (caller sin versión), escribe solo el
+  /// estado, sin gate (compat CTT-144). 0 filas = ítem no en `items_cache` (p. ej. del
+  /// Residente) o versión vieja: NO es error, no se loguea (C3b).
+  Future<void> _escribirBaseEstado(
+          String entidadId, String estado, int? version) =>
+      (update(attachedDatabase.itemsCacheTable)
+            ..where((t) {
+              final mismo = t.id.equals(entidadId);
+              return version == null
+                  ? mismo
+                  : mismo &
+                      (t.version.isNull() |
+                          t.version.isSmallerOrEqualValue(version));
+            }))
+          .write(ItemsCacheTableCompanion(
+            estadoServidor: Value(estado),
+            version: version == null ? const Value.absent() : Value(version),
+          ));
 
   /// Espera el resultado del PRIMER intento de la fila [filaId] (CTT-148). Completa
   /// cuando la fila SALE de `enviando` tras su intento:
