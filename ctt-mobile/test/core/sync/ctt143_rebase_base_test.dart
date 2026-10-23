@@ -16,6 +16,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
 import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
 class _MockDio extends Mock implements Dio {}
 
@@ -188,5 +189,43 @@ void main() {
         .getSingle();
     expect(w.version, 5, reason: 'pull viejo (3) no baja la base 5');
     expect(w.estadoServidor, 'terminado');
+  });
+
+  test('409 conflicto_concurrencia: escribe la base (estado_servidor + version_actual) al '
+      'parquear; la fila queda esperando_resolucion', () async {
+    // Arma: caché version=1/'abierto', fila encolada (version_base=1). El 409 trae
+    // version_actual=4 y estado_servidor='terminado'. Verifica: fila en esperando_resolucion,
+    // base subida a v4/'terminado' (monótona) y tiene_conflicto=true.
+    await cache('C', version: 1, estado: 'abierto');
+    await encolar('c1', 'C', 'en_progreso', 1);
+    when(() => dio.post<Map<String, dynamic>>(any(),
+            data: any(named: 'data'), options: any(named: 'options')))
+        .thenThrow(DioException(
+      requestOptions: RequestOptions(path: '/items/C/transicion'),
+      response: Response<Map<String, dynamic>>(
+        requestOptions: RequestOptions(path: '/items/C/transicion'),
+        statusCode: 409,
+        data: {
+          'detail': {
+            'tipo': 'conflicto_concurrencia',
+            'conflicto_id': 'cf-1',
+            'version_actual': 4,
+            'estado_servidor': 'terminado',
+          },
+        },
+      ),
+    ));
+
+    await ciclo().ejecutar();
+
+    final fila = await (db.select(db.syncPendientes)..where((t) => t.id.equals('c1')))
+        .getSingle();
+    expect(fila.estado, EstadoSyncLocal.esperandoResolucion.valor);
+    expect(fila.conflictoId, 'cf-1');
+    final c = await (db.select(db.itemsCacheTable)..where((t) => t.id.equals('C')))
+        .getSingle();
+    expect(c.version, 4, reason: 'version_actual del 409 escribe la base');
+    expect(c.estadoServidor, 'terminado');
+    expect(c.tieneConflicto, isTrue);
   });
 }

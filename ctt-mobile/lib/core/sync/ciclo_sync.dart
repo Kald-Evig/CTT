@@ -199,9 +199,13 @@ class CicloSync {
           decision: decision,
           tomadoPor: tomadoPor,
           extra: extra,
-          estadoServidor: itemOut?['estado'] as String?,
-          // C3: la version del ItemOut (B1) escribe la base monótona y dispara el rebase.
-          versionServidor: itemOut?['version'] as int?,
+          // C3: la base (estado_servidor + version) sale del ItemOut en el 200 (dispara el
+          // rebase) o del detalle del 409 (C3c, parquea sin rebasear). _escribirBaseEstado es
+          // monótona en ambos.
+          estadoServidor:
+              (itemOut?['estado'] as String?) ?? clas.estadoServidor,
+          versionServidor:
+              (itemOut?['version'] as int?) ?? clas.versionActual,
         );
 
         if (decision.pausaCola) {
@@ -333,7 +337,13 @@ class CicloSync {
     if (status == 409) {
       final cid = extraerConflictoId(error);
       if (cid != null) {
-        return _clas(SenalSync.conflictoDetectado, conflictoId: cid, codigo: 409);
+        // C3c: capturar version_actual + estado_servidor del detalle para escribir la base
+        // (monótona) al parquear, reusando el parseo del detail (CTT-65).
+        return _clas(SenalSync.conflictoDetectado,
+            conflictoId: cid,
+            codigo: 409,
+            versionActual: extraerVersionActual(error),
+            estadoServidor: extraerEstadoServidor(error));
       }
       // solicitud_en_proceso (A1) u otro 409 sin conflicto_id → intentos_servidor.
       return _clas(SenalSync.fallaServidor,
@@ -357,6 +367,8 @@ class CicloSync {
     String? detalle,
     int? codigo,
     Duration? retryAfter,
+    int? versionActual,
+    String? estadoServidor,
   }) =>
       (
         senal: senal,
@@ -365,6 +377,8 @@ class CicloSync {
         detalle: detalle,
         codigo: codigo,
         retryAfter: retryAfter,
+        versionActual: versionActual,
+        estadoServidor: estadoServidor,
       );
 
   /// Deriva una fila al servidor de rescate (/sync/rescate) — CTT-103 D5. Envía la fila
@@ -448,4 +462,7 @@ typedef _Clasificacion = ({
   String? detalle,
   int? codigo,
   Duration? retryAfter,
+  // C3c: del detalle del 409 de conflicto, para escribir la base (monótona) al parquear.
+  int? versionActual,
+  String? estadoServidor,
 });

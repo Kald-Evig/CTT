@@ -69,6 +69,14 @@ String? extraerTipoDetail(DioException e) => _detailString(e, 'tipo');
 /// inexistente), o null. Es el motivo del SERVIDOR; se persiste junto al rechazo.
 String? extraerMotivoRechazo(DioException e) => _detailString(e, 'motivo');
 
+/// `detail.estado_servidor` de un 409 de conflicto de concurrencia, o null. Es el estado
+/// actual del servidor; el cliente lo escribe en la base (CTT-143 C3c).
+String? extraerEstadoServidor(DioException e) => _detailString(e, 'estado_servidor');
+
+/// `detail.version_actual` (int) de un 409 de conflicto de concurrencia, o null. Es la
+/// version actual del servidor; el cliente la escribe en la base, monótona (CTT-143 C3c).
+int? extraerVersionActual(DioException e) => _detailInt(e, 'version_actual');
+
 /// `detail.code` de un error de negocio con código (p. ej. `usuario_deshabilitado`,
 /// `tenant_suspendido` en un 403, o `USUARIO_CON_ITEMS_ACTIVOS` en un 409), o null.
 String? extraerCodeDetail(DioException e) => _detailString(e, 'code');
@@ -96,6 +104,20 @@ String? _detailString(DioException e, String clave) {
     if (detail is Map<String, dynamic>) {
       final v = detail[clave];
       if (v is String) return v;
+    }
+  }
+  return null;
+}
+
+/// Lee `detail.<clave>` como int cuando `detail` es un Map; null en cualquier otra forma.
+/// Gemelo de [_detailString] para campos numéricos (p. ej. `version_actual`).
+int? _detailInt(DioException e, String clave) {
+  final data = e.response?.data;
+  if (data is Map<String, dynamic>) {
+    final detail = data['detail'];
+    if (detail is Map<String, dynamic>) {
+      final v = detail[clave];
+      if (v is int) return v;
     }
   }
   return null;
