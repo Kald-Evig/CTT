@@ -241,13 +241,18 @@ enum EstadoSyncLocal {
 /// `nuevo_estado` de su última fila en uno de estos estados; si no hay ninguna, usa la
 /// base (`items_cache.estado`).
 ///
-/// OJO: es DISTINTO de `SyncDao._estadosBloqueantes` (el FIFO de envío), que incluye
-/// `esperandoResolucion`. Acá `esperandoResolucion` NO entra: el servidor ya respondió
-/// (hay conflicto), así que la UI muestra la base + `tieneConflicto`, no la intención.
+/// También es el criterio del FIFO de envío (`SyncDao._sinFilaAnteriorDelAgregado`, C4b):
+/// una fila en `esperandoResolucion` ya fue recibida y estacionada por el servidor, así que
+/// NO entra acá — no bloquea el envío de las siguientes del agregado ni aporta "intención"
+/// (la UI muestra la base + `tieneConflicto`).
 const estadosIntencionLocal = <EstadoSyncLocal>[
   EstadoSyncLocal.pendiente,
   EstadoSyncLocal.enviando,
 ];
+
+/// Los valores String de [estadosIntencionLocal], para las consultas Drift (`estado.isIn`).
+List<String> get estadosIntencionLocalValores =>
+    estadosIntencionLocal.map((e) => e.valor).toList();
 
 /// Estados NO terminales de una fila de `sync_pendientes`: todavía queda trabajo sin
 /// cerrar para esa fila. A diferencia de [estadosIntencionLocal], incluye

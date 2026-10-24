@@ -1,8 +1,8 @@
 /// claim_lease_test.dart — CTT-103 I3/I4/A2.
 ///
 /// Claim atómico + lease + cierre condicional, contra Drift REAL:
-///  - FIFO por agregado (tipo_entidad, entidad_id): una fila no es elegible si hay
-///    otra anterior del mismo ítem en pendiente/enviando/esperando_resolucion.
+///  - FIFO por agregado (tipo_entidad, entidad_id): una fila no es elegible si hay otra
+///    anterior del mismo ítem en pendiente/enviando (C4b: esperando_resolucion ya NO bloquea).
 ///  - proximo_intento_en vencido / lease (tomado_hasta) vencido → elegible.
 ///  - Dos conexiones concurrentes: ninguna fila se toma dos veces, ni fuera de orden.
 ///  - Cierre condicional: una corrida que perdió el lease no pisa a la que retomó.
@@ -81,19 +81,45 @@ void main() {
         isTrue,);
   });
 
-  // b) A1 en esperando_resolucion → A2 bloqueada.
-  test('b) esperando_resolucion bloquea la siguiente del mismo ítem', () async {
+  // b) A1 en esperando_resolucion → YA NO bloquea (C4b, 21-oct): A2 del mismo ítem es
+  //    elegible y reclamable. Una fila parqueada ya fue recibida por el servidor.
+  test('b) esperando_resolucion NO bloquea la siguiente del mismo ítem (C4b)', () async {
     final dao = db.syncDao;
     await insertar(dao, 'A1', 'item-A',
         estado: 'esperando_resolucion', conflictoId: 'c1',); // seq 1
     await insertar(dao, 'A2', 'item-A'); // seq 2
-    await insertar(dao, 'B1', 'item-B'); // seq 3
 
     final rec = await dao.filasReclamables(ahora);
-    expect(rec.map((f) => f.id).toList(), ['B1']);
+    expect(rec.map((f) => f.id).toList(), ['A2']); // A2 elegible (A1 ya no bloquea)
+    expect(await dao.reclamar('A2',
+            tomadoPor: 'r', ahora: ahora, tomadoHasta: leaseHasta,),
+        isTrue,);
+  });
+
+  // b2) Una fila enviando anterior (lease vigente) SÍ bloquea la siguiente (FIFO, C4b).
+  test('b2) enviando anterior SÍ bloquea la siguiente del mismo ítem', () async {
+    final dao = db.syncDao;
+    await insertar(dao, 'A1', 'item-A',
+        estado: 'enviando', tomadoPor: 'otra', tomadoHasta: leaseHasta,); // seq 1
+    await insertar(dao, 'A2', 'item-A'); // seq 2
+
+    final rec = await dao.filasReclamables(ahora);
+    expect(rec.map((f) => f.id).toList(), isNot(contains('A2')));
     expect(await dao.reclamar('A2',
             tomadoPor: 'r', ahora: ahora, tomadoHasta: leaseHasta,),
         isFalse,);
+  });
+
+  // b3) La guardia de logout cuenta TODO lo no terminal, incluido esperando_resolucion
+  //     (C4a/C4b: el FIFO lo soltó, pero contarNoTerminales lo sigue contando).
+  test('b3) contarNoTerminales sigue contando esperando_resolucion', () async {
+    final dao = db.syncDao;
+    await insertar(dao, 'P1', 'item-A'); // pendiente
+    await insertar(dao, 'E1', 'item-B', estado: 'enviando');
+    await insertar(dao, 'R1', 'item-C',
+        estado: 'esperando_resolucion', conflictoId: 'c',);
+    await insertar(dao, 'S1', 'item-D', estado: 'sincronizado'); // terminal: no cuenta
+    expect(await dao.contarNoTerminales(), 3);
   });
 
   // c) A1 sincronizado (terminal) → A2 elegible.

@@ -110,15 +110,6 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
             ))
           .get();
 
-  /// Estados que BLOQUEAN el envío de filas POSTERIORES del mismo agregado
-  /// (tipo_entidad, entidad_id): mientras una fila anterior esté en uno de estos,
-  /// las siguientes del mismo ítem no son elegibles (FIFO por agregado — CTT-103 I3).
-  List<String> get _estadosBloqueantes => [
-        EstadoSyncLocal.pendiente.valor,
-        EstadoSyncLocal.enviando.valor,
-        EstadoSyncLocal.esperandoResolucion.valor,
-      ];
-
   /// Una fila es ELEGIBLE para claim (I4):
   ///   - pendiente y (sin `proximo_intento_en` o ya vencido), o
   ///   - enviando y (sin `tomado_hasta` —huérfana pre-lease, CTT-127— o lease vencido).
@@ -132,8 +123,10 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     return pend | env;
   }
 
-  /// No existe otra fila del MISMO agregado con `secuencia` menor en un estado
-  /// bloqueante: garantiza el orden FIFO por (tipo_entidad, entidad_id) — I3.
+  /// No existe otra fila del MISMO agregado con `secuencia` menor en un estado que bloquee
+  /// el envío: garantiza el orden FIFO por (tipo_entidad, entidad_id) — I3. C4b (21-oct):
+  /// bloquean solo [estadosIntencionLocal] (pendiente/enviando); `esperandoResolucion` YA
+  /// fue recibido por el servidor y NO frena a las siguientes del agregado.
   Expression<bool> _sinFilaAnteriorDelAgregado() {
     final p2 = alias(syncPendientes, 'p2');
     return notExistsQuery(
@@ -143,7 +136,7 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
           p2.tipoEntidad.equalsExp(syncPendientes.tipoEntidad) &
               p2.entidadId.equalsExp(syncPendientes.entidadId) &
               p2.secuencia.isSmallerThan(syncPendientes.secuencia) &
-              p2.estado.isIn(_estadosBloqueantes),
+              p2.estado.isIn(estadosIntencionLocalValores),
         ),
     );
   }
