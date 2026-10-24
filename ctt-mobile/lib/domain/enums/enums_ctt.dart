@@ -252,16 +252,16 @@ const estadosIntencionLocal = <EstadoSyncLocal>[
 /// Estados NO terminales de una fila de `sync_pendientes`: todavía queda trabajo sin
 /// cerrar para esa fila. A diferencia de [estadosIntencionLocal], incluye
 /// `esperandoResolucion` (la fila fue recibida, pero el conflicto sigue abierto y NO es
-/// un estado terminal). Lo usa el retiro del pull (CTT-149,
-/// `ItemsCacheDao.sincronizarPull`).
+/// un estado terminal).
 ///
-/// OJO: NO es el concepto del FIFO de envío. HOY el FIFO (`SyncDao._estadosBloqueantes`,
-/// sync_dao.dart:69-73) TODAVÍA incluye `esperandoResolucion`: una fila en ese estado sigue
-/// bloqueando a las posteriores del mismo agregado. En C4 el FIFO pasará a usar
-/// [estadosIntencionLocal] (pendiente/enviando) y `esperandoResolucion` dejará de bloquear
-/// (diseño 21-oct). Hoy `SyncDao.contarNoTerminales` y `observarIdsPendienteSet` repiten
-/// estos mismos valores como literales; su consolidación sobre esta constante se hará en
-/// C4 (refactor propio), no en CTT-149.
+/// Fuente ÚNICA de "no terminal" (C4a): la usan el retiro del pull (CTT-149,
+/// `ItemsCacheDao.sincronizarPull`), la guardia de cierre de sesión
+/// (`SyncDao.contarNoTerminales`) y el indicador de la lista (`observarIdsPendienteSet`).
+///
+/// OJO: NO es el concepto del FIFO de envío. El FIFO (`SyncDao._sinFilaAnteriorDelAgregado`)
+/// usa [estadosIntencionLocal] (pendiente/enviando): una fila en `esperandoResolucion` YA
+/// fue recibida y estacionada por el servidor, así que NO bloquea a las siguientes del
+/// mismo agregado (C4b, diseño 21-oct).
 const estadosNoTerminales = <EstadoSyncLocal>[
   EstadoSyncLocal.pendiente,
   EstadoSyncLocal.enviando,

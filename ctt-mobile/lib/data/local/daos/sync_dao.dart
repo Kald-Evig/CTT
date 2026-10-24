@@ -429,12 +429,9 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// observa escrituras de ESTA conexión; no ve las del isolate headless (ver sync_dao
   /// / nota del commit D6-R).
   Stream<Set<String>> observarIdsPendienteSet() {
-    final noTerminales = [
-      EstadoSyncLocal.pendiente.valor,
-      EstadoSyncLocal.enviando.valor,
-      EstadoSyncLocal.esperandoResolucion.valor,
-    ];
-    return (select(syncPendientes)..where((t) => t.estado.isIn(noTerminales)))
+    // Fuente única de "no terminal": [estadosNoTerminales] (C4a).
+    return (select(syncPendientes)
+          ..where((t) => t.estado.isIn(estadosNoTerminalesValores)))
         .watch()
         .map((rows) => {for (final r in rows) r.entidadId});
   }
@@ -487,12 +484,12 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
 
   /// Cuenta filas en estados NO terminales (pendiente / enviando / esperando_resolucion):
   /// cambios que todavía no se sincronizaron. Para la guardia de cierre de sesión
-  /// (CTT-138). Reusa [_estadosBloqueantes] (misma definición de "no terminal").
+  /// (CTT-138). Fuente única de "no terminal": [estadosNoTerminales] (C4a).
   Future<int> contarNoTerminales() async {
     final count = syncPendientes.id.count();
     final q = selectOnly(syncPendientes)
       ..addColumns([count])
-      ..where(syncPendientes.estado.isIn(_estadosBloqueantes));
+      ..where(syncPendientes.estado.isIn(estadosNoTerminalesValores));
     final row = await q.getSingle();
     return row.read(count) ?? 0;
   }
