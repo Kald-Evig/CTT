@@ -47,6 +47,10 @@ enum SenalSync {
 
   /// El Coordinador resolvió el conflicto a favor del servidor (reconciliador).
   resolucionGanoServidor,
+
+  /// El conflicto quedó SUPERADO en el servidor: el propio usuario aplicó una transición
+  /// posterior sobre el ítem (CTT-143 21-oct). La fila parqueada se descarta (reconciliador).
+  conflictoSuperado,
 }
 
 /// Qué contador de reintentos incrementa una decisión (si alguno).
@@ -156,8 +160,9 @@ DecisionSync _desdeEnvio(SenalSync senal, EstadoSyncLocal desde) {
 
     case SenalSync.resolucionGanoCliente:
     case SenalSync.resolucionGanoServidor:
+    case SenalSync.conflictoSuperado:
       throw StateError(
-        'Señal de resolución ($senal) inválida en estado $desde: solo aplica a '
+        'Señal de resolución/superado ($senal) inválida en estado $desde: solo aplica a '
         'esperandoResolucion.',
       );
   }
@@ -176,6 +181,13 @@ DecisionSync _desdeEspera(SenalSync senal, EstadoSyncLocal desde) {
       return const DecisionSync(
         nuevoEstado: EstadoSyncLocal.descartado,
         motivo: MotivoSync.conflictoResueltoServidor,
+      );
+
+    case SenalSync.conflictoSuperado:
+      // El propio usuario avanzó: la intención parqueada se descarta (CTT-143 21-oct).
+      return const DecisionSync(
+        nuevoEstado: EstadoSyncLocal.descartado,
+        motivo: MotivoSync.conflictoSuperado,
       );
 
     case SenalSync.envioOk:

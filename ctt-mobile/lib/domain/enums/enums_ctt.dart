@@ -135,7 +135,10 @@ enum EstadoSyncEvidencia {
 // ── Estado de conflicto de sync ───────────────────────────────────────────────
 enum EstadoConflicto {
   pendiente('pendiente'),
-  resuelto('resuelto');
+  resuelto('resuelto'),
+  // CTT-143 (21-oct): el propio usuario aplicó una transición posterior; el conflicto quedó
+  // obsoleto. /sync/conflictos/mios lo devuelve para que el reconciliador descarte la fila.
+  superado('superado');
 
   const EstadoConflicto(this.valor);
   final String valor;
@@ -289,6 +292,10 @@ enum MotivoSync {
 
   /// Conflicto resuelto a favor del servidor: el cambio local no se aplica.
   conflictoResueltoServidor('conflicto_resuelto_servidor'),
+
+  /// Conflicto SUPERADO: el propio usuario aplicó una transición posterior sobre el ítem
+  /// (CTT-143 21-oct), así que la intención parqueada quedó obsoleta → descartado.
+  conflictoSuperado('conflicto_superado'),
 
   /// 4xx de negocio definitivo: 403/404/422 y 409 sin conflicto_id.
   rechazoNegocio('rechazo_negocio'),

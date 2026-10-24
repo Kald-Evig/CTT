@@ -30,6 +30,15 @@ ReconciliadorConflictos reconciliadorConflictos(ReconciliadorConflictosRef ref) 
       dio: ref.watch(dioClientProvider),
     );
 
+/// Fila de `/sync/conflictos/mios` que el reconciliador necesita: estado (resuelto/superado),
+/// quién ganó y la base RESULTANTE (version + estado) para escribir monótona y rebasear (P6).
+typedef _ConflictoMio = ({
+  String estado,
+  String? ganadora,
+  int? versionResultante,
+  String? estadoResultante,
+});
+
 class ReconciliadorConflictos {
   const ReconciliadorConflictos({
     required this.syncDao,
@@ -82,47 +91,62 @@ class ReconciliadorConflictos {
         );
         continue;
       }
-      if (!resueltos.containsKey(cid)) {
-        // conflictoId presente pero NO en /mios: sigue PENDIENTE server-side (/mios
-        // solo trae resueltos). No se descarta — se reintenta en una corrida futura.
+      final mio = resueltos[cid];
+      if (mio == null) {
+        // conflictoId presente pero NO en /mios: sigue PENDIENTE server-side (/mios trae
+        // RESUELTO y SUPERADO). No se descarta — se reintenta en una corrida futura.
         continue;
       }
-      final SenalSync senal;
-      switch (resueltos[cid]) {
-        case 'local':
+      SenalSync? senal;
+      if (mio.estado == EstadoConflicto.superado.valor) {
+        senal = SenalSync.conflictoSuperado; // el propio usuario avanzó → descartar
+      } else if (mio.estado == EstadoConflicto.resuelto.valor) {
+        if (mio.ganadora == 'local') {
           senal = SenalSync.resolucionGanoCliente; // aplicó el cambio del cliente
-        case 'servidor':
+        } else if (mio.ganadora == 'servidor') {
           senal = SenalSync.resolucionGanoServidor; // el ítem no se tocó
-        default:
-          // Resuelto pero sin version_ganadora (null): no se puede afirmar quién
-          // ganó. NO se descarta; se reintenta cuando el server complete el dato.
-          continue;
+        }
+        // resuelto sin version_ganadora (null): no se afirma quién ganó. NO se descarta; se
+        // reintenta cuando el server complete el dato.
       }
+      if (senal == null) continue;
 
       final decision = decidir(
         estadoActual: EstadoSyncLocal.esperandoResolucion,
         senal: senal,
       );
-      // aplicarDecision cierra la fila Y apaga items_cache.tiene_conflicto en la
-      // misma transacción (escritor único del flag, CTT-117 tramo 3).
+      // aplicarDecision cierra la fila Y apaga items_cache.tiene_conflicto en la misma
+      // transacción (escritor único del flag, CTT-117 t3). Para una RESOLUCIÓN (local/
+      // servidor) además escribe la base RESULTANTE (monótona) y rebasea las filas pendiente
+      // posteriores del agregado con version_resultante (P6). 'superado' NO toca la base ni
+      // rebasea: la base ya la escribió la transición posterior del propio usuario.
+      final esResolucion = senal != SenalSync.conflictoSuperado;
       await syncDao.aplicarDecision(
         fila.id,
         estadoEsperado: EstadoSyncLocal.esperandoResolucion,
         decision: decision,
+        estadoServidor: esResolucion ? mio.estadoResultante : null,
+        versionServidor: esResolucion ? mio.versionResultante : null,
+        rebasearPosteriores: esResolucion,
       );
     }
     return true;
   }
 
-  /// GET /sync/conflictos/mios → {conflictoId: version_ganadora}. Se leen solo los
-  /// dos campos necesarios para casar y decidir; el resto de ConflictoMioOut no se
-  /// usa (el dispositivo ya tiene su cambio, solo necesita saber quién ganó).
-  Future<Map<String, String?>> _conflictosResueltos() async {
+  /// GET /sync/conflictos/mios → {conflictoId: [_ConflictoMio]}. Lee estado (resuelto/
+  /// superado), version_ganadora y la base resultante (version_resultante + estado_resultante,
+  /// CTT-143 B4/P6) para escribirla y rebasear al cerrar la fila.
+  Future<Map<String, _ConflictoMio>> _conflictosResueltos() async {
     final resp = await dio.get<List<dynamic>>('/sync/conflictos/mios');
-    final out = <String, String?>{};
+    final out = <String, _ConflictoMio>{};
     for (final item in resp.data ?? const []) {
       final m = item as Map<String, dynamic>;
-      out[m['id'] as String] = m['version_ganadora'] as String?;
+      out[m['id'] as String] = (
+        estado: m['estado'] as String,
+        ganadora: m['version_ganadora'] as String?,
+        versionResultante: m['version_resultante'] as int?,
+        estadoResultante: m['estado_resultante'] as String?,
+      );
     }
     return out;
   }

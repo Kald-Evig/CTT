@@ -41,6 +41,7 @@ void main() {
     required String id,
     required String entidadId,
     String? conflictoId,
+    int? versionBase,
   }) =>
       db.syncDao.encolar(SyncPendientesCompanion.insert(
         id: id,
@@ -57,6 +58,41 @@ void main() {
         estado: const Value('esperando_resolucion'),
         motivo: const Value('conflicto'),
         conflictoId: Value(conflictoId),
+        versionBase: Value(versionBase),
+      ),);
+
+  /// Inserta una fila PENDIENTE posterior del mismo agregado (para el rebase P6).
+  Future<void> pendientePosterior({
+    required String id,
+    required String entidadId,
+    required int versionBase,
+  }) =>
+      db.syncDao.encolar(SyncPendientesCompanion.insert(
+        id: id,
+        idempotencyKey: 'idem-$id',
+        empresaId: 'emp-1',
+        usuarioId: 'user-1',
+        instalacionId: 'inst-1',
+        tipoEntidad: 'item',
+        entidadId: entidadId,
+        accion: 'cambio_estado_item',
+        payload: '{}',
+        payloadVersion: 1,
+        creadoEnDispositivo: DateTime.utc(2026, 1, 1),
+        versionBase: Value(versionBase),
+      ),);
+
+  /// Inserta un ítem en caché con una version dada y el flag de conflicto encendido.
+  Future<void> itemConVersion(String id, int version) =>
+      db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+        id: id,
+        proyectoId: 'p1',
+        nombre: 'Tarea $id',
+        estadoServidor: 'abierto',
+        version: Value(version),
+        updatedAt: DateTime.utc(2026, 1, 1),
+        cachadoEn: DateTime.utc(2026, 1, 1),
+        tieneConflicto: const Value(true),
       ),);
 
   /// Inserta un ítem en caché con el flag de conflicto encendido.
@@ -95,7 +131,7 @@ void main() {
     await itemConConflicto('item-A');
     await parquear(id: 'e1', entidadId: 'item-A', conflictoId: 'c-A');
     mockMios([
-      {'id': 'c-A', 'version_ganadora': 'local'},
+      {'id': 'c-A', 'estado': 'resuelto', 'version_ganadora': 'local'},
     ]);
 
     final consulto = await reconciliador.reconciliar();
@@ -112,7 +148,7 @@ void main() {
     await itemConConflicto('item-B');
     await parquear(id: 'e2', entidadId: 'item-B', conflictoId: 'c-B');
     mockMios([
-      {'id': 'c-B', 'version_ganadora': 'servidor'},
+      {'id': 'c-B', 'estado': 'resuelto', 'version_ganadora': 'servidor'},
     ]);
 
     await reconciliador.reconciliar();
@@ -128,7 +164,7 @@ void main() {
     await itemConConflicto('item-C');
     await parquear(id: 'e3', entidadId: 'item-C', conflictoId: 'c-C');
     mockMios([
-      {'id': 'c-C', 'version_ganadora': null},
+      {'id': 'c-C', 'estado': 'resuelto', 'version_ganadora': null},
     ]);
 
     await reconciliador.reconciliar();
@@ -227,7 +263,7 @@ void main() {
     await parquear(id: 'e6', entidadId: 'item-F', conflictoId: 'c-F');
     await parquear(id: 'e7', entidadId: 'item-G', conflictoId: 'c-G');
     mockMios([
-      {'id': 'c-F', 'version_ganadora': 'servidor'},
+      {'id': 'c-F', 'estado': 'resuelto', 'version_ganadora': 'servidor'},
     ]); // c-G no aparece: sigue pendiente
 
     await reconciliador.reconciliar();
@@ -236,5 +272,68 @@ void main() {
     expect(await flag('item-F'), isFalse);
     expect((await leer('e7')).estado, EstadoSyncLocal.esperandoResolucion.valor);
     expect(await flag('item-G'), isTrue);
+  });
+
+  // ── C3d: superado y P6 ──────────────────────────────────────────────────────
+
+  test('superado en /mios → descartado (no toca la base del ítem)', () async {
+    // Arma: ítem con base version=9/'terminado' (ya la escribió una transición posterior) y
+    // una fila parqueada cuyo conflicto el servidor marcó SUPERADO. Verifica: la fila pasa a
+    // descartado con motivo conflicto_superado, apaga el flag y la base NO se toca.
+    await itemConVersion('item-S', 9);
+    await db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+      id: 'item-S',
+      proyectoId: 'p1',
+      nombre: 'Tarea item-S',
+      estadoServidor: 'terminado',
+      version: const Value(9),
+      updatedAt: DateTime.utc(2026, 1, 2),
+      cachadoEn: DateTime.utc(2026, 1, 2),
+      tieneConflicto: const Value(true),
+    ));
+    await parquear(id: 'e-S', entidadId: 'item-S', conflictoId: 'c-S', versionBase: 1);
+    mockMios([
+      {'id': 'c-S', 'estado': 'superado', 'version_ganadora': null},
+    ]);
+
+    await reconciliador.reconciliar();
+
+    final f = await leer('e-S');
+    expect(f.estado, EstadoSyncLocal.descartado.valor);
+    expect(f.motivo, MotivoSync.conflictoSuperado.valor);
+    expect(await flag('item-S'), isFalse);
+    final it = await db.itemsCacheDao.obtenerPorId('item-S');
+    expect(it!.version, 9, reason: 'superado no toca la base');
+    expect(it.estadoServidor, 'terminado');
+  });
+
+  test('resolución local → escribe la base resultante (monótona) y REBASEA las filas '
+      'pendiente posteriores (P6)', () async {
+    // Arma: base version=1; fila parqueada (version_base=1, conflicto c-P) y una pendiente
+    // POSTERIOR del mismo ítem con el mismo version_base=1. /mios resuelve 'local' con
+    // version_resultante=5, estado_resultante='en_progreso'.
+    await itemConVersion('item-P', 1);
+    await parquear(id: 'e-P1', entidadId: 'item-P', conflictoId: 'c-P', versionBase: 1);
+    await pendientePosterior(id: 'e-P2', entidadId: 'item-P', versionBase: 1);
+    mockMios([
+      {
+        'id': 'c-P',
+        'estado': 'resuelto',
+        'version_ganadora': 'local',
+        'version_resultante': 5,
+        'estado_resultante': 'en_progreso',
+      },
+    ]);
+
+    await reconciliador.reconciliar();
+
+    // La parqueada se cerró a sincronizado.
+    expect((await leer('e-P1')).estado, EstadoSyncLocal.sincronizado.valor);
+    // Base resultante escrita (monótona): 1 → 5 / 'en_progreso'.
+    final it = await db.itemsCacheDao.obtenerPorId('item-P');
+    expect(it!.version, 5);
+    expect(it.estadoServidor, 'en_progreso');
+    // P6: la pendiente posterior quedó rebaseada a 5 (no fijada a mano).
+    expect((await leer('e-P2')).versionBase, 5);
   });
 }

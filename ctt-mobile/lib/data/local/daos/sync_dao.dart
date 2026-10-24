@@ -235,6 +235,7 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
     SyncPendientesCompanion extra = const SyncPendientesCompanion(),
     String? estadoServidor,
     int? versionServidor,
+    bool rebasearPosteriores = false,
   }) =>
       transaction(() async {
         // El flag depende solo de (estadoEsperado, decisión); se resuelve antes de
@@ -252,8 +253,10 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         // La fila se lee ANTES del update: ninguna decisión toca entidad_id/secuencia/
         // version_base. Solo se lee si hay que escribir items_cache (flag/base) o rebasear.
         // Si la guarda matchea (afectadas > 0), la fila existía, así que no es null abajo.
-        final rebasear = decision.nuevoEstado == EstadoSyncLocal.sincronizado &&
-            versionServidor != null;
+        // El rebase lo decide el LLAMADOR (solo sabe él si este desenlace AVANZA la base):
+        // 200 (sí), 409 (no, §7/C3c), resolución local/servidor (sí, P6). No se infiere del
+        // estado terminal.
+        final rebasear = rebasearPosteriores && versionServidor != null;
         final necesitaFila =
             nuevoFlag != null || estadoServidor != null || rebasear;
         final fila = !necesitaFila

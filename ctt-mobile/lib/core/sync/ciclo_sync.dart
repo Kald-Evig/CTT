@@ -206,6 +206,9 @@ class CicloSync {
               (itemOut?['estado'] as String?) ?? clas.estadoServidor,
           versionServidor:
               (itemOut?['version'] as int?) ?? clas.versionActual,
+          // Rebase solo en el 200 (sincronizado): el 409 parquea sin rebasear (C3c/§7).
+          rebasearPosteriores:
+              decision.nuevoEstado == EstadoSyncLocal.sincronizado,
         );
 
         if (decision.pausaCola) {
