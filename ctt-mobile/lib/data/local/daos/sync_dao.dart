@@ -20,10 +20,17 @@ part 'sync_dao.g.dart';
 /// `estado` es el alcanzado; si quedó `pendiente` tras un intento fallido, trae además
 /// el código/detalle del backend para que la UI muestre "no se pudo enviar (código)".
 class ResultadoEspera {
-  const ResultadoEspera(this.estado, {this.ultimoErrorCodigo, this.ultimoError});
+  const ResultadoEspera(this.estado,
+      {this.ultimoErrorCodigo, this.ultimoError, this.versionResultante});
   final EstadoSyncLocal estado;
   final int? ultimoErrorCodigo;
   final String? ultimoError;
+
+  /// Versión del servidor tras el intento (CTT-143 C3e): ItemOut.version del 200 o
+  /// version_actual del 409. La ruta del Residente la usa para que su PRÓXIMA transición
+  /// salga con la base nueva (su ítem no está en items_cache). null si el intento no la
+  /// trajo (p. ej. rechazo, o fila aún pendiente).
+  final int? versionResultante;
 }
 
 @riverpod
@@ -281,6 +288,12 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
           extra.copyWith(
             estado: Value(decision.nuevoEstado.valor),
             motivo: Value(decision.motivo?.valor),
+            // C3e: persiste la version del servidor del intento (200: ItemOut.version; 409:
+            // version_actual) para que esperarResultadoFila la devuelva. La ruta del
+            // Residente la usa como base de su próxima transición (su ítem no está en caché).
+            versionResultante: versionServidor != null
+                ? Value(versionServidor)
+                : const Value.absent(),
           ),
         );
         // Guarda anti-carrera / cierre condicional: si la fila ya no estaba en
@@ -345,20 +358,20 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// estado, sin gate (compat CTT-144). 0 filas = ítem no en `items_cache` (p. ej. del
   /// Residente) o versión vieja: NO es error, no se loguea (C3b).
   Future<void> _escribirBaseEstado(
-          String entidadId, String estado, int? version) =>
-      (update(attachedDatabase.itemsCacheTable)
-            ..where((t) {
-              final mismo = t.id.equals(entidadId);
-              return version == null
-                  ? mismo
-                  : mismo &
-                      (t.version.isNull() |
-                          t.version.isSmallerOrEqualValue(version));
-            }))
-          .write(ItemsCacheTableCompanion(
-            estadoServidor: Value(estado),
-            version: version == null ? const Value.absent() : Value(version),
-          ));
+      String entidadId, String estado, int? version) async {
+    // version null → no se escribe NADA (C3e): sin version no se puede garantizar la
+    // monotonía. En producción el 200 (B1), el 409 (B2) y la resolución (B4) SIEMPRE traen
+    // version; null solo ocurriría contra un backend sin la columna → no se toca la base.
+    if (version == null) return;
+    await (update(attachedDatabase.itemsCacheTable)
+          ..where((t) =>
+              t.id.equals(entidadId) &
+              (t.version.isNull() | t.version.isSmallerOrEqualValue(version))))
+        .write(ItemsCacheTableCompanion(
+          estadoServidor: Value(estado),
+          version: Value(version),
+        ));
+  }
 
   /// Espera el resultado del PRIMER intento de la fila [filaId] (CTT-148). Completa
   /// cuando la fila SALE de `enviando` tras su intento:
@@ -403,9 +416,10 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         estado,
         ultimoErrorCodigo: fila.ultimoErrorCodigo,
         ultimoError: fila.ultimoError,
+        versionResultante: fila.versionResultante,
       );
     }
-    return ResultadoEspera(estado);
+    return ResultadoEspera(estado, versionResultante: fila.versionResultante);
   }
 
   /// Stream REACTIVO de entidad_id con sincronización pendiente (estados NO

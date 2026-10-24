@@ -83,7 +83,7 @@ void main() {
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenAnswer((_) async => Response<Map<String, dynamic>>(
               requestOptions: RequestOptions(path: '/items/X/transicion'),
-              data: {'id': 'X', 'estado': 'en_progreso'},
+              data: {'id': 'X', 'estado': 'en_progreso', 'version': 2},
             ),);
 
     await ciclo().ejecutar();

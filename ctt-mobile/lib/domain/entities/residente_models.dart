@@ -81,6 +81,28 @@ class ItemResidente {
             ? null
             : DateTime.parse(json['ultima_edicion_en'] as String),
       );
+
+  /// Copia con [estado] y/o [version] cambiados (el resto se conserva). Lo usan la UI
+  /// optimista del Residente y la actualización de version tras el resultado del ciclo
+  /// (C3e). Solo expone estado/version porque son los únicos que el flujo de transición
+  /// cambia; si hace falta otro campo, se agrega acá (no se duplica el rebuild).
+  ItemResidente copyWith({String? estado, int? version}) => ItemResidente(
+        id: id,
+        proyectoId: proyectoId,
+        parentItemId: parentItemId,
+        nivelProfundidad: nivelProfundidad,
+        nombre: nombre,
+        descripcion: descripcion,
+        asignadoA: asignadoA,
+        asignadoNombre: asignadoNombre,
+        estado: estado ?? this.estado,
+        version: version ?? this.version,
+        fechaLimite: fechaLimite,
+        duracionEstimadaHoras: duracionEstimadaHoras,
+        orden: orden,
+        ultimaEdicionPor: ultimaEdicionPor,
+        ultimaEdicionEn: ultimaEdicionEn,
+      );
 }
 
 class ComentarioItem {

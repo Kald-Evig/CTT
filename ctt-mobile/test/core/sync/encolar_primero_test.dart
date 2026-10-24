@@ -106,7 +106,7 @@ void main() {
             data: any(named: 'data'), options: any(named: 'options'),),)
         .thenAnswer((_) async => Response<Map<String, dynamic>>(
               requestOptions: RequestOptions(path: '/x'),
-              data: {'id': _itemId, 'estado': 'en_progreso'},
+              data: {'id': _itemId, 'estado': 'en_progreso', 'version': 2},
             ),);
 
     final r = await service.ejecutar(itemId: _itemId, nuevoEstado: 'en_progreso');

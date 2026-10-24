@@ -72,15 +72,21 @@ class ItemResidenteDetalle extends _$ItemResidenteDetalle {
 
       switch (resultado.estado) {
         case EstadoSyncLocal.sincronizado:
-          // El servidor aceptó: el estado optimista YA es el correcto. Refrescar la
-          // lista para que refleje el nuevo estado.
+          // El servidor aceptó: el estado optimista YA es el correcto. Se actualiza la
+          // version a la del servidor (C3e) para que la PRÓXIMA transición del Residente no
+          // salga con la base vencida (su ítem no está en items_cache). Refresca la lista.
+          final v = resultado.versionResultante;
+          if (v != null) state = AsyncData(state.value!.copyWith(version: v));
           ref.invalidate(itemsProyectoProvider);
         case EstadoSyncLocal.esperandoResolucion:
         case EstadoSyncLocal.rechazada:
-          // El servidor no aceptó el cambio: revertir al estado anterior.
-          state = AsyncData(estadoAnterior);
+          // El servidor no aplicó el cambio: volver al estado anterior. Si el intento trajo
+          // una version (409: version_actual), se adopta para no reincidir en el conflicto.
+          final v = resultado.versionResultante;
+          state = AsyncData(
+              v != null ? estadoAnterior.copyWith(version: v) : estadoAnterior);
         default:
-          // pendiente / otros: mantener el optimista hasta que el ciclo sincronice.
+          // pendiente/otros: mantener el optimista (con su version; el rebase la corrige al 200).
           break;
       }
 
@@ -92,19 +98,10 @@ class ItemResidenteDetalle extends _$ItemResidenteDetalle {
     }
   }
 
+  // Optimista: cambia el estado y PRESERVA la version (C3e: antes la perdía, dejándola
+  // null → la 2da transición no podía encolar/rebasear). copyWith conserva el resto.
   ItemResidente _conNuevoEstado(ItemResidente item, String nuevoEstado) =>
-      ItemResidente(
-        id: item.id,
-        proyectoId: item.proyectoId,
-        parentItemId: item.parentItemId,
-        nivelProfundidad: item.nivelProfundidad,
-        nombre: item.nombre,
-        descripcion: item.descripcion,
-        asignadoA: item.asignadoA,
-        asignadoNombre: item.asignadoNombre,
-        estado: nuevoEstado,
-        fechaLimite: item.fechaLimite,
-      );
+      item.copyWith(estado: nuevoEstado);
 }
 
 @riverpod
