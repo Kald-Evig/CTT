@@ -107,7 +107,16 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
             AND sp.entidad_id = ic.id
             AND sp.estado IN ($estados)
           ORDER BY sp.secuencia DESC LIMIT 1),
-        ic.estado_servidor) AS estado_mostrado
+        ic.estado_servidor) AS estado_mostrado,
+      -- C4c: nuevo_estado de la fila en esperando_resolucion (la INTENCIÓN en conflicto),
+      -- o NULL si no hay. El aviso de conflicto del detalle lo muestra junto a la base.
+      -- esperandoResolucion NO entra en estado_mostrado (overlay), por eso va aparte.
+      (SELECT json_extract(sp.payload, '\$.$kPayloadNuevoEstado')
+         FROM sync_pendientes sp
+        WHERE sp.tipo_entidad = '${TipoEntidad.item.valor}'
+          AND sp.entidad_id = ic.id
+          AND sp.estado = '${EstadoSyncLocal.esperandoResolucion.valor}'
+        ORDER BY sp.secuencia DESC LIMIT 1) AS estado_en_conflicto
     ''';
   }
 
@@ -119,6 +128,7 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
   ItemConOverlay _aItemConOverlay(QueryRow f) => ItemConOverlay(
         base: attachedDatabase.itemsCacheTable.map(f.data),
         estadoMostrado: f.read<String>('estado_mostrado'),
+        estadoEnConflicto: f.read<String?>('estado_en_conflicto'),
       );
 
   /// Ítems del usuario en la EMPRESA ACTIVA con el estado mostrado (base + overlay). Stream
@@ -156,7 +166,11 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
 /// la fila cruda de la tabla; los getters delegan para que la UI lea `item.nombre`,
 /// `item.estadoMostrado`, etc., sin desenvolver [base].
 class ItemConOverlay {
-  const ItemConOverlay({required this.base, required this.estadoMostrado});
+  const ItemConOverlay({
+    required this.base,
+    required this.estadoMostrado,
+    this.estadoEnConflicto,
+  });
 
   /// Fila cruda de `items_cache` (ya con tipos correctos vía el mapper de la tabla).
   final ItemsCacheTableData base;
@@ -164,6 +178,11 @@ class ItemConOverlay {
   /// `EstadoItem.valor` mostrado: `nuevo_estado` de la última fila pendiente/enviando del
   /// ítem, o [estadoServidor] si no hay ninguna.
   final String estadoMostrado;
+
+  /// `EstadoItem.valor` de la INTENCIÓN en conflicto: `nuevo_estado` de la fila en
+  /// esperando_resolucion (C4c), o null si el ítem no tiene un conflicto abierto. El aviso
+  /// del detalle lo muestra junto a [estadoServidor]; la lista lo usa como señal de conflicto.
+  final String? estadoEnConflicto;
 
   String get id => base.id;
   String get proyectoId => base.proyectoId;

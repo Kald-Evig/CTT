@@ -119,13 +119,18 @@ class _TarjetaItem extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tienePendiente = ref.watch(itemsConSyncPendienteProvider).whenOrNull(
-          data: (ids) => ids.contains(item.id),
-        ) ??
-        false;
-    // Prioridad del indicador de sync: nube naranja (pendiente/enviando/esperando) >
-    // rechazada > en_revision. La nube (pendiente) tapa el chip de revisión.
-    final estadoRevision = tienePendiente
+    // C4c: conflicto (fila en esperando_resolucion) = señal propia, distinta de "pendiente
+    // de sync" y de "rechazada". Prioridad: CONFLICTO > nube (pendiente/enviando) > rechazada
+    // > en_revision. Justificación: un conflicto necesita al Coordinador (acción humana), es
+    // lo más específico; la nube (solo sincronizando) es menos urgente. `estadoEnConflicto`
+    // es reactivo a la cola y se apaga solo cuando la fila sale de esperando_resolucion.
+    final enConflicto = item.estadoEnConflicto != null;
+    final tienePendiente = !enConflicto &&
+        (ref.watch(itemsConSyncPendienteProvider).whenOrNull(
+              data: (ids) => ids.contains(item.id),
+            ) ??
+            false);
+    final estadoRevision = (enConflicto || tienePendiente)
         ? null
         : ref
             .watch(itemsEnRevisionProvider)
@@ -134,7 +139,9 @@ class _TarjetaItem extends ConsumerWidget {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       title: Text(item.nombre),
-      subtitle: (item.descripcion != null || estadoRevision != null)
+      subtitle: (item.descripcion != null ||
+              estadoRevision != null ||
+              enConflicto)
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -143,6 +150,11 @@ class _TarjetaItem extends ConsumerWidget {
                     item.descripcion!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                  ),
+                if (enConflicto)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: _ChipConflicto(),
                   ),
                 if (estadoRevision != null)
                   Padding(
@@ -188,5 +200,18 @@ class _TarjetaItem extends ConsumerWidget {
     };
     return ChipEstado(label: label, color: color);
   }
+}
+
+/// Chip de CONFLICTO de concurrencia (fila en esperando_resolucion, C4c). Distinto del de
+/// rechazada (café) y en_revision (teal): ámbar, como el aviso del detalle. El ítem lo
+/// resuelve el Coordinador; el trabajador puede seguir operando sobre la base.
+class _ChipConflicto extends StatelessWidget {
+  const _ChipConflicto();
+
+  @override
+  Widget build(BuildContext context) => ChipEstado(
+        label: 'En revisión por el Coordinador',
+        color: Colors.amber.shade800,
+      );
 }
 

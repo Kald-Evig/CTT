@@ -86,6 +86,16 @@ class _CuerpoDetalle extends ConsumerWidget {
                   color: Theme.of(context).colorScheme.primary,
                 ),
           ),
+          // C4c: aviso de conflicto cuando hay una fila en esperando_resolucion. Los botones
+          // de abajo salen de la BASE (estadoMostrado == estado_servidor en conflicto, porque
+          // esperando_resolucion NO entra al overlay) y NO se bloquean.
+          if (item.estadoEnConflicto != null) ...[
+            const SizedBox(height: 12),
+            _AvisoConflicto(
+              intencion: item.estadoEnConflicto!,
+              base: item.estadoServidor,
+            ),
+          ],
           if (item.descripcion != null && item.descripcion!.isNotEmpty) ...[
             const SizedBox(height: 16),
             const Divider(),
@@ -103,6 +113,43 @@ class _CuerpoDetalle extends ConsumerWidget {
       ),
     );
   }
+}
+
+// ── Aviso de conflicto (C4c) ──────────────────────────────────────────────────
+
+/// Aviso explícito cuando el cambio del usuario quedó en esperando_resolucion: muestra su
+/// intención vs. el estado actual del servidor (la base) y que lo revisa el Coordinador. No
+/// bloquea: los botones de acción siguen saliendo de la base.
+class _AvisoConflicto extends StatelessWidget {
+  const _AvisoConflicto({required this.intencion, required this.base});
+  final String intencion; // EstadoItem.valor del cambio en conflicto
+  final String base; // EstadoItem.valor actual del servidor
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade50,
+          border: Border.all(color: Colors.amber.shade700),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.sync_problem_outlined,
+                size: 20, color: Colors.amber.shade800),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Tu cambio: ${etiquetaEstadoItem(intencion)}. '
+                'Estado actual: ${etiquetaEstadoItem(base)}. '
+                'En revisión por el Coordinador.',
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 // ── Acciones por estado ──────────────────────────────────────────────────────

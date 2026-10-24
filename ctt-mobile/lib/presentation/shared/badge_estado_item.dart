@@ -11,17 +11,26 @@ class BadgeEstadoItem extends StatelessWidget {
   final String estado;
 
   @override
-  Widget build(BuildContext context) {
-    final (label, color) = _infoEstado(estado);
-    return ChipEstado(label: label, color: color);
-  }
-
-  (String, Color) _infoEstado(String valor) => switch (valor) {
-        'abierto' => ('Abierto', Colors.blue),
-        'en_progreso' => ('En progreso', Colors.orange),
-        'pendiente_revision' => ('En revisión', Colors.purple),
-        'terminado' => ('Terminado', Colors.green),
-        'problema' => ('Problema', Colors.red),
-        _ => (valor, Colors.grey),
-      };
+  Widget build(BuildContext context) =>
+      ChipEstado(label: etiquetaEstadoItem(estado), color: _colorEstado(estado));
 }
+
+/// Etiqueta legible de un `EstadoItem.valor` (fuente única — la usan el badge y el aviso de
+/// conflicto del detalle, CTT-143 C4c). Devuelve el valor crudo si es desconocido.
+String etiquetaEstadoItem(String valor) => switch (valor) {
+      'abierto' => 'Abierto',
+      'en_progreso' => 'En progreso',
+      'pendiente_revision' => 'En revisión',
+      'terminado' => 'Terminado',
+      'problema' => 'Problema',
+      _ => valor,
+    };
+
+Color _colorEstado(String valor) => switch (valor) {
+      'abierto' => Colors.blue,
+      'en_progreso' => Colors.orange,
+      'pendiente_revision' => Colors.purple,
+      'terminado' => Colors.green,
+      'problema' => Colors.red,
+      _ => Colors.grey,
+    };
