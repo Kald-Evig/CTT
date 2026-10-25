@@ -79,12 +79,23 @@ class ItemResidenteDetalle extends _$ItemResidenteDetalle {
           if (v != null) state = AsyncData(state.value!.copyWith(version: v));
           ref.invalidate(itemsProyectoProvider);
         case EstadoSyncLocal.esperandoResolucion:
+          // 409: el servidor está en OTRO estado; el cambio del usuario NO se aplicó. Se
+          // re-lee el ítem (Opción 2) para traer estado + version (y comentarios/datos que el
+          // cambio ajeno pudo tocar) JUNTOS del servidor. Nunca se aplica una version sin su
+          // estado: eso dejaría (estado viejo + version nueva), una combinación que el usuario
+          // nunca vio y que haría que la próxima transición "pisara" el conflicto sin verlo
+          // (lost update). Si no hay red para releer, se conserva estadoAnterior COMPLETO
+          // (estado y version viejos, juntos): el conflicto se repetirá hasta ver el estado real.
+          try {
+            state = AsyncData(
+                await ref.read(residenteRepositoryProvider).obtenerItem(estadoAnterior.id));
+          } catch (_) {
+            state = AsyncData(estadoAnterior);
+          }
         case EstadoSyncLocal.rechazada:
-          // El servidor no aplicó el cambio: volver al estado anterior. Si el intento trajo
-          // una version (409: version_actual), se adopta para no reincidir en el conflicto.
-          final v = resultado.versionResultante;
-          state = AsyncData(
-              v != null ? estadoAnterior.copyWith(version: v) : estadoAnterior);
+          // El servidor rechazó el cambio (determinista, sin version): el ítem no cambió →
+          // se conserva el estado anterior COMPLETO.
+          state = AsyncData(estadoAnterior);
         default:
           // pendiente/otros: mantener el optimista (con su version; el rebase la corrige al 200).
           break;

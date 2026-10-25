@@ -347,9 +347,10 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
   /// Escribe la BASE (`estado_servidor` + `version`) de [entidadId] de forma MONÓTONA
   /// (CTT-143 C3b): solo pisa si la `version` cacheada es NULL o <= [version] entrante — una
   /// respuesta vieja NUNCA baja la base. La invocan el 200 y el 409 (vía [aplicarDecision]),
-  /// dentro de su transacción. Si [version] es null (caller sin versión), escribe solo el
-  /// estado, sin gate (compat CTT-144). 0 filas = ítem no en `items_cache` (p. ej. del
-  /// Residente) o versión vieja: NO es error, no se loguea (C3b).
+  /// dentro de su transacción. Estado y version se escriben SIEMPRE juntos, en un único
+  /// companion; si [version] es null NO se escribe nada (C3f: nunca estado sin version ni
+  /// version sin estado). 0 filas = ítem no en `items_cache` (p. ej. del Residente) o versión
+  /// vieja: NO es error, no se loguea (C3b).
   Future<void> _escribirBaseEstado(
       String entidadId, String estado, int? version) async {
     // version null → no se escribe NADA (C3e): sin version no se puede garantizar la
