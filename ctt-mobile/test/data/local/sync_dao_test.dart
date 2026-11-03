@@ -92,7 +92,7 @@ void main() {
 
   /// Inserta un ítem en caché con el flag de conflicto en el valor dado.
   Future<void> insertarItem(String id, {required bool conflicto}) =>
-      db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+      db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
         id: id,
         proyectoId: 'p1',
         nombre: 'Tarea $id',

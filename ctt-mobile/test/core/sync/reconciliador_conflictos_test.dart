@@ -84,7 +84,7 @@ void main() {
 
   /// Inserta un ítem en caché con una version dada y el flag de conflicto encendido.
   Future<void> itemConVersion(String id, int version) =>
-      db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+      db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
         id: id,
         proyectoId: 'p1',
         nombre: 'Tarea $id',
@@ -96,7 +96,7 @@ void main() {
 
   /// Inserta un ítem en caché con el flag de conflicto encendido.
   Future<void> itemConConflicto(String id) =>
-      db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+      db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
         id: id,
         proyectoId: 'p1',
         nombre: 'Tarea $id',
@@ -278,8 +278,7 @@ void main() {
     // Arma: ítem con base version=9/'terminado' (ya la escribió una transición posterior) y
     // una fila parqueada cuyo conflicto el servidor marcó SUPERADO. Verifica: la fila pasa a
     // descartado con motivo conflicto_superado, apaga el flag y la base NO se toca.
-    await itemConVersion('item-S', 9);
-    await db.itemsCacheDao.guardarItem(ItemsCacheTableCompanion.insert(
+    await db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
       id: 'item-S',
       proyectoId: 'p1',
       nombre: 'Tarea item-S',

@@ -160,9 +160,6 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
       ).watch().map(
           (filas) => filas.isEmpty ? null : _aItemConOverlay(filas.first));
 
-  /// Inserta o actualiza un ítem en caché (upsert por id).
-  Future<void> guardarItem(ItemsCacheTableCompanion item) =>
-      into(itemsCacheTable).insertOnConflictUpdate(item);
 }
 
 /// Fila de `items_cache` CON el estado MOSTRADO ya calculado (base + overlay de la cola).
