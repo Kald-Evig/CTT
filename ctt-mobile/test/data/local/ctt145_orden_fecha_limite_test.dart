@@ -83,7 +83,7 @@ void main() {
   // fecha_limite dadas. Simula una fila que venía de v8 (migrada a v9 con fecha_limite NULL)
   // o ya cacheada por un pull previo.
   Future<void> sembrarFila(String id,
-          {required int version, String? fecha, String nombre = 'Item'}) =>
+          {required int version, String? fecha, String nombre = 'Item',}) =>
       db.into(db.itemsCacheTable).insert(ItemsCacheTableCompanion.insert(
             id: id,
             proyectoId: 'proy-1',
@@ -94,7 +94,7 @@ void main() {
             version: Value(version),
             fechaLimite: Value(fecha),
             cachadoEn: DateTime.utc(2026, 5, 1),
-          ));
+          ),);
 
   // ── Orden (camino real del pull) ─────────────────────────────────────────────
   test('orden: fecha ASC, NULL al final, desempate por nombre y luego por id', () async {
