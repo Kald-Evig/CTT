@@ -26,10 +26,10 @@ import 'package:ctt_mobile/data/local/migracion_atomica.dart';
 
 part 'database.g.dart';
 
-/// Versión del esquema local: **v7** (CTT-103 agregó `rechazo_id` sobre la línea
-/// base v6 de CTT-130). Fuente única: la usan el getter [BaseDatosCTT.schemaVersion]
+/// Versión del esquema local: **v9** (CTT-145 agregó `fecha_limite` y quitó `updated_at`
+/// sobre v8 de CTT-143). Fuente única: la usan el getter [BaseDatosCTT.schemaVersion]
 /// y la pre-apertura con sqlite3 crudo (apertura_base.dart) para decidir si migrar.
-const kSchemaVersionApp = 8;
+const kSchemaVersionApp = 9;
 
 // ── Tablas ────────────────────────────────────────────────────────────────────
 
@@ -126,7 +126,11 @@ class ItemsCacheTable extends Table {
   /// El ítem tiene un conflicto de sync sin resolver (CTT-117 tramo 2).
   BoolColumn get tieneConflicto =>
       boolean().withDefault(const Constant(false))();
-  DateTimeColumn get updatedAt => dateTime()();
+  /// Fecha límite del ítem (CTT-145). Texto ISO 'YYYY-MM-DD' TAL CUAL llega del servidor
+  /// (MisItemOut.fecha_limite: `date | None` → string o null). TextColumn, NO DateTimeColumn:
+  /// es una fecha de calendario del servidor y no debe pasar por conversión de zona horaria.
+  /// NULL hasta el primer pull que la traiga. Da el orden de "Mis ítems" (fecha asc, nulos al final).
+  TextColumn get fechaLimite => text().named('fecha_limite').nullable()();
   /// Cuando se descargó del servidor por última vez.
   DateTimeColumn get cachadoEn => dateTime()();
 
@@ -203,7 +207,7 @@ class BaseDatosCTT extends _$BaseDatosCTT {
   // estático y NO resuelve una referencia a const. Debe coincidir con
   // kSchemaVersionApp (lo garantiza un test). Ver CTT-130 fase 7.
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -276,6 +280,24 @@ class BaseDatosCTT extends _$BaseDatosCTT {
         await db.customStatement(
           'UPDATE items_cache SET empresa_id = '
           '(SELECT empresa_id FROM usuario_activo LIMIT 1)',
+        );
+      });
+    }
+    // v8 → v9 (CTT-145): items_cache gana `fecha_limite` (TextColumn nullable, ISO
+    // 'YYYY-MM-DD' del servidor) y descarta `updated_at`. El drop obliga a RECONSTRUIR la
+    // tabla (TableMigration) al shape congelado v9 (Schema9): `updated_at` desaparece por
+    // ausencia en Schema9; las demás columnas copian por nombre; `fecha_limite` es nueva y
+    // nullable → nace NULL (queda NULL hasta el primer pull). El DDL resultante es idéntico a
+    // createAll (lo valida el SchemaVerifier), dentro de migrarAtomico (atómico pasos+user_version).
+    if (desde < 9 && hasta >= 9) {
+      pasos.add((db) async {
+        final schema = Schema9(database: db);
+        await Migrator(db, schema).alterTable(
+          // ignore: experimental_member_use
+          TableMigration(
+            schema.itemsCache,
+            newColumns: [schema.itemsCache.fechaLimite],
+          ),
         );
       });
     }

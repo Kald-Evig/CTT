@@ -46,7 +46,6 @@ void main() {
             asignadoA: Value(asignadoA),
             empresaId: Value(empresaId),
             estadoServidor: estado,
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 
@@ -58,7 +57,6 @@ void main() {
         nombre: 'Item $id',
         asignadoA: Value(asignadoA),
         estadoServidor: 'abierto',
-        updatedAt: DateTime.utc(2026, 5, 2),
         cachadoEn: DateTime.utc(2026, 5, 2),
       );
 

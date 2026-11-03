@@ -85,7 +85,6 @@ void main() {
             // C2: la base necesita version para que la transición se pueda encolar
             // (version_base). version NULL es el caso "sin pull de migración".
             version: Value(version),
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 

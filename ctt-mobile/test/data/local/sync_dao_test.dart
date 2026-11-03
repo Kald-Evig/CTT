@@ -97,7 +97,6 @@ void main() {
         proyectoId: 'p1',
         nombre: 'Tarea $id',
         estadoServidor: 'abierto',
-        updatedAt: DateTime.utc(2026, 1, 1),
         cachadoEn: DateTime.utc(2026, 1, 1),
         tieneConflicto: Value(conflicto),
       ),);

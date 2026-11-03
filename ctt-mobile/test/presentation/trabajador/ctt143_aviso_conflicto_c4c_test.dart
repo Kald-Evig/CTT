@@ -39,7 +39,6 @@ ItemConOverlay _item({
         nombre: 'Tarea de prueba',
         estadoServidor: estadoServidor,
         tieneConflicto: estadoEnConflicto != null,
-        updatedAt: DateTime.utc(2026, 1, 1),
         cachadoEn: DateTime.utc(2026, 1, 1),
       ),
       estadoMostrado: estadoMostrado,

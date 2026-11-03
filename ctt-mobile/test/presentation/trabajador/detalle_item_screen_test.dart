@@ -32,7 +32,6 @@ void main() {
           nombre: 'Tarea de prueba',
           estadoServidor: 'en_progreso',
           tieneConflicto: false,
-          updatedAt: DateTime.utc(2026, 1, 1),
           cachadoEn: DateTime.utc(2026, 1, 1),
         ),
         estadoMostrado: 'en_progreso',

@@ -49,7 +49,6 @@ void main() {
             empresaId: const Value('emp-1'),
             estadoServidor: estado,
             version: Value(version),
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 
@@ -180,7 +179,6 @@ void main() {
       asignadoA: const Value('user-1'),
       estadoServidor: 'abierto',
       version: const Value(3),
-      updatedAt: DateTime.utc(2026, 5, 2),
       cachadoEn: DateTime.utc(2026, 5, 2),
     );
     await db.itemsCacheDao.sincronizarPull('user-1', 'emp-1', [viejo]);

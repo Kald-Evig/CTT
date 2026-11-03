@@ -24,7 +24,6 @@ ItemConOverlay _item(String id, String estado) => ItemConOverlay(
         nombre: 'Ítem $id',
         estadoServidor: estado,
         tieneConflicto: false,
-        updatedAt: DateTime.utc(2026, 1, 1),
         cachadoEn: DateTime.utc(2026, 1, 1),
       ),
       estadoMostrado: estado,

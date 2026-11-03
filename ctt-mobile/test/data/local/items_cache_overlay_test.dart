@@ -24,7 +24,6 @@ void main() {
             asignadoA: Value(asignadoA),
             empresaId: const Value('emp-1'),
             estadoServidor: estado,
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 

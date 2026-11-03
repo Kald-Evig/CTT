@@ -34,7 +34,6 @@ void main() {
             asignadoA: const Value(_user),
             empresaId: Value(empresa),
             estadoServidor: 'abierto',
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
     }

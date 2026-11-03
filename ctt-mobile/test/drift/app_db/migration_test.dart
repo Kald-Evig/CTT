@@ -9,6 +9,7 @@ import 'generated/schema.dart';
 import 'generated/schema_v6.dart' as v6;
 import 'generated/schema_v7.dart' as v7;
 import 'generated/schema_v8.dart' as v8;
+import 'generated/schema_v9.dart' as v9;
 
 void main() {
   driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
@@ -219,6 +220,54 @@ void main() {
         expect(filas.single.estadoServidor, 'en_progreso'); // heredó `estado`
         expect(filas.single.empresaId, 'emp-1');            // backfill
         expect(filas.single.version, null);                 // NULL hasta el 1er pull
+      },
+    );
+  });
+
+  // Fixture dorado v8→v9 (CTT-145): la migración agrega `fecha_limite` (TextColumn nullable,
+  // NULL hasta el primer pull) y descarta `updated_at`. El resto de los campos queda intacto
+  // (id, estado_servidor, version, empresa_id, tiene_conflicto, descripcion, etc.).
+  test('migración v8→v9: fecha_limite NULL agregada, updated_at descartado, resto intacto',
+      () async {
+    final cachado = DateTime.utc(2026, 5, 1, 9);
+    final viejoUpdated = DateTime.utc(2026, 5, 1, 7); // updated_at viejo, debe DESAPARECER
+    final oldItemsCacheData = <v8.ItemsCacheData>[
+      v8.ItemsCacheData(
+        id: 'item-A', proyectoId: 'proy-1', proyectoNombre: 'Obra 1',
+        nivelProfundidad: 0, nombre: 'Tarea A', descripcion: 'desc A',
+        asignadoA: 'user-1', empresaId: 'emp-1', estadoServidor: 'en_progreso',
+        version: 7, tieneConflicto: true, updatedAt: viejoUpdated, cachadoEn: cachado,
+      ),
+    ];
+    // En v9: se conservan todos los campos; fecha_limite NULL (nace así); updated_at ya no existe.
+    final expectedNewItemsCacheData = <v9.ItemsCacheData>[
+      v9.ItemsCacheData(
+        id: 'item-A', proyectoId: 'proy-1', proyectoNombre: 'Obra 1',
+        nivelProfundidad: 0, nombre: 'Tarea A', descripcion: 'desc A',
+        asignadoA: 'user-1', empresaId: 'emp-1', estadoServidor: 'en_progreso',
+        version: 7, tieneConflicto: true, fechaLimite: null, cachadoEn: cachado,
+      ),
+    ];
+
+    await verifier.testWithDataIntegrity(
+      oldVersion: 8,
+      newVersion: 9,
+      createOld: v8.DatabaseAtV8.new,
+      createNew: v9.DatabaseAtV9.new,
+      openTestedDatabase: BaseDatosCTT.conConexion,
+      createItems: (batch, oldDb) {
+        batch.insertAll(oldDb.itemsCache, oldItemsCacheData);
+      },
+      validateItems: (newDb) async {
+        final filas = await newDb.select(newDb.itemsCache).get();
+        expect(filas, expectedNewItemsCacheData);
+        final f = filas.single;
+        expect(f.id, 'item-A');
+        expect(f.estadoServidor, 'en_progreso'); // intacto
+        expect(f.version, 7);                     // intacto
+        expect(f.empresaId, 'emp-1');             // intacto
+        expect(f.tieneConflicto, true);           // intacto
+        expect(f.fechaLimite, null);              // nace NULL hasta el 1er pull
       },
     );
   });

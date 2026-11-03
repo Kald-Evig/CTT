@@ -90,7 +90,6 @@ void main() {
         nombre: 'Tarea $id',
         estadoServidor: 'abierto',
         version: Value(version),
-        updatedAt: DateTime.utc(2026, 1, 1),
         cachadoEn: DateTime.utc(2026, 1, 1),
         tieneConflicto: const Value(true),
       ),);
@@ -102,7 +101,6 @@ void main() {
         proyectoId: 'p1',
         nombre: 'Tarea $id',
         estadoServidor: 'abierto',
-        updatedAt: DateTime.utc(2026, 1, 1),
         cachadoEn: DateTime.utc(2026, 1, 1),
         tieneConflicto: const Value(true),
       ),);
@@ -287,7 +285,6 @@ void main() {
       nombre: 'Tarea item-S',
       estadoServidor: 'terminado',
       version: const Value(9),
-      updatedAt: DateTime.utc(2026, 1, 2),
       cachadoEn: DateTime.utc(2026, 1, 2),
       tieneConflicto: const Value(true),
     ));

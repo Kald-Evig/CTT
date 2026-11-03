@@ -99,7 +99,7 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
       ic.nombre AS nombre, ic.descripcion AS descripcion, ic.asignado_a AS asignado_a,
       ic.empresa_id AS empresa_id, ic.estado_servidor AS estado_servidor,
       ic.version AS version, ic.tiene_conflicto AS tiene_conflicto,
-      ic.updated_at AS updated_at, ic.cachado_en AS cachado_en,
+      ic.fecha_limite AS fecha_limite, ic.cachado_en AS cachado_en,
       COALESCE(
         (SELECT json_extract(sp.payload, '\$.$kPayloadNuevoEstado')
            FROM sync_pendientes sp
@@ -140,7 +140,10 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
   ) =>
       customSelect(
         'SELECT $_columnasConOverlay FROM items_cache ic '
-        'WHERE ic.asignado_a = ?1 AND ic.empresa_id = ?2 ORDER BY ic.updated_at DESC',
+        'WHERE ic.asignado_a = ?1 AND ic.empresa_id = ?2 '
+        // CTT-145: orden por fecha límite ASC, los ítems sin fecha al final; desempate por
+        // nombre y luego por id (determinista; `id` evita orden arbitrario con nombres iguales).
+        'ORDER BY ic.fecha_limite IS NULL, ic.fecha_limite ASC, ic.nombre ASC, ic.id ASC',
         variables: [Variable.withString(usuarioId), Variable.withString(empresaId)],
         readsFrom: _tablasOverlay,
       ).watch().map((filas) => filas.map(_aItemConOverlay).toList());
@@ -198,6 +201,8 @@ class ItemConOverlay {
   String get estadoServidor => base.estadoServidor;
   int? get version => base.version;
   bool get tieneConflicto => base.tieneConflicto;
-  DateTime get updatedAt => base.updatedAt;
+
+  /// Fecha límite (ISO 'YYYY-MM-DD') o null; da el orden de "Mis ítems" (CTT-145).
+  String? get fechaLimite => base.fechaLimite;
   DateTime get cachadoEn => base.cachadoEn;
 }

@@ -43,7 +43,6 @@ void main() {
             proyectoId: 'proy-1',
             nombre: 'Tarea',
             estadoServidor: estado,
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 

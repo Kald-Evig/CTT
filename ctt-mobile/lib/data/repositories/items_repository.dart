@@ -120,7 +120,11 @@ class ItemsRepository {
         // sincronizarPull con la empresa activa (CTT-149 / opción A, C0).
         estadoServidor: json['estado'] as String,
         version: Value(json['version'] as int?),
-        updatedAt: DateTime.now().toUtc(),
+        // fecha_limite llega como string ISO 'YYYY-MM-DD' o null (MisItemOut.fecha_limite:
+        // `date | None`). Se guarda TAL CUAL (TextColumn, sin conversión de zona horaria); da el
+        // orden de "Mis ítems" (CTT-145). Antes había un `updated_at` = hora local del pull que
+        // se usaba para ordenar sin significado; se eliminó.
+        fechaLimite: Value(json['fecha_limite'] as String?),
         cachadoEn: DateTime.now().toUtc(),
       );
 }

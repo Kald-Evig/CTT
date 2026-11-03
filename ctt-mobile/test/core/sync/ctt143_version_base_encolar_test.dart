@@ -41,7 +41,6 @@ void main() {
             empresaId: const Value('emp-1'),
             estadoServidor: 'abierto',
             version: Value(version),
-            updatedAt: DateTime.utc(2026, 5, 1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 
