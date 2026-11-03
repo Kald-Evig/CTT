@@ -46,6 +46,7 @@ void main() {
             asignadoA: Value(asignadoA),
             empresaId: Value(empresaId),
             estadoServidor: estado,
+            version: const Value(1),
             cachadoEn: DateTime.utc(2026, 5, 1),
           ));
 
@@ -57,6 +58,7 @@ void main() {
         nombre: 'Item $id',
         asignadoA: Value(asignadoA),
         estadoServidor: 'abierto',
+        version: const Value(1),
         cachadoEn: DateTime.utc(2026, 5, 2),
       );
 
@@ -178,7 +180,7 @@ void main() {
         (_) async => Response<List<dynamic>>(
           requestOptions: RequestOptions(path: '/items/mis-items'),
           data: [
-            {'id': 'A', 'proyecto_id': 'proy-1', 'nombre': 'Item A', 'asignado_a': _user, 'estado': 'abierto'},
+            {'id': 'A', 'proyecto_id': 'proy-1', 'nombre': 'Item A', 'asignado_a': _user, 'estado': 'abierto', 'version': 1},
           ],
         ),
       );

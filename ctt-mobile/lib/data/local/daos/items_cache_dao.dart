@@ -40,17 +40,19 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
       transaction(() async {
         for (final it in items) {
           final comp = it.copyWith(empresaId: Value(empresaId));
-          // Base MONÓTONA (C3b): una respuesta de pull vieja NO baja la base. Si el ítem ya
-          // está cacheado con una version MAYOR que la entrante, se salta el upsert (no se
-          // pisa). version entrante NULL (backend sin la columna) → upsert normal.
+          // version es OBLIGATORIA en el contrato (ItemOut/MisItemOut.version: int, CTT-143 d) y
+          // el único origen del pull es GET /items/mis-items. Sin versión NO se escribe la base
+          // (misma regla que _escribirBaseEstado): NO hay upsert silencioso. Un ítem sin versión
+          // no se cachea; en la práctica no ocurre contra el backend real (CTT-145).
           final incoming = comp.version.present ? comp.version.value : null;
-          if (incoming != null) {
-            final existente = await (select(itemsCacheTable)
-                  ..where((t) => t.id.equals(comp.id.value)))
-                .getSingleOrNull();
-            if (existente?.version != null && existente!.version! > incoming) {
-              continue;
-            }
+          if (incoming == null) continue;
+          // Base MONÓTONA (C3b): una respuesta de pull vieja NO baja la base. Si el ítem ya está
+          // cacheado con una version MAYOR que la entrante, se salta el upsert (no se pisa).
+          final existente = await (select(itemsCacheTable)
+                ..where((t) => t.id.equals(comp.id.value)))
+              .getSingleOrNull();
+          if (existente?.version != null && existente!.version! > incoming) {
+            continue;
           }
           await into(itemsCacheTable).insertOnConflictUpdate(comp);
         }
