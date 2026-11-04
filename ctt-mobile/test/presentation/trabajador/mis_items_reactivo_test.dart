@@ -106,6 +106,8 @@ void main() {
       planificador: PlanificadorSync(ejecutar: () async {}),
       leerDataVersion: dbA.leerDataVersion,
       invalidarTodo: dbA.invalidarTodasLasTablas,
+      ultimaReconciliacion: () async => null,
+      reconciliarSiCorresponde: () async {},
       intervaloSondeo: const Duration(milliseconds: 40),
     );
     addTearDown(coord.dispose);

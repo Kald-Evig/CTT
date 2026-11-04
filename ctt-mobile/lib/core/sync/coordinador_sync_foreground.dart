@@ -13,25 +13,42 @@ library;
 
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 
 import 'package:ctt_mobile/core/sync/planificador_sync.dart';
+import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 
 class CoordinadorSyncForeground {
   CoordinadorSyncForeground({
     required PlanificadorSync planificador,
     required Future<int> Function() leerDataVersion,
     required void Function() invalidarTodo,
+    required Future<DateTime?> Function() ultimaReconciliacion,
+    required Future<void> Function() reconciliarSiCorresponde,
+    DateTime Function()? reloj,
     Duration intervaloSondeo = const Duration(seconds: 2),
+    Duration ventanaDebounce = ReconciliadorConflictos.ventanaDebounce,
+    Duration pisoReconciliacion = const Duration(seconds: 2),
   })  : _planificador = planificador,
         _leerDataVersion = leerDataVersion,
         _invalidarTodo = invalidarTodo,
-        _intervalo = intervaloSondeo;
+        _ultimaReconciliacion = ultimaReconciliacion,
+        _reconciliarSiCorresponde = reconciliarSiCorresponde,
+        _reloj = reloj ?? clock.now,
+        _intervalo = intervaloSondeo,
+        _ventanaDebounce = ventanaDebounce,
+        _pisoReconciliacion = pisoReconciliacion;
 
   final PlanificadorSync _planificador;
   final Future<int> Function() _leerDataVersion;
   final void Function() _invalidarTodo;
+  final Future<DateTime?> Function() _ultimaReconciliacion;
+  final Future<void> Function() _reconciliarSiCorresponde;
+  final DateTime Function() _reloj;
   final Duration _intervalo;
+  final Duration _ventanaDebounce;
+  final Duration _pisoReconciliacion;
 
   bool _foreground = true; // la app se monta en primer plano
   bool _haySesion = false;
@@ -41,9 +58,14 @@ class CoordinadorSyncForeground {
   int? _ultimoDataVersion;
   bool _chequeando = false;
 
+  bool _hayEnEspera = false;
+  Timer? _timerReconciliacion;
+  int _genReconciliacion = 0;
+
   /// Solo para tests/diagnóstico.
   bool get activo => _activo;
   bool get sondeando => _poll != null;
+  bool get reconciliando => _timerReconciliacion != null;
 
   /// El MIN de reclamables cambió (lo pasa el widget desde el stream). Se delega al
   /// planificador, que solo reprograma si está activo.
@@ -53,6 +75,12 @@ class CoordinadorSyncForeground {
   void alCambiarSesion({required bool haySesion}) {
     _haySesion = haySesion;
     _recomputar();
+  }
+
+  /// Cambió si hay filas en esperando_resolucion (lo pasa el widget desde el stream).
+  void alCambiarEnEspera({required bool hay}) {
+    _hayEnEspera = hay;
+    _recomputarReconciliacion();
   }
 
   /// Cambió el ciclo de vida. resumed → primer plano; paused/hidden → background; inactive
@@ -80,6 +108,7 @@ class CoordinadorSyncForeground {
       _planificador.desactivar();
       _detenerSondeo();
     }
+    _recomputarReconciliacion();
   }
 
   void _iniciarSondeo() {
@@ -111,8 +140,50 @@ class CoordinadorSyncForeground {
     }
   }
 
+  // ── Reconciliación programada (CTT-141): despertar para cerrar conflictos resueltos ──────
+  // Hueco de alcance: el planificador excluye esperando_resolucion (correcto) y nada lo despierta
+  // para reconciliar. Mientras el coordinador esté activo Y haya filas en esperando_resolucion,
+  // agenda UN Timer al próximo instante en que el debounce lo permite; al dispararse reconcilia
+  // (manteniendo el debounce) y reprograma mientras sigan existiendo filas en espera.
+  void _recomputarReconciliacion() {
+    if (_activo && _hayEnEspera) {
+      _programarReconciliacion();
+    } else {
+      _detenerReconciliacion();
+    }
+  }
+
+  void _detenerReconciliacion() {
+    _timerReconciliacion?.cancel();
+    _timerReconciliacion = null;
+    _genReconciliacion++; // invalida cualquier _programarReconciliacion en vuelo
+  }
+
+  Future<void> _programarReconciliacion() async {
+    _timerReconciliacion?.cancel();
+    _timerReconciliacion = null;
+    final gen = ++_genReconciliacion;
+    final ultima = await _ultimaReconciliacion();
+    // Pudo desactivarse, salir de espera o reprogramarse durante el await.
+    if (gen != _genReconciliacion || !(_activo && _hayEnEspera)) return;
+    final base = ultima ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final falta = base.add(_ventanaDebounce).difference(_reloj());
+    final delay = falta < _pisoReconciliacion ? _pisoReconciliacion : falta;
+    _timerReconciliacion = Timer(delay, _dispararReconciliacion);
+  }
+
+  Future<void> _dispararReconciliacion() async {
+    _timerReconciliacion = null;
+    if (!(_activo && _hayEnEspera)) return;
+    // reconciliarSiCorresponde mantiene el debounce (no reconcilia si no pasó la ventana).
+    await _reconciliarSiCorresponde();
+    // Reprograma mientras sigan existiendo filas en espera y siga activo.
+    if (_activo && _hayEnEspera) await _programarReconciliacion();
+  }
+
   void dispose() {
     _detenerSondeo();
+    _detenerReconciliacion();
     _planificador.dispose();
   }
 }

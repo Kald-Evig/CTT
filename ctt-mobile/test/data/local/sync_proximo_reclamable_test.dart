@@ -96,4 +96,16 @@ void main() {
     expect(emisiones.last, DateTime.utc(2026, 5, 2),
         reason: 'el watch reemite al cambiar sync_pendientes');
   });
+
+  // CTT-141: hueco de alcance — el coordinador despierta para reconciliar mientras haya filas
+  // en esperando_resolucion. observarHayEnEsperaResolucion alimenta ese Timer.
+  test('observarHayEnEsperaResolucion: true solo con filas en esperando_resolucion', () async {
+    expect(await db.syncDao.observarHayEnEsperaResolucion().first, isFalse);
+    await fila('pendiente'); // otros estados no cuentan
+    await fila('sincronizado');
+    expect(await db.syncDao.observarHayEnEsperaResolucion().first, isFalse);
+    await fila('esperando_resolucion');
+    expect(await db.syncDao.observarHayEnEsperaResolucion().first, isTrue,
+        reason: 'ahora hay una fila en espera');
+  });
 }

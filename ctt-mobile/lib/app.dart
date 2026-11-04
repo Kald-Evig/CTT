@@ -378,6 +378,12 @@ class _AppConRouter extends ConsumerWidget {
 Stream<DateTime?> proximoReclamable(ProximoReclamableRef ref) =>
     ref.watch(syncDaoProvider).observarProximoReclamable();
 
+/// ¿Hay filas esperando resolución de conflicto? (CTT-141). El coordinador de primer plano lo
+/// usa para despertar y reconciliar (con debounce) sin esperar al resumen / periódico de 15 min.
+@riverpod
+Stream<bool> hayEnEsperaResolucion(HayEnEsperaResolucionRef ref) =>
+    ref.watch(syncDaoProvider).observarHayEnEsperaResolucion();
+
 /// Monta el planificador de sync de primer plano (CTT-141) mientras haya sesión y la app esté
 /// en primer plano. Invisible: devuelve [child]. Activa/desactiva el Timer según el ciclo de
 /// vida (resumed ↔ paused/hidden) y la sesión: el logout lo desactiva y NO se reactiva en
@@ -396,6 +402,7 @@ class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
     with WidgetsBindingObserver {
   late final CoordinadorSyncForeground _coordinador;
   ProviderSubscription<AsyncValue<DateTime?>>? _subMin;
+  ProviderSubscription<AsyncValue<bool>>? _subEspera;
   ProviderSubscription<EstadoAuth>? _subAuth;
 
   @override
@@ -409,6 +416,10 @@ class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
       leerDataVersion: () => ref.read(baseDatosCTTProvider).leerDataVersion(),
       invalidarTodo: () =>
           ref.read(baseDatosCTTProvider).invalidarTodasLasTablas(),
+      ultimaReconciliacion: () =>
+          ref.read(syncDaoProvider).ultimaReconciliacion(),
+      reconciliarSiCorresponde: () =>
+          ref.read(reconciliadorConflictosProvider).reconciliarSiCorresponde(),
     );
     // listenManual (ref.listen en build no acepta fireImmediately): toma el valor inicial y
     // los cambios. Las suscripciones se cierran en dispose. Cableado delgado: cada listener
@@ -423,6 +434,11 @@ class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
       (_, next) => _coordinador.alCambiarSesion(haySesion: _haySesion(next)),
       fireImmediately: true,
     );
+    _subEspera = ref.listenManual(
+      hayEnEsperaResolucionProvider,
+      (_, next) => _coordinador.alCambiarEnEspera(hay: next.valueOrNull ?? false),
+      fireImmediately: true,
+    );
   }
 
   bool _haySesion(EstadoAuth auth) =>
@@ -435,6 +451,7 @@ class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
   @override
   void dispose() {
     _subMin?.close();
+    _subEspera?.close();
     _subAuth?.close();
     WidgetsBinding.instance.removeObserver(this);
     _coordinador.dispose();

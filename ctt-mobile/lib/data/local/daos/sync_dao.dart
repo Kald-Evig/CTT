@@ -100,15 +100,30 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
             ..orderBy([(t) => OrderingTerm.asc(t.secuencia)]))
           .get();
 
+  /// Predicado único "la fila está esperando resolución de conflicto": lo comparten
+  /// [obtenerEnEsperaResolucion] y [observarHayEnEsperaResolucion] (CTT-141), sin repetir el
+  /// literal del estado.
+  Expression<bool> _enEsperaResolucion() =>
+      syncPendientes.estado.equals(EstadoSyncLocal.esperandoResolucion.valor);
+
   /// Filas parqueadas esperando resolución de conflicto. Las consume el
   /// reconciliador del tramo 3 (CTT-117) para casarlas contra
   /// GET /sync/conflictos/mios por su `conflictoId`.
   Future<List<SyncPendiente>> obtenerEnEsperaResolucion() =>
-      (select(syncPendientes)
-            ..where(
-              (t) => t.estado.equals(EstadoSyncLocal.esperandoResolucion.valor),
-            ))
-          .get();
+      (select(syncPendientes)..where((_) => _enEsperaResolucion())).get();
+
+  /// ¿Hay AL MENOS una fila esperando resolución? Stream reactivo (CTT-141): el coordinador de
+  /// primer plano lo usa para programar un Timer que reconcilie (con el debounce) mientras la
+  /// app está activa, en vez de esperar al resumen / al periódico de 15 min. Mismo predicado que
+  /// [obtenerEnEsperaResolucion].
+  Stream<bool> observarHayEnEsperaResolucion() {
+    final conteo = countAll();
+    return (selectOnly(syncPendientes)
+          ..addColumns([conteo])
+          ..where(_enEsperaResolucion()))
+        .map((fila) => (fila.read(conteo) ?? 0) > 0)
+        .watchSingle();
+  }
 
   /// Una fila es ELEGIBLE para claim (I4):
   ///   - pendiente y (sin `proximo_intento_en` o ya vencido), o

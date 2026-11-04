@@ -5,6 +5,7 @@ library;
 
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
@@ -32,11 +33,15 @@ void main() {
     PlanificadorSync? plan,
     void Function()? invalidar,
     Duration intervalo = const Duration(seconds: 2),
+    Future<DateTime?> Function()? ultimaReconciliacion,
+    Future<void> Function()? reconciliarSiCorresponde,
   }) =>
       CoordinadorSyncForeground(
         planificador: plan ?? PlanificadorSync(ejecutar: () async {}),
         leerDataVersion: dv.leer,
         invalidarTodo: invalidar ?? () {},
+        ultimaReconciliacion: ultimaReconciliacion ?? () async => null,
+        reconciliarSiCorresponde: reconciliarSiCorresponde ?? () async {},
         intervaloSondeo: intervalo,
       );
 
@@ -158,6 +163,130 @@ void main() {
       async.elapse(const Duration(seconds: 1));
       async.flushMicrotasks();
       expect(dv.lecturas, 2, reason: 'liberado, el siguiente tick sí lee');
+    });
+  });
+
+  group('reconciliación programada (filas en esperando_resolucion)', () {
+    test('1 fila en espera, última = ahora-30 s → reconcilia a los 90 s, no antes', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        var ultima = clock.now().subtract(const Duration(seconds: 30));
+        var llamadas = 0;
+        final coord = armar(
+          dv,
+          ultimaReconciliacion: () async => ultima,
+          reconciliarSiCorresponde: () async {
+            llamadas++;
+            ultima = clock.now(); // como registrarReconciliacion en producción
+          },
+        );
+        coord.alCambiarSesion(haySesion: true);
+        coord.alCambiarEnEspera(hay: true);
+        async.flushMicrotasks(); // programa: lee última, agenda a +90 s
+        expect(coord.reconciliando, isTrue);
+
+        async.elapse(const Duration(seconds: 89));
+        async.flushMicrotasks();
+        expect(llamadas, 0, reason: 'no antes de los 90 s');
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(llamadas, 1, reason: 'reconcilia a última+ventanaDebounce = 90 s');
+      });
+    });
+
+    test('si la fila sigue en espera: una nueva llamada 2 min después', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        var ultima = clock.now().subtract(const Duration(seconds: 30));
+        var llamadas = 0;
+        final coord = armar(
+          dv,
+          ultimaReconciliacion: () async => ultima,
+          reconciliarSiCorresponde: () async {
+            llamadas++;
+            ultima = clock.now();
+          },
+        );
+        coord.alCambiarSesion(haySesion: true);
+        coord.alCambiarEnEspera(hay: true);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 90));
+        async.flushMicrotasks();
+        expect(llamadas, 1);
+        async.elapse(const Duration(seconds: 120));
+        async.flushMicrotasks();
+        expect(llamadas, 2, reason: 'reprograma a última+debounce (2 min)');
+      });
+    });
+
+    test('sin filas en espera: 0 llamadas en 10 min', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        var llamadas = 0;
+        final coord = armar(dv, reconciliarSiCorresponde: () async => llamadas++);
+        coord.alCambiarSesion(haySesion: true);
+        async.flushMicrotasks();
+        expect(coord.reconciliando, isFalse);
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        expect(llamadas, 0);
+      });
+    });
+
+    test('paused y logout cancelan la reconciliación programada (0 llamadas)', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        final ultima = clock.now().subtract(const Duration(seconds: 30));
+        var llamadas = 0;
+        final coord = armar(
+          dv,
+          ultimaReconciliacion: () async => ultima,
+          reconciliarSiCorresponde: () async => llamadas++,
+        );
+        coord.alCambiarSesion(haySesion: true);
+        coord.alCambiarEnEspera(hay: true);
+        async.flushMicrotasks();
+        expect(coord.reconciliando, isTrue);
+
+        coord.alCambiarCicloDeVida(AppLifecycleState.paused);
+        expect(coord.reconciliando, isFalse);
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        expect(llamadas, 0, reason: 'paused canceló');
+
+        coord.alCambiarCicloDeVida(AppLifecycleState.resumed);
+        async.flushMicrotasks();
+        expect(coord.reconciliando, isTrue);
+        coord.alCambiarSesion(haySesion: false); // logout
+        expect(coord.reconciliando, isFalse);
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        expect(llamadas, 0, reason: 'logout también canceló');
+      });
+    });
+
+    test('cuando la última fila sale de espera, el Timer se cancela', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        final ultima = clock.now().subtract(const Duration(seconds: 30));
+        var llamadas = 0;
+        final coord = armar(
+          dv,
+          ultimaReconciliacion: () async => ultima,
+          reconciliarSiCorresponde: () async => llamadas++,
+        );
+        coord.alCambiarSesion(haySesion: true);
+        coord.alCambiarEnEspera(hay: true);
+        async.flushMicrotasks();
+        expect(coord.reconciliando, isTrue);
+
+        coord.alCambiarEnEspera(hay: false); // la última fila salió de espera
+        expect(coord.reconciliando, isFalse);
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        expect(llamadas, 0);
+      });
     });
   });
 }
