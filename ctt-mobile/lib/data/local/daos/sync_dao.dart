@@ -149,6 +149,34 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
             ..orderBy([(t) => OrderingTerm.asc(t.secuencia)]))
           .get();
 
+  /// Observa el PRÓXIMO instante en que alguna fila NO terminal vuelve a ser reclamable, para
+  /// que el planificador de primer plano (CTT-141) agende UN Timer en vez de sondear:
+  ///   - pendiente → `proximo_intento_en` (NULL = reclamable YA),
+  ///   - enviando  → `tomado_hasta` (lease; NULL = reclamable YA, huérfana pre-lease CTT-127).
+  /// Excluye `esperandoResolucion` (CTT-143: ya no bloquea) y las terminales. Mismo criterio de
+  /// instante que [_elegible]; filtra por [estadosIntencionLocal] (pendiente/enviando), sin
+  /// repetir literales. Emite:
+  ///   - `DateTime` epoch si alguna fila es reclamable YA (instante nulo),
+  ///   - el MIN de los instantes futuros si todas tienen backoff/lease vigente,
+  ///   - `null` si no hay filas pendiente/enviando → el planificador no agenda Timer.
+  Stream<DateTime?> observarProximoReclamable() {
+    final pend = EstadoSyncLocal.pendiente.valor;
+    final env = EstadoSyncLocal.enviando.valor;
+    return customSelect(
+      'SELECT '
+      'SUM(CASE WHEN (estado = ?1 AND proximo_intento_en IS NULL) '
+      '            OR (estado = ?2 AND tomado_hasta IS NULL) THEN 1 ELSE 0 END) AS hay_ya, '
+      'MIN(CASE estado WHEN ?1 THEN proximo_intento_en WHEN ?2 THEN tomado_hasta END) AS prox '
+      'FROM sync_pendientes WHERE estado IN (?1, ?2)',
+      variables: [Variable.withString(pend), Variable.withString(env)],
+      readsFrom: {syncPendientes},
+    ).watchSingle().map((fila) {
+      final hayYa = (fila.read<int?>('hay_ya') ?? 0) > 0;
+      if (hayYa) return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+      return fila.read<DateTime?>('prox');
+    });
+  }
+
   /// CLAIM atómico (I4): UN solo UPDATE condicional. Toma la fila [id] para esta
   /// corrida ([tomadoPor]) si sigue [_elegible] y [_sinFilaAnteriorDelAgregado],
   /// fijando estado='enviando' y el lease [tomadoHasta]. Devuelve true si ESTA

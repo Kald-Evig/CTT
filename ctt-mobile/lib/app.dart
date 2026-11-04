@@ -8,8 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
+import 'package:ctt_mobile/core/sync/planificador_sync.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
 import 'package:ctt_mobile/presentation/arranque/pantalla_recuperacion.dart';
@@ -357,13 +360,103 @@ class _AppConRouter extends ConsumerWidget {
     ref.watch(conectividadListenerProvider);
     final goRouter = ref.watch(routerProvider);
 
-    return MaterialApp.router(
-      title: 'CTT',
-      debugShowCheckedModeBanner: false,
-      routerConfig: goRouter,
-      theme: _temaCTT(),
+    // Monta el planificador de sync de primer plano (CTT-141); invisible, envuelve la app.
+    return PlanificadorForeground(
+      child: MaterialApp.router(
+        title: 'CTT',
+        debugShowCheckedModeBanner: false,
+        routerConfig: goRouter,
+        theme: _temaCTT(),
+      ),
     );
   }
+}
+
+/// Stream del próximo instante en que alguna fila vuelve a ser reclamable (CTT-141), para que
+/// el planificador de primer plano agende su Timer en vez de sondear.
+@riverpod
+Stream<DateTime?> proximoReclamable(ProximoReclamableRef ref) =>
+    ref.watch(syncDaoProvider).observarProximoReclamable();
+
+/// Monta el planificador de sync de primer plano (CTT-141) mientras haya sesión y la app esté
+/// en primer plano. Invisible: devuelve [child]. Activa/desactiva el Timer según el ciclo de
+/// vida (resumed ↔ paused/hidden) y la sesión: el logout lo desactiva y NO se reactiva en
+/// resumed sin sesión. El ciclo se dispara vía el guard single-flight (cicloSyncUi).
+class PlanificadorForeground extends ConsumerStatefulWidget {
+  const PlanificadorForeground({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  ConsumerState<PlanificadorForeground> createState() =>
+      _PlanificadorForegroundState();
+}
+
+class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
+    with WidgetsBindingObserver {
+  late final PlanificadorSync _planificador;
+  ProviderSubscription<AsyncValue<DateTime?>>? _subMin;
+  ProviderSubscription<EstadoAuth>? _subAuth;
+  bool _foreground = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _planificador = PlanificadorSync(
+      ejecutar: () => ref.read(cicloSyncUiProvider).ejecutar(),
+      hayCorridaEnVuelo: () => ref.read(cicloSyncUiProvider).enVuelo,
+    );
+    // listenManual (ref.listen en build no acepta fireImmediately): toma el valor inicial y
+    // los cambios. Las suscripciones se cierran en dispose.
+    _subMin = ref.listenManual(
+      proximoReclamableProvider,
+      (_, next) => _planificador.actualizarMin(next.valueOrNull),
+      fireImmediately: true,
+    );
+    _subAuth = ref.listenManual(
+      estadoAuthProvider,
+      (_, __) => _sincronizar(),
+      fireImmediately: true,
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _foreground = true;
+      _sincronizar();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _foreground = false;
+      _planificador.desactivar();
+    }
+    // inactive es transitorio (diálogo de sistema / app switcher): no se toca el planificador.
+  }
+
+  /// Activa el planificador SOLO con sesión válida y en primer plano; si no, lo desactiva.
+  void _sincronizar() {
+    final auth = ref.read(estadoAuthProvider);
+    final haySesion =
+        auth == EstadoAuth.autenticado || auth == EstadoAuth.autenticadoOffline;
+    if (_foreground && haySesion) {
+      _planificador.activar();
+    } else {
+      _planificador.desactivar();
+    }
+  }
+
+  @override
+  void dispose() {
+    _subMin?.close();
+    _subAuth?.close();
+    WidgetsBinding.instance.removeObserver(this);
+    _planificador.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 ThemeData _temaCTT() => ThemeData(
