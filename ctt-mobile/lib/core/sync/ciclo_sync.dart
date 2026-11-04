@@ -118,6 +118,8 @@ class CicloSync {
     // una fila por agregado. El tope de pasadas es solo defensa anti-bucle.
     final intentados = <String>{};
     var pausar = false;
+    // CTT-141: ¿algún 200 de esta corrida superó un conflicto abierto? → reconciliar YA al final.
+    var reconciliarYa = false;
     var pasada = 0;
     for (; pasada < kMaxPasadasPorCorrida && !pausar; pasada++) {
       final lote = (await syncDao.filasReclamables(reloj()))
@@ -211,6 +213,14 @@ class CicloSync {
               decision.nuevoEstado == EstadoSyncLocal.sincronizado,
         );
 
+        // CTT-141: un 200 sobre un ítem con conflicto abierto (tiene_conflicto=1) significa que
+        // el propio usuario avanzó y SUPERA el conflicto; se reconcilia YA al final (sin
+        // debounce) para cerrar la fila parqueada sin esperar los 2 min.
+        if (decision.nuevoEstado == EstadoSyncLocal.sincronizado &&
+            await syncDao.itemTieneConflicto(cambio.entidadId)) {
+          reconciliarYa = true;
+        }
+
         if (decision.pausaCola) {
           // 401: avisar (solo foreground) y ABORTAR la corrida — no seguir con las demás.
           alSesionVencida?.call();
@@ -227,9 +237,16 @@ class CicloSync {
     }
 
     // ── Pull (CTT-117 tramo 3): cerrar conflictos ya resueltos. Best-effort. ──
+    // CTT-141: si en esta corrida un 200 superó un conflicto abierto, reconciliar YA (sin
+    // debounce), una sola vez por corrida aunque hayan sido varios ítems. Si no, se mantiene
+    // el debounce de 2 min, igual que el resto de los disparadores.
     try {
-      await ReconciliadorConflictos(syncDao: syncDao, dio: dio)
-          .reconciliarSiCorresponde();
+      final recon = ReconciliadorConflictos(syncDao: syncDao, dio: dio);
+      if (reconciliarYa) {
+        await recon.reconciliar();
+      } else {
+        await recon.reconciliarSiCorresponde();
+      }
     } catch (_) {
       // El periódico y los demás disparadores reintentan.
     }

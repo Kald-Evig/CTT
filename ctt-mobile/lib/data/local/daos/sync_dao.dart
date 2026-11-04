@@ -395,6 +395,20 @@ class SyncDao extends DatabaseAccessor<BaseDatosCTT>
         ));
   }
 
+  /// ¿El ítem [entidadId] tiene un conflicto de sync abierto (`items_cache.tiene_conflicto`=1)?
+  /// CTT-141: tras un 200 sobre un ítem así, el ciclo reconcilia de inmediato (sin debounce) —
+  /// el propio usuario avanzó y supera el conflicto. 0 filas (ítem no cacheado, p. ej. del
+  /// Residente) → false.
+  Future<bool> itemTieneConflicto(String entidadId) async {
+    final t = attachedDatabase.itemsCacheTable;
+    final valor = await (selectOnly(t)
+          ..addColumns([t.tieneConflicto])
+          ..where(t.id.equals(entidadId)))
+        .map((f) => f.read(t.tieneConflicto))
+        .getSingleOrNull();
+    return valor ?? false;
+  }
+
   /// Espera el resultado del PRIMER intento de la fila [filaId] (CTT-148). Completa
   /// cuando la fila SALE de `enviando` tras su intento:
   ///   - terminal (sincronizado/rechazada/descartado/en_revision) o esperandoResolucion
