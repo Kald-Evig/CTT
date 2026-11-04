@@ -69,10 +69,11 @@ void main() {
     expect(revision.last, {'r': EstadoSyncLocal.rechazada});
   });
 
-  // CTT-103 D6-R / D6-R2: .watch() NO detecta por sí solo escrituras de OTRA conexión
-  // (el isolate headless), PERO tras notificarSyncPendientesExterno() (lo que hace
-  // app.dart al volver a primer plano) el stream re-consulta y refleja el write.
-  test('.watch() no ve el write de otra conexión; tras notificar, A reemite', () async {
+  // CTT-141 (reemplaza D6-R2): .watch() NO detecta por sí solo escrituras de OTRA conexión
+  // (el isolate headless). El planificador de primer plano SONDEA PRAGMA data_version: al
+  // detectar que cambió (otra conexión hizo commit) invalida las tablas y los .watch() de A
+  // re-consultan. Dos conexiones REALES al mismo archivo.
+  test('data_version: un commit por B lo detecta A; invalidar reemite el watch de A', () async {
     final tmp = Directory.systemTemp.createTempSync('ctt_watch');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final path = '${tmp.path}/db.sqlite';
@@ -96,6 +97,8 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(emisiones.last, isEmpty); // inicial vacío
 
+    final vAntes = await dbA.leerDataVersion();
+
     // Escribe por la conexión B (simula el isolate headless).
     await dbB.syncDao.encolar(SyncPendientesCompanion.insert(
       id: 'fx',
@@ -113,18 +116,22 @@ void main() {
     ),);
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    // El .watch() de A NO reemitió: su StreamQueryStore no recibe notificación de la
-    // escritura de B (los streams de Drift son por-conexión).
+    // El .watch() de A NO reemitió: los streams de Drift son por-conexión.
     expect(emisiones.last, isEmpty,
         reason: 'drift .watch() NO observa writes de otra conexión',);
-    // PERO una lectura directa por A SÍ ve la fila (está committeada en el archivo, WAL):
-    // es una limitación de NOTIFICACIÓN, no de visibilidad.
+    // PERO una lectura directa por A SÍ ve la fila (committeada en el archivo, WAL): es una
+    // limitación de NOTIFICACIÓN, no de visibilidad.
     final directo = await dbA.syncDao.filaCrudaParaRescate('fx');
     expect(directo, isNotNull);
 
-    // D6-R2: al volver a primer plano, app.dart llama notificarSyncPendientesExterno();
-    // eso fuerza a los .watch() de A a re-consultar y ahora SÍ reflejan el write de B.
-    await dbA.notificarSyncPendientesExterno();
+    // DETECCIÓN (CTT-141): el commit de B cambió el data_version que lee A.
+    final vDespues = await dbA.leerDataVersion();
+    expect(vDespues, isNot(vAntes),
+        reason: 'PRAGMA data_version cambia ante el commit de otra conexión',);
+
+    // El planificador, al detectar el cambio, invalida TODAS las tablas → A re-consulta y ahora
+    // refleja el write de B.
+    dbA.invalidarTodasLasTablas();
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(emisiones.last, {'x'});
   });

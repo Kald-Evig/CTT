@@ -304,16 +304,20 @@ class BaseDatosCTT extends _$BaseDatosCTT {
     return pasos;
   }
 
-  /// Fuerza a los streams `.watch()` de `sync_pendientes` a re-consultar. Para cuando
-  /// la tabla cambió FUERA de esta conexión —el isolate headless de WorkManager mientras
-  /// la app estaba en background—: Drift solo notifica por escrituras de ESTA conexión,
-  /// así que al volver a primer plano (app.dart, resumed) avisamos a mano y la UI
-  /// refleja lo que haya escrito el headless. CTT-103 D6-R2.
-  ///
-  /// LÍMITE conocido: no cubre escrituras del headless MIENTRAS la app está en primer
-  /// plano (no hay señal de ese isolate hacia este); se cubre al próximo resumed.
-  Future<void> notificarSyncPendientesExterno() async =>
-      markTablesUpdated({syncPendientes});
+  /// Lee `PRAGMA data_version` de ESTA conexión (CTT-141). El valor cambia cuando OTRA
+  /// conexión —el isolate headless de WorkManager, que abre su propia BaseDatosCTT— hace
+  /// commit sobre el mismo archivo. El planificador de primer plano lo sondea (cada 2 s y en
+  /// resumed) para detectar esos cambios, que Drift no notifica por ser de otra conexión.
+  Future<int> leerDataVersion() async {
+    final fila = await customSelect('PRAGMA data_version').getSingle();
+    return fila.read<int>('data_version');
+  }
+
+  /// Fuerza a TODOS los streams `.watch()` a re-consultar (CTT-141). Reemplaza al antiguo
+  /// aviso solo-de-`sync_pendientes`: al detectar que otra conexión escribió (data_version
+  /// cambió) hay que refrescar también `items_cache` (base/flag que escribe el reconciliador
+  /// headless), no solo la cola.
+  void invalidarTodasLasTablas() => markTablesUpdated(allTables);
 }
 
 /// Top-level para que sea enviable al isolate de background de createInBackground.
