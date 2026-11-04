@@ -12,9 +12,7 @@ void main() {
     fakeAsync((async) {
       var n = 0;
       final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => false,
-      )..activar();
+        ejecutar: () async => n++,      )..activar();
       p.actualizarMin(clock.now().add(const Duration(seconds: 10)));
 
       async.elapse(const Duration(seconds: 9));
@@ -28,9 +26,7 @@ void main() {
     fakeAsync((async) {
       var n = 0;
       final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => false,
-      )..activar();
+        ejecutar: () async => n++,      )..activar();
       p.actualizarMin(clock.now().add(const Duration(seconds: 5)));
 
       async.elapse(const Duration(seconds: 5));
@@ -42,9 +38,7 @@ void main() {
     fakeAsync((async) {
       var n = 0;
       final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => false,
-      )..activar();
+        ejecutar: () async => n++,      )..activar();
       p.actualizarMin(clock.now().subtract(const Duration(seconds: 30))); // ya vencido
 
       async.elapse(const Duration(milliseconds: 1900));
@@ -58,9 +52,7 @@ void main() {
     fakeAsync((async) {
       var n = 0;
       final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => false,
-      )..activar();
+        ejecutar: () async => n++,      )..activar();
       p.actualizarMin(clock.now().add(const Duration(seconds: 60)));
 
       async.elapse(const Duration(seconds: 3));
@@ -78,9 +70,7 @@ void main() {
     fakeAsync((async) {
       var n = 0;
       final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => false,
-      )..activar();
+        ejecutar: () async => n++,      )..activar();
       p.actualizarMin(clock.now().add(const Duration(seconds: 10)));
 
       p.desactivar(); // paused/hidden
@@ -93,32 +83,11 @@ void main() {
     });
   });
 
-  test('sin re-entrada: con una corrida en vuelo no se lanza otra; se re-chequea al piso', () {
-    fakeAsync((async) {
-      var n = 0;
-      var enVuelo = true;
-      final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => enVuelo,
-      )..activar();
-      p.actualizarMin(clock.now()); // reclamable ya → dispara al piso (2 s)
-
-      async.elapse(const Duration(seconds: 2));
-      expect(n, 0, reason: 'hay una corrida en vuelo: no se lanza otra');
-
-      enVuelo = false; // la corrida en vuelo terminó
-      async.elapse(const Duration(seconds: 2)); // re-chequeo al piso
-      expect(n, 1, reason: 'sin corrida en vuelo, dispara en el próximo re-chequeo');
-    });
-  });
-
   test('después del logout (desactivar) ningún Timer dispara ejecutar()', () {
     fakeAsync((async) {
       var n = 0;
       final p = PlanificadorSync(
-        ejecutar: () async => n++,
-        hayCorridaEnVuelo: () => false,
-      )..activar();
+        ejecutar: () async => n++,      )..activar();
       p.actualizarMin(clock.now().add(const Duration(seconds: 5)));
 
       p.desactivar(); // logout: cancela y queda inactivo

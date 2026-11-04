@@ -15,7 +15,9 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart' as raw;
 
+import 'package:ctt_mobile/core/sync/coordinador_sync_foreground.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
+import 'package:ctt_mobile/core/sync/planificador_sync.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 
@@ -69,11 +71,13 @@ void main() {
     expect(revision.last, {'r': EstadoSyncLocal.rechazada});
   });
 
-  // CTT-141 (reemplaza D6-R2): .watch() NO detecta por sí solo escrituras de OTRA conexión
-  // (el isolate headless). El planificador de primer plano SONDEA PRAGMA data_version: al
-  // detectar que cambió (otra conexión hizo commit) invalida las tablas y los .watch() de A
-  // re-consultan. Dos conexiones REALES al mismo archivo.
-  test('data_version: un commit por B lo detecta A; invalidar reemite el watch de A', () async {
+  // CTT-141 (revisión de Chat): .watch() NO detecta por sí solo escrituras de OTRA conexión
+  // (el isolate headless). El CoordinadorSyncForeground sondea PRAGMA data_version de la conexión
+  // de A; al detectar que cambió (B hizo commit) invalida las tablas de A y su .watch()
+  // re-consulta. Dos conexiones REALES al mismo archivo; es el TICK del controlador (no una
+  // llamada a invalidarTodasLasTablas a mano) el que dispara el refresh.
+  test('data_version vía el controlador: un commit de B → un tick → el watch de A reemite',
+      () async {
     final tmp = Directory.systemTemp.createTempSync('ctt_watch');
     addTearDown(() => tmp.deleteSync(recursive: true));
     final path = '${tmp.path}/db.sqlite';
@@ -94,10 +98,20 @@ void main() {
     final emisiones = <Set<String>>[];
     final sub = dbA.syncDao.observarIdsPendienteSet().listen(emisiones.add);
     addTearDown(sub.cancel);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(emisiones.last, isEmpty); // inicial vacío
 
-    final vAntes = await dbA.leerDataVersion();
+    // El controlador sondea data_version de A (conexión de UI) con un intervalo corto. El
+    // planificador no se ejercita (ejecutar es no-op). Su chequeo inmediato guarda el
+    // data_version de A ANTES del commit de B.
+    final coord = CoordinadorSyncForeground(
+      planificador: PlanificadorSync(ejecutar: () async {}),
+      leerDataVersion: dbA.leerDataVersion,
+      invalidarTodo: dbA.invalidarTodasLasTablas,
+      intervaloSondeo: const Duration(milliseconds: 40),
+    );
+    addTearDown(coord.dispose);
+    coord.alCambiarSesion(haySesion: true); // activo → chequeo inmediato
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(emisiones.last, isEmpty); // inicial vacío
 
     // Escribe por la conexión B (simula el isolate headless).
     await dbB.syncDao.encolar(SyncPendientesCompanion.insert(
@@ -114,25 +128,15 @@ void main() {
       creadoEnDispositivo: DateTime.utc(2026, 1, 1),
       estado: const Value('pendiente'),
     ),);
-    await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    // El .watch() de A NO reemitió: los streams de Drift son por-conexión.
-    expect(emisiones.last, isEmpty,
-        reason: 'drift .watch() NO observa writes de otra conexión',);
-    // PERO una lectura directa por A SÍ ve la fila (committeada en el archivo, WAL): es una
-    // limitación de NOTIFICACIÓN, no de visibilidad.
+    // Una lectura directa por A ya ve la fila (committeada, WAL): es limitación de NOTIFICACIÓN,
+    // no de visibilidad. El .watch() de A reemite recién cuando el tick del controlador detecta
+    // el cambio de data_version e invalida las tablas.
     final directo = await dbA.syncDao.filaCrudaParaRescate('fx');
     expect(directo, isNotNull);
 
-    // DETECCIÓN (CTT-141): el commit de B cambió el data_version que lee A.
-    final vDespues = await dbA.leerDataVersion();
-    expect(vDespues, isNot(vAntes),
-        reason: 'PRAGMA data_version cambia ante el commit de otra conexión',);
-
-    // El planificador, al detectar el cambio, invalida TODAS las tablas → A re-consulta y ahora
-    // refleja el write de B.
-    dbA.invalidarTodasLasTablas();
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect(emisiones.last, {'x'});
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    expect(emisiones.last, {'x'},
+        reason: 'el tick del controlador detectó el commit de B y reemitió',);
   });
 }

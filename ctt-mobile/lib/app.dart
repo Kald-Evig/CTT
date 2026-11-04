@@ -4,14 +4,13 @@
 /// Las rutas privadas comprueban el estado de auth en cada navegación.
 library;
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
+import 'package:ctt_mobile/core/sync/coordinador_sync_foreground.dart';
 import 'package:ctt_mobile/core/sync/planificador_sync.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
@@ -395,100 +394,50 @@ class PlanificadorForeground extends ConsumerStatefulWidget {
 
 class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
     with WidgetsBindingObserver {
-  late final PlanificadorSync _planificador;
+  late final CoordinadorSyncForeground _coordinador;
   ProviderSubscription<AsyncValue<DateTime?>>? _subMin;
   ProviderSubscription<EstadoAuth>? _subAuth;
-  Timer? _pollDataVersion;
-  int? _ultimoDataVersion;
-  bool _foreground = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _planificador = PlanificadorSync(
-      ejecutar: () => ref.read(cicloSyncUiProvider).ejecutar(),
-      hayCorridaEnVuelo: () => ref.read(cicloSyncUiProvider).enVuelo,
+    _coordinador = CoordinadorSyncForeground(
+      planificador: PlanificadorSync(
+        ejecutar: () => ref.read(cicloSyncUiProvider).ejecutar(),
+      ),
+      leerDataVersion: () => ref.read(baseDatosCTTProvider).leerDataVersion(),
+      invalidarTodo: () =>
+          ref.read(baseDatosCTTProvider).invalidarTodasLasTablas(),
     );
     // listenManual (ref.listen en build no acepta fireImmediately): toma el valor inicial y
-    // los cambios. Las suscripciones se cierran en dispose.
+    // los cambios. Las suscripciones se cierran en dispose. Cableado delgado: cada listener
+    // alimenta una entrada del controlador, que tiene TODA la lógica (y sus tests).
     _subMin = ref.listenManual(
       proximoReclamableProvider,
-      (_, next) => _planificador.actualizarMin(next.valueOrNull),
+      (_, next) => _coordinador.actualizarMin(next.valueOrNull),
       fireImmediately: true,
     );
     _subAuth = ref.listenManual(
       estadoAuthProvider,
-      (_, __) => _sincronizar(),
+      (_, next) => _coordinador.alCambiarSesion(haySesion: _haySesion(next)),
       fireImmediately: true,
     );
   }
 
+  bool _haySesion(EstadoAuth auth) =>
+      auth == EstadoAuth.autenticado || auth == EstadoAuth.autenticadoOffline;
+
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _foreground = true;
-      _sincronizar();
-    } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      _foreground = false;
-      // BUG (CTT-141): antes solo desactivaba el planificador y el Timer.periodic del sondeo
-      // de data_version seguía vivo en background. _sincronizar() detiene AMBOS.
-      _sincronizar();
-    }
-    // inactive es transitorio (diálogo de sistema / app switcher): no se toca el planificador.
-  }
-
-  /// Con sesión válida y en primer plano: activa el planificador Y el sondeo de data_version;
-  /// si no (background o logout), desactiva ambos.
-  void _sincronizar() {
-    final auth = ref.read(estadoAuthProvider);
-    final haySesion =
-        auth == EstadoAuth.autenticado || auth == EstadoAuth.autenticadoOffline;
-    if (_foreground && haySesion) {
-      _planificador.activar();
-      _iniciarPollDataVersion();
-    } else {
-      _planificador.desactivar();
-      _detenerPollDataVersion();
-    }
-  }
-
-  // ── Invalidación entre isolates (CTT-141): sondeo de PRAGMA data_version ──────
-  void _iniciarPollDataVersion() {
-    if (_pollDataVersion != null) return;
-    unawaited(_chequearDataVersion()); // chequeo inmediato (cubre el resumed)
-    _pollDataVersion = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => unawaited(_chequearDataVersion()),
-    );
-  }
-
-  void _detenerPollDataVersion() {
-    _pollDataVersion?.cancel();
-    _pollDataVersion = null;
-  }
-
-  /// Si data_version cambió desde la última lectura (otra conexión escribió, p. ej. el
-  /// headless), invalida TODAS las tablas para que los streams `.watch()` re-consulten.
-  /// [_ultimoDataVersion] persiste entre pause/resume: así el chequeo inmediato del resumed
-  /// detecta lo que el headless escribió mientras la app estaba en background.
-  Future<void> _chequearDataVersion() async {
-    final db = ref.read(baseDatosCTTProvider);
-    final v = await db.leerDataVersion();
-    if (_ultimoDataVersion != null && v != _ultimoDataVersion) {
-      db.invalidarTodasLasTablas();
-    }
-    _ultimoDataVersion = v;
-  }
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _coordinador.alCambiarCicloDeVida(state);
 
   @override
   void dispose() {
     _subMin?.close();
     _subAuth?.close();
-    _detenerPollDataVersion();
     WidgetsBinding.instance.removeObserver(this);
-    _planificador.dispose();
+    _coordinador.dispose();
     super.dispose();
   }
 

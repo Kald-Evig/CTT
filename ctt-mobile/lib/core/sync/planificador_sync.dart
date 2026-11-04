@@ -19,18 +19,13 @@ import 'package:clock/clock.dart';
 class PlanificadorSync {
   PlanificadorSync({
     required Future<void> Function() ejecutar,
-    required bool Function() hayCorridaEnVuelo,
     Duration piso = const Duration(seconds: 2),
   })  : _ejecutar = ejecutar,
-        _enVuelo = hayCorridaEnVuelo,
         _piso = piso;
 
-  /// Dispara el ciclo de la UI (en producción: cicloSyncUi.ejecutar(), que coalesce).
+  /// Dispara el ciclo de la UI (en producción: cicloSyncUi.ejecutar(), que COALESCE: si ya
+  /// hay una corrida en curso, junta esta en una re-corrida en vez de solaparse).
   final Future<void> Function() _ejecutar;
-
-  /// ¿Ya hay una corrida de la UI en curso? (CicloSyncUi.enVuelo). Para no pedir una
-  /// re-corrida redundante en cada tick del Timer.
-  final bool Function() _enVuelo;
 
   /// Piso del delay del Timer (decisión de Kald: 2 s).
   final Duration _piso;
@@ -75,13 +70,10 @@ class PlanificadorSync {
   void _disparar() {
     _timer = null;
     if (!_activo) return;
-    if (_enVuelo()) {
-      // Sin re-entrada (CTT-141): ya hay una corrida de la UI en curso (el guard). No se lanza
-      // otra; se re-chequea en un piso. Cuando la corrida en vuelo termine moverá
-      // sync_pendientes y el stream reprogramará con el MIN nuevo.
-      _timer = Timer(_piso, _disparar);
-      return;
-    }
+    // La re-entrada la maneja el guard (cicloSyncUi): si ya hay una corrida en curso, esta
+    // llamada se coalesce en una re-corrida en vez de solaparse. Por eso el planificador NO
+    // necesita su propio chequeo "en vuelo" ni re-agendar al piso — eso generaba un sondeo de
+    // 2 s DURANTE cada corrida. CTT-141 (revisión de Chat).
     _ejecutar();
     // No se reprograma acá: la corrida cambia sync_pendientes y el stream reemite el nuevo MIN,
     // que vuelve a programar el Timer (o emite null si la cola quedó sin filas no terminales).
