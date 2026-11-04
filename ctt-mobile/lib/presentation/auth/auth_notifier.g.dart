@@ -27,7 +27,7 @@ final firebaseAuthStreamProvider = AutoDisposeStreamProvider<fb.User?>.internal(
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef FirebaseAuthStreamRef = AutoDisposeStreamProviderRef<fb.User?>;
-String _$authNotifierHash() => r'4c14ea8e0aefb4ef33a799df20dfbc138d6222fc';
+String _$authNotifierHash() => r'525d2eb16d3762e4e74cda7f9248034843a2314a';
 
 /// See also [AuthNotifier].
 @ProviderFor(AuthNotifier)

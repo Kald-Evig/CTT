@@ -14,7 +14,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:workmanager/workmanager.dart';
 
-import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
+import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
@@ -52,7 +52,7 @@ class ConectividadListener extends _$ConectividadListener {
           // Retry-After se respetan (L3).
           await ref.read(syncDaoProvider).liberarBackoffRed();
           // Flush foreground: usa BD y Dio del ProviderScope. Sin instancias nuevas.
-          await ref.read(cicloSyncProvider).ejecutar();
+          await ref.read(cicloSyncUiProvider).ejecutar();
           // Flush completó — cola vacía. No registrar one-off: evitar dos
           // BaseDatosCTT sobre el mismo .db si WorkManager despertara de inmediato.
         } catch (_) {

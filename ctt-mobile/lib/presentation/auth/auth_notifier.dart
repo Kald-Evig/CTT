@@ -7,7 +7,7 @@ library;
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
-import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
+import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 
@@ -92,7 +92,7 @@ class AuthNotifier extends _$AuthNotifier {
         final hayRed = await ref.read(hayConexionProvider.future);
         if (!hayRed) return CierreSesionBloqueado(pendientes);
         // Con red: intentar sincronizar antes de cerrar.
-        await ref.read(cicloSyncProvider).ejecutar();
+        await ref.read(cicloSyncUiProvider).ejecutar();
         final restantes = await syncDao.contarNoTerminales();
         if (restantes > 0) return CierreSesionRequiereConfirmacion(restantes);
       }

@@ -18,7 +18,7 @@ import 'package:uuid/uuid.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart' show secureStorageProvider;
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
-import 'package:ctt_mobile/core/sync/ciclo_sync.dart';
+import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -66,8 +66,8 @@ TransicionService transicionService(TransicionServiceRef ref) => TransicionServi
       syncDao: ref.watch(syncDaoProvider),
       deviceIdService: ref.watch(deviceIdServiceProvider),
       secureStorage: ref.watch(secureStorageProvider),
-      // Único camino al servidor: el ciclo foreground (mismo dioSync con X-Sync-Origen).
-      dispararCiclo: () => ref.read(cicloSyncProvider).ejecutar(),
+      // Único camino al servidor: el ciclo foreground vía el guard single-flight (CTT-141).
+      dispararCiclo: () => ref.read(cicloSyncUiProvider).ejecutar(),
     );
 
 class TransicionService {
@@ -85,7 +85,7 @@ class TransicionService {
   final SecureStorageService secureStorage;
 
   /// Dispara el ciclo de envío (único camino al servidor). En foreground:
-  /// `cicloSyncProvider.ejecutar()`.
+  /// `cicloSyncUiProvider.ejecutar()` (guard single-flight, CTT-141).
   final Future<void> Function() dispararCiclo;
 
   /// Reloj inyectable (UTC). Default: reloj del sistema.
