@@ -432,7 +432,9 @@ class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _foreground = false;
-      _planificador.desactivar();
+      // BUG (CTT-141): antes solo desactivaba el planificador y el Timer.periodic del sondeo
+      // de data_version seguía vivo en background. _sincronizar() detiene AMBOS.
+      _sincronizar();
     }
     // inactive es transitorio (diálogo de sistema / app switcher): no se toca el planificador.
   }
