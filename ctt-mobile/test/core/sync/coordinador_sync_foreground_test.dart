@@ -19,9 +19,11 @@ class _FakeDataVersion {
   int valor = 1;
   int lecturas = 0;
   Completer<int>? gate;
+  bool lanza = false;
 
   Future<int> leer() {
     lecturas++;
+    if (lanza) return Future.error(StateError('base cerrándose'));
     if (gate != null) return gate!.future;
     return Future.value(valor);
   }
@@ -287,6 +289,121 @@ void main() {
         async.flushMicrotasks();
         expect(llamadas, 0);
       });
+    });
+  });
+
+  group('tolerancia a fallos (CTT-141, revisión de Chat)', () {
+    test('reconciliar falla repetidamente: los intentos van a 2 min, nunca cada 2 s', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        // debounce ya elapsado → el 1er intento cae al piso (2 s); los siguientes, a +2 min.
+        final ultima = clock.now().subtract(const Duration(minutes: 2));
+        var llamadas = 0;
+        final coord = armar(
+          dv,
+          ultimaReconciliacion: () async => ultima, // NO avanza (todo falla)
+          reconciliarSiCorresponde: () async {
+            llamadas++;
+            throw Exception('GET /mios sin red');
+          },
+        );
+        coord.alCambiarSesion(haySesion: true);
+        coord.alCambiarEnEspera(hay: true);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        // Intentos a ~2 s, 2:02, 4:02, 6:02, 8:02 → ~5 en 10 min. Si cayera cada 2 s serían ~300.
+        expect(llamadas, lessThanOrEqualTo(6),
+            reason: 'tras el fallo reprograma a +ventana (2 min), no cada 2 s');
+        expect(llamadas, greaterThanOrEqualTo(4),
+            reason: 'y sí reintenta (no se muere): ~5 en 10 min');
+      });
+    });
+
+    test('un fallo seguido de un éxito vuelve a la regla normal (ultima solo en éxito)', () {
+      fakeAsync((async) {
+        final dv = _FakeDataVersion();
+        var ultima = clock.now().subtract(const Duration(minutes: 2)); // debounce elapsado
+        var llamadas = 0;
+        var fallaProxima = true;
+        final coord = armar(
+          dv,
+          ultimaReconciliacion: () async => ultima,
+          reconciliarSiCorresponde: () async {
+            llamadas++;
+            if (fallaProxima) {
+              fallaProxima = false;
+              throw Exception('sin red');
+            }
+            ultima = clock.now(); // ÉXITO: avanza, como registrarReconciliacion
+          },
+        );
+        coord.alCambiarSesion(haySesion: true);
+        coord.alCambiarEnEspera(hay: true);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 2)); // 1er intento → FALLA
+        async.flushMicrotasks();
+        expect(llamadas, 1);
+        final ultimaTrasFallo = ultima; // no avanzó
+
+        async.elapse(const Duration(minutes: 2)); // +ventana → 2º intento → ÉXITO
+        async.flushMicrotasks();
+        expect(llamadas, 2);
+        expect(ultima, isNot(ultimaTrasFallo), reason: 'el éxito escribió ultima');
+
+        // Regla normal: el 3er intento llega a ultima(nuevo)+ventana, nada antes.
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(llamadas, 2, reason: 'no hay intento antes de ultima+ventana');
+        async.elapse(const Duration(minutes: 1));
+        async.flushMicrotasks();
+        expect(llamadas, 3, reason: 'el 3er intento a ultima+ventana (regla normal)');
+      });
+    });
+
+    test('un fallo de reconciliar no deja errores asíncronos sin capturar', () {
+      final errores = <Object>[];
+      runZonedGuarded(() {
+        fakeAsync((async) {
+          final dv = _FakeDataVersion();
+          final ultima = clock.now().subtract(const Duration(minutes: 2));
+          final coord = armar(
+            dv,
+            ultimaReconciliacion: () async => ultima,
+            reconciliarSiCorresponde: () async => throw Exception('sin red'),
+          );
+          coord.alCambiarSesion(haySesion: true);
+          coord.alCambiarEnEspera(hay: true);
+          async.elapse(const Duration(minutes: 10));
+        });
+      }, (e, st) => errores.add(e));
+      expect(errores, isEmpty,
+          reason: 'el catch del coordinador evita el error sin capturar');
+    });
+
+    test('el sondeo de data_version que falla no deja error sin capturar y sigue sondeando', () {
+      final errores = <Object>[];
+      late bool sondeandoFinal;
+      late int invalidacionesFinal;
+      late int lecturasFinal;
+      runZonedGuarded(() {
+        fakeAsync((async) {
+          final dv = _FakeDataVersion()..lanza = true;
+          var inval = 0;
+          final coord = armar(dv, invalidar: () => inval++);
+          coord.alCambiarSesion(haySesion: true);
+          async.elapse(const Duration(minutes: 10));
+          sondeandoFinal = coord.sondeando;
+          invalidacionesFinal = inval;
+          lecturasFinal = dv.lecturas;
+        });
+      }, (e, st) => errores.add(e));
+      expect(errores, isEmpty, reason: 'el catch del sondeo evita el error sin capturar');
+      expect(sondeandoFinal, isTrue, reason: 'el poll sigue vivo pese a los fallos');
+      expect(invalidacionesFinal, 0, reason: 'cada lectura falló → nunca invalida');
+      expect(lecturasFinal, greaterThan(1), reason: 'reintenta cada 2 s');
     });
   });
 }

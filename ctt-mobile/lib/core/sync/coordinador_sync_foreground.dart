@@ -14,7 +14,7 @@ library;
 import 'dart:async';
 
 import 'package:clock/clock.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState;
+import 'package:flutter/widgets.dart' show AppLifecycleState, debugPrint;
 
 import 'package:ctt_mobile/core/sync/planificador_sync.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
@@ -135,6 +135,11 @@ class CoordinadorSyncForeground {
         _invalidarTodo();
       }
       _ultimoDataVersion = v;
+    } catch (e, st) {
+      // Leer PRAGMA data_version toca Drift y puede fallar (p. ej. base cerrándose). No debe
+      // escapar como error asíncrono sin capturar; el próximo tick (2 s) reintenta — es el
+      // intervalo de diseño, no un backoff colapsado.
+      debugPrint('CTT-141: sondeo de data_version falló: $e\n$st');
     } finally {
       _chequeando = false;
     }
@@ -159,15 +164,37 @@ class CoordinadorSyncForeground {
     _genReconciliacion++; // invalida cualquier _programarReconciliacion en vuelo
   }
 
+  /// Programa el próximo intento con la regla de ÉXITO: a `ultimaReconciliacion + ventanaDebounce`.
+  /// Leer `ultimaReconciliacion` toca Drift y puede fallar; ante cualquier fallo se reprograma
+  /// como un fallo (una ventana desde ahora) y el error NO escapa.
   Future<void> _programarReconciliacion() async {
     _timerReconciliacion?.cancel();
     _timerReconciliacion = null;
     final gen = ++_genReconciliacion;
-    final ultima = await _ultimaReconciliacion();
+    DateTime? ultima;
+    try {
+      ultima = await _ultimaReconciliacion();
+    } catch (e, st) {
+      debugPrint('CTT-141: lectura de ultimaReconciliacion falló: $e\n$st');
+      if (gen != _genReconciliacion || !(_activo && _hayEnEspera)) return;
+      _reprogramarTrasFallo();
+      return;
+    }
     // Pudo desactivarse, salir de espera o reprogramarse durante el await.
     if (gen != _genReconciliacion || !(_activo && _hayEnEspera)) return;
     final base = ultima ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
-    final falta = base.add(_ventanaDebounce).difference(_reloj());
+    _agendarReconciliacion(base.add(_ventanaDebounce));
+  }
+
+  /// Tras un FALLO (de reconciliar o de leer ultimaReconciliacion): el próximo intento llega al
+  /// menos UNA VENTANA más tarde — NO al piso de 2 s. NO se escribe `ultimaReconciliacion`: esa
+  /// marca significa "consulté con éxito" y la comparten los demás disparadores; el estado del
+  /// fallo vive en memoria (este cálculo basado en `ahora`).
+  void _reprogramarTrasFallo() =>
+      _agendarReconciliacion(_reloj().add(_ventanaDebounce));
+
+  void _agendarReconciliacion(DateTime objetivo) {
+    final falta = objetivo.difference(_reloj());
     final delay = falta < _pisoReconciliacion ? _pisoReconciliacion : falta;
     _timerReconciliacion = Timer(delay, _dispararReconciliacion);
   }
@@ -175,9 +202,17 @@ class CoordinadorSyncForeground {
   Future<void> _dispararReconciliacion() async {
     _timerReconciliacion = null;
     if (!(_activo && _hayEnEspera)) return;
-    // reconciliarSiCorresponde mantiene el debounce (no reconcilia si no pasó la ventana).
-    await _reconciliarSiCorresponde();
-    // Reprograma mientras sigan existiendo filas en espera y siga activo.
+    try {
+      // reconciliarSiCorresponde mantiene el debounce (no reconcilia si no pasó la ventana).
+      await _reconciliarSiCorresponde();
+    } catch (e, st) {
+      // GET /sync/conflictos/mios con el backend caído / sin red lanza. No debe escapar ni caer
+      // al piso de 2 s: se reprograma a una ventana (próximo intento ≥ 2 min).
+      debugPrint('CTT-141: reconciliarSiCorresponde falló: $e\n$st');
+      if (_activo && _hayEnEspera) _reprogramarTrasFallo();
+      return;
+    }
+    // Éxito: reprograma con la regla normal (ultimaReconciliacion avanzó).
     if (_activo && _hayEnEspera) await _programarReconciliacion();
   }
 

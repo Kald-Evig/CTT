@@ -8,13 +8,14 @@
 /// Vive SOLO en el isolate 'ui' y SOLO con sesión válida en primer plano: se activa en
 /// resumed+sesión, se desactiva en paused/hidden y en logout. El headless no usa esto.
 ///
-/// Clase de lógica pura (sin Flutter ni Riverpod) para testearse con fake_async. El reloj es
-/// `clock.now()` (package:clock) para que fake_async controle el tiempo en los tests.
+/// Clase de lógica pura (sin widgets ni Riverpod; solo `debugPrint`) para testearse con
+/// fake_async. El reloj es `clock.now()` (package:clock) para que fake_async controle el tiempo.
 library;
 
 import 'dart:async';
 
 import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 class PlanificadorSync {
   PlanificadorSync({
@@ -74,7 +75,12 @@ class PlanificadorSync {
     // llamada se coalesce en una re-corrida en vez de solaparse. Por eso el planificador NO
     // necesita su propio chequeo "en vuelo" ni re-agendar al piso — eso generaba un sondeo de
     // 2 s DURANTE cada corrida. CTT-141 (revisión de Chat).
-    _ejecutar();
+    // ejecutar() (el guard) puede completar con error (p. ej. deviceIdService.obtener falla); al
+    // no esperarse, escaparía como error asíncrono sin capturar. Se loguea y se traga: el próximo
+    // MIN del stream reprograma; no hace falta reintentar acá.
+    unawaited(_ejecutar().catchError((Object e, StackTrace st) {
+      debugPrint('CTT-141: el ciclo disparado por el planificador falló: $e\n$st');
+    }));
     // No se reprograma acá: la corrida cambia sync_pendientes y el stream reemite el nuevo MIN,
     // que vuelve a programar el Timer (o emite null si la cola quedó sin filas no terminales).
   }

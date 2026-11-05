@@ -1,6 +1,8 @@
 /// planificador_sync_test.dart — CTT-141: planificador de sync en primer plano (fake_async).
 library;
 
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,5 +99,27 @@ void main() {
       expect(n, 0, reason: 'sin activar() de nuevo, ningún Timer dispara');
       expect(p.tieneTimer, isFalse);
     });
+  });
+
+  test('si ejecutar() falla, el planificador no deja un error asíncrono sin capturar', () {
+    final errores = <Object>[];
+    late int llamadas;
+    runZonedGuarded(() {
+      fakeAsync((async) {
+        var n = 0;
+        final p = PlanificadorSync(
+          ejecutar: () async {
+            n++;
+            throw Exception('deviceId falló');
+          },
+        )..activar();
+        p.actualizarMin(clock.now()); // reclamable ya → dispara al piso (2 s)
+        async.elapse(const Duration(seconds: 5));
+        llamadas = n;
+      });
+    }, (e, st) => errores.add(e));
+    expect(errores, isEmpty,
+        reason: 'el catchError del planificador evita el error sin capturar');
+    expect(llamadas, 1, reason: 'disparó una vez');
   });
 }
