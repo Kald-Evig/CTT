@@ -14,10 +14,14 @@ void main() {
   tearDown(() => db.close());
 
   var seq = 0;
+  // La `secuencia` (autoincremental) sigue el orden de inserción → la 1ª fila de un ítem es su
+  // cabeza FIFO. `item` permite varias filas del MISMO ítem (para probar el FIFO); por defecto
+  // cada fila es su propio ítem.
   Future<void> fila(
     String estado, {
     DateTime? proximoIntentoEn,
     DateTime? tomadoHasta,
+    String? item,
   }) {
     final id = 'r${seq++}';
     return db.into(db.syncPendientes).insert(SyncPendientesCompanion.insert(
@@ -27,7 +31,7 @@ void main() {
           usuarioId: 'user-1',
           instalacionId: 'inst-1',
           tipoEntidad: 'item',
-          entidadId: 'item-$id',
+          entidadId: item ?? 'item-$id',
           accion: 'cambio_estado_item',
           payload: '{}',
           payloadVersion: 1,
@@ -107,5 +111,48 @@ void main() {
     await fila('esperando_resolucion');
     expect(await db.syncDao.observarHayEnEsperaResolucion().first, isTrue,
         reason: 'ahora hay una fila en espera');
+  });
+
+  // ── Bug 4: el MIN se calcula SOLO sobre las cabezas FIFO ──────────────────────
+  group('cabeza FIFO (bug 4)', () {
+    test('A (enviando, lease a T) bloquea B (pendiente null) del mismo ítem → MIN = T, no "ya"',
+        () async {
+      final t = DateTime.utc(2026, 6, 1, 12);
+      await fila('enviando', tomadoHasta: t, item: 'X'); // A: cabeza (secuencia menor)
+      await fila('pendiente', item: 'X'); // B: posterior, proximo_intento_en NULL
+      expect(await prox(), t,
+          reason: 'la cabeza es A (enviando); B está bloqueada por FIFO y no cuenta como "ya"');
+    });
+
+    test('dos ítems: MIN entre las cabezas (Y pendiente a +10 s vs X enviando a +60 s)', () async {
+      await fila('enviando', tomadoHasta: DateTime.utc(2026, 6, 1, 12, 1), item: 'X'); // +60 s
+      await fila('pendiente',
+          proximoIntentoEn: DateTime.utc(2026, 6, 1, 12, 0, 10), item: 'Y'); // +10 s
+      expect(await prox(), DateTime.utc(2026, 6, 1, 12, 0, 10));
+    });
+
+    test('esperando_resolucion como cabeza NO bloquea: la fila siguiente cuenta', () async {
+      await fila('esperando_resolucion', item: 'Z'); // secuencia menor, no en estadosIntencionLocal
+      await fila('pendiente',
+          proximoIntentoEn: DateTime.utc(2026, 6, 1, 12), item: 'Z'); // cuenta como cabeza
+      expect(await prox(), DateTime.utc(2026, 6, 1, 12),
+          reason: 'esperando_resolucion no bloquea el FIFO (CTT-143)');
+    });
+
+    test('el watch y reclamar comparten el predicado FIFO: la cabeza del watch es la que '
+        'reclamar toma', () async {
+      final ahora = DateTime.utc(2026, 6, 1, 12);
+      // Ítem X: A enviando con lease VENCIDO (reclamable), B pendiente posterior (bloqueada).
+      await fila('enviando',
+          tomadoHasta: ahora.subtract(const Duration(minutes: 1)), item: 'X');
+      await fila('pendiente', item: 'X');
+      // reclamar/filasReclamables (mismo predicado _sinFilaAnteriorDelAgregado): solo la cabeza A.
+      final reclamables = await db.syncDao.filasReclamables(ahora);
+      expect(reclamables.map((r) => r.entidadId).toList(), ['X'],
+          reason: 'solo la cabeza A es reclamable; B está bloqueada');
+      // El watch apunta al instante de ESA cabeza (tomado_hasta de A), no a "ya" por B.
+      expect(await prox(), ahora.subtract(const Duration(minutes: 1)),
+          reason: 'misma cabeza FIFO que reclamar; B (bloqueada) se ignora en ambos');
+    });
   });
 }

@@ -99,8 +99,10 @@ class CicloSync {
   static Duration get duracionLease =>
       Entorno.timeoutConexion + Entorno.timeoutRecepcion + _margenLease;
 
-  /// Parámetros del backoff exponencial con full jitter (CTT-103).
-  static const _backoffBase = Duration(seconds: 30);
+  /// Parámetros del backoff exponencial con full jitter (CTT-103). [backoffBase] es público
+  /// porque el planificador de primer plano (CTT-141) lo reutiliza como cadencia de su red de
+  /// seguridad (reintento cuando un estado imprevisto dejaría el Timer muerto).
+  static const backoffBase = Duration(seconds: 30);
   static const _backoffTope = Duration(minutes: 30);
 
   /// Lee la cola, envía cada cambio (push) y reconcilia los conflictos resueltos
@@ -319,7 +321,7 @@ class CicloSync {
   /// 30min)]; `Retry-After` (429/503), si viene, es el PISO.
   Duration _backoff(int n, Duration? retryAfter) {
     final nCap = n > 16 ? 16 : n; // evita overflow de 1<<n (el tope de 30min ya acota)
-    final candidato = _backoffBase * (1 << nCap);
+    final candidato = backoffBase * (1 << nCap);
     final cap = candidato > _backoffTope ? _backoffTope : candidato;
     var espera =
         Duration(milliseconds: (random.nextDouble() * cap.inMilliseconds).round());
