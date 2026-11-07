@@ -15,7 +15,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:workmanager/workmanager.dart';
 
 import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
-import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
+import 'package:ctt_mobile/core/sync/guarda_reconciliacion.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 
@@ -72,7 +72,7 @@ class ConectividadListener extends _$ConectividadListener {
         // reintentan.
         try {
           await ref
-              .read(reconciliadorConflictosProvider)
+              .read(guardaReconciliacionProvider)
               .reconciliarSiCorresponde();
         } catch (_) {
           // Silencio deliberado: la reconciliación no debe tumbar el flush.

@@ -15,6 +15,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:ctt_mobile/core/sync/decision_sync.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
@@ -331,5 +332,53 @@ void main() {
     expect(it.estadoServidor, 'en_progreso');
     // P6: la pendiente posterior quedó rebaseada a 5 (no fijada a mano).
     expect((await leer('e-P2')).versionBase, 5);
+  });
+
+  group('aplicarDecision es condicional (CTT-141 punto 4: idempotente UI/headless)', () {
+    test('doble aplicación sobre la misma fila (BD real) → la 2da no cambia nada', () async {
+      await itemConVersion('item-Z', 1); // flag encendido
+      await parquear(id: 'ez', entidadId: 'item-Z', conflictoId: 'c-Z', versionBase: 1);
+      final decision = decidir(
+        estadoActual: EstadoSyncLocal.esperandoResolucion,
+        senal: SenalSync.resolucionGanoServidor,
+      );
+
+      // 1ra aplicación: mueve la fila (esperando_resolucion → descartado), apaga el flag y
+      // escribe la base del servidor.
+      final n1 = await db.syncDao.aplicarDecision(
+        'ez',
+        estadoEsperado: EstadoSyncLocal.esperandoResolucion,
+        decision: decision,
+        estadoServidor: 'en_progreso',
+        versionServidor: 4,
+        rebasearPosteriores: true,
+      );
+      expect(n1, 1);
+      final tras1 = await leer('ez');
+      final itemTras1 = (await db.itemsCacheDao.obtenerPorId('item-Z'))!;
+      expect(tras1.estado, EstadoSyncLocal.descartado.valor);
+      expect(await flag('item-Z'), isFalse);
+      expect(itemTras1.version, 4);
+      expect(itemTras1.estadoServidor, 'en_progreso');
+
+      // 2da aplicación IDÉNTICA (UI y headless pudieron reconciliar el mismo conflicto): la
+      // fila ya NO está en esperando_resolucion → WHERE no matchea → 0 filas, sin reescribir.
+      final n2 = await db.syncDao.aplicarDecision(
+        'ez',
+        estadoEsperado: EstadoSyncLocal.esperandoResolucion,
+        decision: decision,
+        estadoServidor: 'otro_estado', // si reescribiera, esto se vería
+        versionServidor: 99,
+        rebasearPosteriores: true,
+      );
+      expect(n2, 0, reason: 'WHERE estado = esperando_resolucion → 0 filas');
+      final tras2 = await leer('ez');
+      final itemTras2 = (await db.itemsCacheDao.obtenerPorId('item-Z'))!;
+      expect(tras2.estado, tras1.estado, reason: 'estado intacto');
+      expect(tras2.versionBase, tras1.versionBase, reason: 'base de la cola intacta');
+      expect(itemTras2.version, itemTras1.version, reason: 'version del ítem intacta');
+      expect(itemTras2.estadoServidor, itemTras1.estadoServidor,
+          reason: 'estado_servidor intacto (no se reescribió con otro_estado/99)');
+    });
   });
 }

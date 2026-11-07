@@ -11,8 +11,8 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/core/sync/conectividad_listener.dart';
 import 'package:ctt_mobile/core/sync/coordinador_sync_foreground.dart';
+import 'package:ctt_mobile/core/sync/guarda_reconciliacion.dart';
 import 'package:ctt_mobile/core/sync/planificador_sync.dart';
-import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
@@ -325,7 +325,7 @@ class _AppCTTState extends ConsumerState<AppCTT> with WidgetsBindingObserver {
   /// Best-effort y debounced: no bloquea la UI y tolera la falta de sesión al
   /// arranque (sin JWT el GET falla y se ignora; sin filas parqueadas no hay red).
   void _reconciliar() {
-    ref.read(reconciliadorConflictosProvider).reconciliarSiCorresponde().ignore();
+    ref.read(guardaReconciliacionProvider).reconciliarSiCorresponde().ignore();
   }
 
   @override
@@ -419,7 +419,7 @@ class _PlanificadorForegroundState extends ConsumerState<PlanificadorForeground>
       ultimaReconciliacion: () =>
           ref.read(syncDaoProvider).ultimaReconciliacion(),
       reconciliarSiCorresponde: () =>
-          ref.read(reconciliadorConflictosProvider).reconciliarSiCorresponde(),
+          ref.read(guardaReconciliacionProvider).reconciliarSiCorresponde(),
     );
     // listenManual (ref.listen en build no acepta fireImmediately): toma el valor inicial y
     // los cambios. Las suscripciones se cierran en dispose. Cableado delgado: cada listener

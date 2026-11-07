@@ -24,6 +24,7 @@ import 'package:ctt_mobile/core/device/device_id_service.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
+import 'package:ctt_mobile/core/sync/guarda_reconciliacion.dart';
 import 'package:ctt_mobile/core/sync/reconciliador_conflictos.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
@@ -55,6 +56,12 @@ CicloSync cicloSync(CicloSyncRef ref) => CicloSync(
       isolateLabel: 'ui',
       // 401 en foreground → marca "sesión vencida" (no desloguea desde el sync).
       alSesionVencida: () => ref.read(sesionVencidaProvider.notifier).marcar(),
+      // CTT-141: la reconciliación del fin de corrida pasa por el guard compartido (keepAlive)
+      // para no solaparse con el timer del coordinador / resume / conectividad.
+      reconciliarAhora: () =>
+          ref.read(guardaReconciliacionProvider).reconciliarAhora(),
+      reconciliarSiCorresponde: () =>
+          ref.read(guardaReconciliacionProvider).reconciliarSiCorresponde(),
     );
 
 /// Ciclo de sincronización reutilizable. No crea instancias propias.
@@ -66,8 +73,12 @@ class CicloSync {
     required this.isolateLabel,
     this.reloj = _ahoraUtcPorDefecto,
     this.alSesionVencida,
+    Future<void> Function()? reconciliarAhora,
+    Future<void> Function()? reconciliarSiCorresponde,
     Random? random,
-  }) : random = random ?? Random();
+  })  : _reconciliarAhora = reconciliarAhora,
+        _reconciliarSiCorresponde = reconciliarSiCorresponde,
+        random = random ?? Random();
 
   final SyncDao syncDao;
   final Dio dio;
@@ -75,6 +86,15 @@ class CicloSync {
 
   /// Etiqueta del isolate ('ui' o 'headless'), parte del `tomado_por` del lease.
   final String isolateLabel;
+
+  /// Reconciliación del fin de corrida (CTT-141). En FOREGROUND apuntan al guard compartido
+  /// (GuardaReconciliacion, keepAlive) para no lanzar GET /sync/conflictos/mios concurrentes con
+  /// los otros disparadores; [_reconciliarAhora] es run-after (bypass tras un 200 que supera un
+  /// conflicto) y [_reconciliarSiCorresponde] es con debounce. En el HEADLESS quedan null y se cae
+  /// a una instancia fresca de ReconciliadorConflictos (sin guard; la idempotencia entre isolates
+  /// la da aplicarDecision condicional en SyncDao).
+  final Future<void> Function()? _reconciliarAhora;
+  final Future<void> Function()? _reconciliarSiCorresponde;
 
   /// Reloj inyectable (UTC). Default: reloj del sistema.
   final DateTime Function() reloj;
@@ -243,11 +263,20 @@ class CicloSync {
     // debounce), una sola vez por corrida aunque hayan sido varios ítems. Si no, se mantiene
     // el debounce de 2 min, igual que el resto de los disparadores.
     try {
-      final recon = ReconciliadorConflictos(syncDao: syncDao, dio: dio);
       if (reconciliarYa) {
-        await recon.reconciliar();
+        // Bypass run-after: en UI pasa por el guard compartido; en headless, instancia fresca.
+        if (_reconciliarAhora != null) {
+          await _reconciliarAhora();
+        } else {
+          await ReconciliadorConflictos(syncDao: syncDao, dio: dio).reconciliar();
+        }
       } else {
-        await recon.reconciliarSiCorresponde();
+        if (_reconciliarSiCorresponde != null) {
+          await _reconciliarSiCorresponde();
+        } else {
+          await ReconciliadorConflictos(syncDao: syncDao, dio: dio)
+              .reconciliarSiCorresponde();
+        }
       }
     } catch (_) {
       // El periódico y los demás disparadores reintentan.
