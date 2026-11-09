@@ -1,31 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  CTT-130 fase 6 — exclusión de la base local del Auto Backup (API 31+).
-  Cubre CTT-121 entregable 2 (el GUID de instalación vive en secure storage).
+  CTT-147 — Exclusión TOTAL del Auto Backup por dominio (API 31+).
 
-  Se excluye tanto de cloud-backup (Google Drive) como de device-transfer
-  (traspaso a un teléfono nuevo). Motivos:
-    - app_flutter/: la base Drift (ctt_local.db + -wal/-shm), los respaldos que
-      genera preAbrir (ctt_local.db.bak_v*) y el JSON de exportación
-      (ctt_local.db.export.json). Restaurar la cola de trabajo sin sincronizar en
-      otro dispositivo/momento reintroduciría cambios viejos como nuevos.
-    - shared_prefs FlutterSecureStorage / FlutterSecureKeyStorage: valores cifrados
-      + el GUID de instalación. La master key de EncryptedSharedPreferences vive en
-      el Android Keystore, que NO se respalda; restaurar el .xml sin su clave lo deja
-      indescifrable.
+  Reemplaza la exclusión por archivos de CTT-130 (app_flutter/ + FlutterSecure*).
+  Motivo: el inventario (ctt147_aud_2) mostró que el backup también restauraba los
+  archivos de Firebase Auth en shared_prefs (com.google.firebase.auth.api.Store/crypto.*.xml),
+  el FID (files/PersistedInstallation.*.json), el estado de WorkManager y más. La master key
+  de Firebase (firebear_main_key_id_for_storage_crypto.<appid>) vive en el Android Keystore,
+  que NO se respalda; al restaurar esos .xml sin su clave, KeysetManager falla y la sesión no
+  vuelve a persistir en ese dispositivo (reproducido en ctt147_pre_B4_R{1,2,3}).
 
-  getApplicationDocumentsDirectory() resuelve a context.getDir("flutter") =
-  /data/data/<pkg>/app_flutter/  → dominio "root", path "app_flutter/".
+  No hay nada que valga la pena restaurar: el servidor es la fuente de verdad y la cola local
+  se sincroniza. Por eso se excluyen TODOS los dominios en cloud-backup y device-transfer; así
+  escala sin mantenimiento (p. ej. cuando llegue FCM). Si algún día conviene restaurar algo, se
+  agrega un <include> explícito. NO se usa allowBackup="false" (en algunos fabricantes no cubre
+  device-transfer y anularía la prueba del backup en la nube).
+
+  Las dos secciones tienen que estar presentes: una sección ausente deja ese modo habilitado.
+  cross-platform-transfer NO aplica mientras no haya cliente iOS (exige platform="ios",
+  bundleId y teamId).
+
+  Dominios (verificados contra developer.android.com/identity/data/autobackup):
+    root, file, database, sharedpref, external y sus variantes device_*.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="root" path="app_flutter/" />
-        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
-        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
     </cloud-backup>
     <device-transfer>
-        <exclude domain="root" path="app_flutter/" />
-        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
-        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
     </device-transfer>
 </data-extraction-rules>
