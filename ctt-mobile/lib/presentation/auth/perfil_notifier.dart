@@ -11,9 +11,15 @@
 ///   - usuario Firebase == null         → sin sesión (logout real): se limpia el perfil.
 library;
 
+import 'dart:io' show Platform;
+
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
+import 'package:ctt_mobile/core/security/defensa_sesion_io.dart';
+import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 import 'package:ctt_mobile/data/local/database.dart';
+import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/daos/usuario_activo_dao.dart';
 import 'package:ctt_mobile/data/repositories/perfil_repository.dart';
 import 'package:ctt_mobile/domain/entities/perfil_usuario.dart';
@@ -23,8 +29,9 @@ import 'package:ctt_mobile/presentation/auth/clasificador_auth_me.dart';
 
 part 'perfil_notifier.g.dart';
 
-/// Modo en que se resolvió la sesión al arrancar.
-enum ModoSesion { online, offline, revocada, sinSesion }
+/// Modo en que se resolvió la sesión al arrancar. `requiereSanar` (CTT-147): se detectó el
+/// estado roto de Firebase Auth y la app debe cerrarse para sanar en el próximo arranque.
+enum ModoSesion { online, offline, revocada, sinSesion, requiereSanar }
 
 /// Resultado de resolver la sesión: el modo + el perfil (presente en online/offline).
 class ResultadoSesion {
@@ -36,6 +43,9 @@ class ResultadoSesion {
         perfil = null;
   const ResultadoSesion.sinSesion()
       : modo = ModoSesion.sinSesion,
+        perfil = null;
+  const ResultadoSesion.requiereSanar()
+      : modo = ModoSesion.requiereSanar,
         perfil = null;
 
   final ModoSesion modo;
@@ -52,13 +62,23 @@ class PerfilSesion extends _$PerfilSesion {
   Future<ResultadoSesion> build() async {
     final usuario = await ref.watch(firebaseAuthStreamProvider.future);
     final dao = ref.read(usuarioActivoDaoProvider);
+    final storage = ref.read(secureStorageProvider);
+
     if (usuario == null) {
+      // CTT-147 fase 1 (detección), ANTES de dao.limpiar(): si se activa, NO se limpia
+      // usuario_activo (se preserva el fallback offline de CTT-138; el dueño de la cola es
+      // CTT-123). Si no se activa, se mantiene el logout real de siempre.
+      if (await _defensaFase1(storage)) {
+        return const ResultadoSesion.requiereSanar();
+      }
       // Logout real: Firebase ya no tiene usuario. Se limpia el perfil local.
       await dao.limpiar();
       return const ResultadoSesion.sinSesion();
     }
 
-    final storage = ref.read(secureStorageProvider);
+    // CTT-147: Firebase tiene usuario = login exitoso → olvida "recién sanado".
+    await _olvidarRecienSanado();
+
     // Race condition: Firebase dispara authStateChanges() antes de que
     // iniciarSesion() complete el await de guardarToken(). Garantizamos el
     // token aquí antes de cualquier request a /me.
@@ -140,4 +160,63 @@ class PerfilSesion extends _$PerfilSesion {
           ),
         ],
       );
+
+  // ── CTT-147: defensa en dos fases ──────────────────────────────────────────
+
+  /// Fase 1: arma el controlador y lo ejecuta. Todo envuelto en try/catch: un fallo de la
+  /// defensa (p. ej. sin path_provider en un test) NUNCA debe impedir el arranque; se cae al
+  /// comportamiento de logout real.
+  Future<bool> _defensaFase1(SecureStorageService storage) async {
+    try {
+      final io = await crearDefensaSesionIo();
+      final syncDao = ref.read(syncDaoProvider);
+      return await io.defensa.ejecutarFase1(
+        hayUsuarioFirebase: false, // esta rama es solo `usuario == null`
+        hayToken: (await storage.obtenerToken()) != null,
+        contarPendientes: syncDao.contarNoTerminales,
+        limpiarToken: storage.eliminarToken,
+        registrarEvento: _registrarEventoIrrecuperable,
+      );
+    } catch (e, st) {
+      _registrarErrorDefensa(e, st);
+      return false;
+    }
+  }
+
+  /// Login exitoso (Firebase tiene usuario): quita la marca "recién sanado". Best-effort.
+  Future<void> _olvidarRecienSanado() async {
+    try {
+      final io = await crearDefensaSesionIo();
+      io.defensa.alLoginExitoso();
+    } catch (e, st) {
+      _registrarErrorDefensa(e, st);
+    }
+  }
+
+  /// Evento no fatal en Crashlytics. El modelo del dispositivo lo adjunta Crashlytics en sus
+  /// metadatos; la versión de Android se agrega como clave. Si no se puede enviar ahora, queda
+  /// encolado para el próximo arranque.
+  void _registrarEventoIrrecuperable() {
+    try {
+      final cr = FirebaseCrashlytics.instance;
+      cr.setCustomKey('android_version', Platform.operatingSystemVersion);
+      cr.recordError(
+        'sesion_firebase_irrecuperable',
+        StackTrace.current,
+        reason: 'sesion_firebase_irrecuperable',
+        fatal: false,
+      );
+    } catch (_) {
+      // La telemetría nunca debe romper la defensa ni el arranque.
+    }
+  }
+
+  void _registrarErrorDefensa(Object error, StackTrace stack) {
+    try {
+      FirebaseCrashlytics.instance
+          .recordError(error, stack, reason: 'defensa_sesion', fatal: false);
+    } catch (_) {
+      // Sin Firebase (tests) o sin red: se ignora.
+    }
+  }
 }

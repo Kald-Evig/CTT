@@ -16,6 +16,7 @@ import 'package:ctt_mobile/core/sync/planificador_sync.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/presentation/arranque/arranque_provider.dart';
+import 'package:ctt_mobile/presentation/arranque/pantalla_cerrar_ctt.dart';
 import 'package:ctt_mobile/presentation/arranque/pantalla_recuperacion.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
@@ -47,6 +48,7 @@ part 'app.g.dart';
 abstract final class Rutas {
   static const cargando = '/cargando';
   static const login = '/login';
+  static const sanar = '/sanar';
   static const seleccionEmpresa = '/seleccion-empresa';
   static const inicio = '/inicio';
   static const trabajador = '/trabajador';
@@ -60,12 +62,19 @@ abstract final class Rutas {
 /// Estado de auth para el router (CTT-138). `autenticadoOffline` = perfil servido
 /// desde Drift porque /me falló por transporte; `sesionRevocada` = 401 o 403 con
 /// code de cuenta (va a login, igual que `sinSesion`).
-enum EstadoAuth { cargando, autenticado, autenticadoOffline, sesionRevocada, sinSesion }
+enum EstadoAuth {
+  cargando,
+  autenticado,
+  autenticadoOffline,
+  sesionRevocada,
+  sinSesion,
+  requiereSanar,
+}
 
 @riverpod
 EstadoAuth estadoAuth(EstadoAuthRef ref) {
   // PerfilSesion.build ya awaitea el stream de Firebase y clasifica el resultado
-  // (online / offline / revocada / sinSesion), así que estadoAuth deriva solo de él.
+  // (online / offline / revocada / sinSesion / requiereSanar), así que estadoAuth deriva de él.
   return ref.watch(perfilSesionProvider).when(
     loading: () => EstadoAuth.cargando,
     error: (_, __) => EstadoAuth.sinSesion,
@@ -74,6 +83,7 @@ EstadoAuth estadoAuth(EstadoAuthRef ref) {
       ModoSesion.offline => EstadoAuth.autenticadoOffline,
       ModoSesion.revocada => EstadoAuth.sesionRevocada,
       ModoSesion.sinSesion => EstadoAuth.sinSesion,
+      ModoSesion.requiereSanar => EstadoAuth.requiereSanar,
     },
   );
 }
@@ -110,6 +120,12 @@ GoRouter router(RouterRef ref) {
         return ubicacion == Rutas.cargando ? null : Rutas.cargando;
       }
 
+      // CTT-147 fase 1: estado roto de Firebase Auth detectado. Pantalla bloqueante
+      // (Cerrar CTT), por encima de todo lo demás.
+      if (auth == EstadoAuth.requiereSanar) {
+        return ubicacion == Rutas.sanar ? null : Rutas.sanar;
+      }
+
       // Sesión revocada (401/403-code) va al login igual que sin sesión.
       final vaALogin =
           auth == EstadoAuth.sinSesion || auth == EstadoAuth.sesionRevocada;
@@ -144,6 +160,10 @@ GoRouter router(RouterRef ref) {
       GoRoute(
         path: Rutas.login,
         builder: (_, __) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: Rutas.sanar,
+        builder: (_, __) => const PantallaCerrarCtt(),
       ),
       GoRoute(
         path: Rutas.seleccionEmpresa,

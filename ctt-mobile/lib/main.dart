@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:ctt_mobile/core/config/environment.dart';
+import 'package:ctt_mobile/core/security/defensa_sesion_io.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
 import 'package:ctt_mobile/firebase_options.dart';
 import 'package:ctt_mobile/app.dart';
@@ -23,6 +24,10 @@ import 'package:ctt_mobile/app.dart';
 Future<void> main() async {
   // Garantiza que los bindings estén listos antes de cualquier await.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // CTT-147 fase 2 (sanar): ANTES de inicializar Firebase, y solo en el isolate de UI (main);
+  // el headless de WorkManager no pasa por acá. Nunca impide el arranque.
+  await _sanarSesionFirebaseSiCorresponde();
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
@@ -35,6 +40,26 @@ Future<void> main() async {
       child: AppCTT(),
     ),
   );
+}
+
+/// CTT-147 fase 2: si la fase 1 dejó la marca "sanar", borra los XML de Firebase Auth antes de
+/// `Firebase.initializeApp`, para que Firebase arranque limpio (recrea sus archivos recién en el
+/// primer login — ctt147_exp ii). Crashlytics aún no está disponible acá: se registra con
+/// debugPrint. Cualquier error se traga (la defensa nunca impide el arranque; la marca queda
+/// para reintentar).
+Future<void> _sanarSesionFirebaseSiCorresponde() async {
+  try {
+    final io = await crearDefensaSesionIo();
+    final borrados = io.defensa.sanarFase2(
+      io.archivos,
+      alError: (e, st) => debugPrint('[CTT-147] fase 2 error: $e'),
+    );
+    if (borrados > 0) {
+      debugPrint('[CTT-147] fase 2: $borrados archivo(s) de Firebase Auth borrados');
+    }
+  } catch (e, _) {
+    debugPrint('[CTT-147] fase 2 no ejecutada: $e');
+  }
 }
 
 void _configurarCrashlytics() {
