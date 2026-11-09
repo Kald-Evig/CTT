@@ -188,7 +188,7 @@ class _CrearItemScreenState extends ConsumerState<CrearItemScreen> {
                 decoration: const InputDecoration(
                   labelText: 'Ítem padre',
                   border: OutlineInputBorder(),
-                  helperText: 'Opcional — dejá vacío para crear como ítem raíz',
+                  helperText: 'Opcional — deja vacío para crear como ítem raíz',
                 ),
                 isExpanded: true,
                 items: [

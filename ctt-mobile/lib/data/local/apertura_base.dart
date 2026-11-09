@@ -33,7 +33,7 @@ class BaseMasNuevaException implements Exception {
   @override
   String toString() =>
       'BaseMasNuevaException: la base está en v$versionBase y la app soporta '
-      'hasta v$versionApp. Actualizá la app.';
+      'hasta v$versionApp. Actualiza la app.';
 }
 
 /// El respaldo previo a migrar no pasó `quick_check`: se aborta antes de tocar la

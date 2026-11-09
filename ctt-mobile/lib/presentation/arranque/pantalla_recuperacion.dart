@@ -89,7 +89,7 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
       ResultadoRescate.enviado when r.sinRescatar > 0 =>
         'Se enviaron ${r.enviadas} cambio${r.enviadas == 1 ? '' : 's'}. '
             'Quedaron ${r.sinRescatar} sin enviar; siguen guardados en el teléfono. '
-            'Avisá a tu supervisor.',
+            'Avisa a tu supervisor.',
       ResultadoRescate.enviado =>
         'Listo: tus cambios se enviaron a tu supervisor.',
       ResultadoRescate.nadaQueEnviar => 'No hay cambios sin enviar.',
@@ -100,9 +100,9 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
             'reintentará solo.',
       ResultadoRescate.errorCliente =>
         'No se pudieron enviar tus cambios. Siguen guardados en el teléfono. '
-            'Avisá a tu supervisor.',
+            'Avisa a tu supervisor.',
       ResultadoRescate.sinSesion =>
-        'Tus cambios siguen guardados en el teléfono. Avisá a tu supervisor.',
+        'Tus cambios siguen guardados en el teléfono. Avisa a tu supervisor.',
     };
   }
 
@@ -145,7 +145,7 @@ class _PantallaRecuperacionState extends ConsumerState<PantallaRecuperacion> {
               const SizedBox(height: 16),
               const Text(
                 'Tu trabajo NO se perdió. Para no perderlo, NO desinstales la app '
-                'ni borres sus datos. Avisá a tu supervisor.',
+                'ni borres sus datos. Avisa a tu supervisor.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
