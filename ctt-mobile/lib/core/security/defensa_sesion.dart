@@ -56,13 +56,26 @@ class DefensaSesion {
 
   final MarcasDefensa _marcas;
 
-  /// Decisión pura de la fase 1: ¿activar la defensa? Se activa solo si Firebase no tiene
-  /// usuario, hay token y NO venimos de sanar recién (evita el bucle).
+  /// Decisión pura de la fase 1: ¿activar la defensa? Se activa solo si es la PRIMERA resolución
+  /// de la sesión en este proceso, Firebase no tiene usuario, hay token y NO venimos de sanar
+  /// recién (evita el bucle).
+  ///
+  /// [esPrimeraResolucion] descarta el falso positivo de la carrera del logout: `cerrarSesion`
+  /// hace signOut (emite null) y deleteAll en paralelo; si el null llega antes de que el token se
+  /// borre, PerfilSesion.build ve `usuario == null` con token todavía presente. Como eso NO es la
+  /// primera resolución del proceso (ya hubo una sesión resuelta antes), la defensa no se activa.
+  /// Un cierre de sesión desde Firebase a mitad de uso (usuario deshabilitado) va al login normal
+  /// por la misma razón. El estado roto, en cambio, se detecta en la PRIMERA resolución (arranque
+  /// en frío con la sesión irrecuperable).
   bool debeActivarFase1({
+    required bool esPrimeraResolucion,
     required bool hayUsuarioFirebase,
     required bool hayToken,
   }) =>
-      !hayUsuarioFirebase && hayToken && !_marcas.hayRecienSanado;
+      esPrimeraResolucion &&
+      !hayUsuarioFirebase &&
+      hayToken &&
+      !_marcas.hayRecienSanado;
 
   /// Fase 1 completa: evalúa y, si corresponde, marca "sanar", registra el evento y —si la
   /// cola está vacía— limpia el token (si no, se conserva para que el headless siga drenando;
@@ -70,6 +83,7 @@ class DefensaSesion {
   /// pantalla bloqueante). No llama a `dao.limpiar()`: eso lo decide el llamador según el
   /// resultado (si se activa, NO se limpia `usuario_activo`).
   Future<bool> ejecutarFase1({
+    required bool esPrimeraResolucion,
     required bool hayUsuarioFirebase,
     required bool hayToken,
     required Future<int> Function() contarPendientes,
@@ -77,6 +91,7 @@ class DefensaSesion {
     required void Function() registrarEvento,
   }) async {
     if (!debeActivarFase1(
+      esPrimeraResolucion: esPrimeraResolucion,
       hayUsuarioFirebase: hayUsuarioFirebase,
       hayToken: hayToken,
     )) {

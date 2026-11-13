@@ -60,6 +60,7 @@ void main() {
       var tokenLimpiado = false;
 
       final activa = await defensa.ejecutarFase1(
+        esPrimeraResolucion: true,
         hayUsuarioFirebase: false,
         hayToken: true,
         contarPendientes: () async => 3,
@@ -79,6 +80,7 @@ void main() {
       var tokenLimpiado = false;
 
       final activa = await defensa.ejecutarFase1(
+        esPrimeraResolucion: true,
         hayUsuarioFirebase: false,
         hayToken: true,
         contarPendientes: () async => 0,
@@ -97,6 +99,7 @@ void main() {
       var eventos = 0;
 
       final activa = await defensa.ejecutarFase1(
+        esPrimeraResolucion: true,
         hayUsuarioFirebase: false,
         hayToken: false,
         contarPendientes: () async => 0,
@@ -114,6 +117,7 @@ void main() {
       final defensa = DefensaSesion(marcas);
 
       final activa = await defensa.ejecutarFase1(
+        esPrimeraResolucion: true,
         hayUsuarioFirebase: true,
         hayToken: true,
         contarPendientes: () async => 0,
@@ -130,6 +134,7 @@ void main() {
       final defensa = DefensaSesion(marcas);
 
       final activa = await defensa.ejecutarFase1(
+        esPrimeraResolucion: true,
         hayUsuarioFirebase: false,
         hayToken: true,
         contarPendientes: () async => 0,
@@ -139,6 +144,26 @@ void main() {
 
       expect(activa, isFalse);
       expect(marcas.haySanar, isFalse);
+    });
+
+    test('NO se activa si NO es la primera resolución (carrera del logout), aun con token',
+        () async {
+      final marcas = _MarcasFake();
+      final defensa = DefensaSesion(marcas);
+      var eventos = 0;
+
+      final activa = await defensa.ejecutarFase1(
+        esPrimeraResolucion: false, // ya hubo una resolución antes en este proceso
+        hayUsuarioFirebase: false,
+        hayToken: true,
+        contarPendientes: () async => 0,
+        limpiarToken: () async {},
+        registrarEvento: () => eventos++,
+      );
+
+      expect(activa, isFalse);
+      expect(marcas.haySanar, isFalse);
+      expect(eventos, 0);
     });
   });
 

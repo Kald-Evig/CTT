@@ -56,6 +56,23 @@ class ResultadoSesion {
 bool _rolConSesionOffline(String rol) =>
     rol == RolUsuario.trabajador.valor || rol == RolUsuario.residente.valor;
 
+/// Bandera EN MEMORIA (CTT-147): ¿ya se resolvió la sesión al menos una vez en ESTE proceso?
+/// La fase 1 de la defensa solo se evalúa en la primera resolución (ver [DefensaSesion]).
+class ResolucionSesionProceso {
+  bool yaResolvio = false;
+}
+
+/// keepAlive: la bandera vive toda la vida del proceso y NO se reinicia con los rebuilds de
+/// [PerfilSesion]. Ni `ref.invalidate(perfilSesionProvider)`, ni una nueva emisión de
+/// `firebaseAuthStream`, ni el `invalidateSelf()` de `AuthNotifier.cerrarSesion` tocan ESTE
+/// provider (cada uno reconstruye su propio provider, no éste). Un `autoDispose` o un campo en
+/// la instancia de PerfilSesion sí se reiniciarían — por eso vive en un provider keepAlive
+/// aparte, igual que el estado del guard en [CicloSyncUi]. No persiste: un proceso nuevo arranca
+/// en `false`.
+@Riverpod(keepAlive: true)
+ResolucionSesionProceso resolucionSesionProceso(ResolucionSesionProcesoRef ref) =>
+    ResolucionSesionProceso();
+
 @riverpod
 class PerfilSesion extends _$PerfilSesion {
   @override
@@ -64,11 +81,18 @@ class PerfilSesion extends _$PerfilSesion {
     final dao = ref.read(usuarioActivoDaoProvider);
     final storage = ref.read(secureStorageProvider);
 
+    // CTT-147: ¿es la PRIMERA resolución de la sesión en este proceso? Se lee ANTES de marcar y
+    // se marca ya (haya o no usuario), para que la próxima resolución —p. ej. el null que emite
+    // signOut en la carrera del logout— NO active la fase 1.
+    final resolucion = ref.read(resolucionSesionProcesoProvider);
+    final esPrimeraResolucion = !resolucion.yaResolvio;
+    resolucion.yaResolvio = true;
+
     if (usuario == null) {
       // CTT-147 fase 1 (detección), ANTES de dao.limpiar(): si se activa, NO se limpia
       // usuario_activo (se preserva el fallback offline de CTT-138; el dueño de la cola es
       // CTT-123). Si no se activa, se mantiene el logout real de siempre.
-      if (await _defensaFase1(storage)) {
+      if (await _defensaFase1(storage, esPrimeraResolucion: esPrimeraResolucion)) {
         return const ResultadoSesion.requiereSanar();
       }
       // Logout real: Firebase ya no tiene usuario. Se limpia el perfil local.
@@ -166,11 +190,15 @@ class PerfilSesion extends _$PerfilSesion {
   /// Fase 1: arma el controlador y lo ejecuta. Todo envuelto en try/catch: un fallo de la
   /// defensa (p. ej. sin path_provider en un test) NUNCA debe impedir el arranque; se cae al
   /// comportamiento de logout real.
-  Future<bool> _defensaFase1(SecureStorageService storage) async {
+  Future<bool> _defensaFase1(
+    SecureStorageService storage, {
+    required bool esPrimeraResolucion,
+  }) async {
     try {
       final io = await crearDefensaSesionIo();
       final syncDao = ref.read(syncDaoProvider);
       return await io.defensa.ejecutarFase1(
+        esPrimeraResolucion: esPrimeraResolucion,
         hayUsuarioFirebase: false, // esta rama es solo `usuario == null`
         hayToken: (await storage.obtenerToken()) != null,
         contarPendientes: syncDao.contarNoTerminales,
