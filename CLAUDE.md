@@ -59,3 +59,26 @@ La regla **también aplica a los mensajes del agente de Code hacia Kald y a los
 mensajes de commit**, no solo a los textos de la UI: "reconecta", "acepta",
 "activa", "abre", "espera", "avísame", "tienes", "puedes" — nunca "reconectá",
 "aceptá", "tenés", "podés".
+
+## Entorno local de desarrollo (vigente desde el 12-nov-2026)
+
+El disco **C: tiene poco espacio**: no generes ni descargues artefactos pesados
+ahí. Todo lo pesado (AVDs, caché de Gradle, builds) va a **D:**.
+
+- **AVDs:** `ANDROID_AVD_HOME=D:\Android\avd` (contiene `CTT_API30` y `Pixel_6`).
+- **Gradle:** `GRADLE_USER_HOME=D:\Android\.gradle`.
+- `C:\Users\souls\.android\avd` y `C:\Users\souls\.gradle` **ya no se usan**: no
+  los recrees ni apuntes Gradle/AVDs de vuelta a C:. Si un build recrea
+  `C:\Users\souls\.gradle`, es señal de que las variables no están tomando efecto
+  — detente y repórtalo (no hagas workarounds en C:).
+- El **Android SDK sí sigue en C:** (`sdk.dir=C:\Users\souls\AppData\Local\Android\Sdk`
+  en `android/local.properties`, que es gitignored/machine-specific). El traslado
+  fue solo de AVDs y de la caché de Gradle, no del SDK.
+- En scripts y evidencia usa las **variables** (`$ANDROID_AVD_HOME`,
+  `$GRADLE_USER_HOME`), nunca rutas absolutas de C:.
+- **Precondición antes de buildear/emular:** en el shell,
+  `echo $ANDROID_AVD_HOME $GRADLE_USER_HOME` debe mostrar las rutas de D:. Si salen
+  vacías (un shell abierto antes del cambio no las hereda), detente y pide reiniciar
+  la terminal o VS Code — no las exportes a mano como solución.
+- `emulator -list-avds` debe listar `CTT_API30` y `Pixel_6`; `D:\Android\avd\*.ini`
+  tiene `path=` apuntando a D:.
