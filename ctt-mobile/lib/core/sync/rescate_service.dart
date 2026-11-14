@@ -15,6 +15,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
+import 'package:ctt_mobile/core/network/clasificacion_dio.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart'
     show opcionesBaseDio, secureStorageProvider;
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
@@ -205,7 +206,11 @@ class RescateService {
         sinRescatar: sinRescatar,
       );
     } on DioException catch (e) {
-      if (_esErrorDeRed(e)) {
+      // Cualquier falla SIN respuesta (transporte o interna) → sinRed: se reintenta con
+      // backoff mientras la pantalla esté abierta. El servidor de rescate es idempotente,
+      // así que reintentar nunca descarta (CTT-103). La clasificación vive en
+      // clasificarFallaDio (fuente única, CTT-142).
+      if (clasificarFallaDio(e) != ClaseFallaDio.conRespuesta) {
         return const RescateResultado(ResultadoRescate.sinRed);
       }
       // 5xx/429 son fallas transitorias del servidor (el mismo caso que CTT-103
@@ -218,12 +223,6 @@ class RescateService {
       return const RescateResultado(ResultadoRescate.errorCliente);
     }
   }
-
-  bool _esErrorDeRed(DioException e) =>
-      e.type == DioExceptionType.connectionTimeout ||
-      e.type == DioExceptionType.receiveTimeout ||
-      e.type == DioExceptionType.sendTimeout ||
-      e.type == DioExceptionType.connectionError;
 }
 
 /// Modo de autenticación configurado (Entorno / AUTH_MODE). Provider para poder

@@ -222,6 +222,42 @@ void main() {
     expect(r.estado, ResultadoRescate.sinRed);
   });
 
+  test('unknown + SocketException (corte mid-request) → sinRed (CTT-142)', () async {
+    await sembrarCola();
+    final dio = _MockDio();
+    final deviceId = _MockDeviceId();
+    stubPostThrow(
+      dio,
+      DioException(
+        requestOptions: RequestOptions(path: '/sync/rescate'),
+        type: DioExceptionType.unknown,
+        error: const SocketException('Connection reset by peer'),
+      ),
+    );
+
+    final r = await servicio(dio, deviceId, token: 'tok').rescatar();
+    expect(r.estado, ResultadoRescate.sinRed);
+  });
+
+  test('unknown + PlatformException (falla interna) → sinRed, no errorCliente '
+      '(CTT-142 cambio b: el rescate reintenta toda falla sin respuesta; es idempotente)',
+      () async {
+    await sembrarCola();
+    final dio = _MockDio();
+    final deviceId = _MockDeviceId();
+    stubPostThrow(
+      dio,
+      DioException(
+        requestOptions: RequestOptions(path: '/sync/rescate'),
+        type: DioExceptionType.unknown,
+        error: PlatformException(code: 'keystore_error'),
+      ),
+    );
+
+    final r = await servicio(dio, deviceId, token: 'tok').rescatar();
+    expect(r.estado, ResultadoRescate.sinRed); // antes de CTT-142 habría sido errorCliente
+  });
+
   test('5xx → errorServidor (transitorio, reintentable)', () async {
     await sembrarCola();
     final dio = _MockDio();

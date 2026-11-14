@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/errors/exceptions.dart';
+import 'package:ctt_mobile/core/network/clasificacion_dio.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 
 class ErrorInterceptor extends Interceptor {
@@ -61,10 +62,13 @@ class ErrorInterceptor extends Interceptor {
           ),
         ),);
       default:
-        // Sin respuesta (timeout, sin conexión).
-        if (err.type == DioExceptionType.connectionTimeout ||
-            err.type == DioExceptionType.receiveTimeout ||
-            err.type == DioExceptionType.connectionError) {
+        // Falla sin respuesta de TRANSPORTE (red) → ExcepcionRed (habilita el fallback
+        // offline de /me, CTT-138). La clasificación vive en clasificarFallaDio (fuente
+        // única): cubre timeouts (incluido sendTimeout, CTT-142) y un `unknown` que
+        // envuelve SocketException/HttpException (corte de red en mitad del request). Una
+        // falla sin respuesta INTERNA (Keystore, serializer, certificado) o un badResponse
+        // sin case propio se propagan crudos (handler.next): no son "sin conexión".
+        if (clasificarFallaDio(err) == ClaseFallaDio.sinRespuestaTransporte) {
           handler.reject(DioException(
             requestOptions: err.requestOptions,
             error: const ExcepcionRed(

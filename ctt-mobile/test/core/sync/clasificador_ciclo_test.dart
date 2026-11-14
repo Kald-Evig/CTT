@@ -5,6 +5,7 @@
 /// inyectado + Retry-After como piso) y el aborto de corrida en 401.
 library;
 
+import 'dart:io';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
@@ -90,7 +91,7 @@ void main() {
         payloadVersion: 1,
         creadoEnDispositivo: DateTime.utc(2026, 1, 1),
         estado: const Value('pendiente'),
-      ));
+      ),);
 
   Future<SyncPendiente> leer(String id) =>
       (db.select(db.syncPendientes)..where((t) => t.id.equals(id))).getSingle();
@@ -134,7 +135,7 @@ void main() {
     await insertar('r', 'item-A');
     stubPost(_err(409, data: {
       'detail': {'tipo': 'conflicto_concurrencia', 'conflicto_id': 'c-1'},
-    }),);
+    },),);
 
     await ciclo().ejecutar();
     final f = await leer('r');
@@ -152,7 +153,7 @@ void main() {
         'motivo': 'transicion_invalida',
         'mensaje': 'no válida',
       },
-    }),);
+    },),);
 
     await ciclo().ejecutar();
     final f = await leer('r');
@@ -168,7 +169,7 @@ void main() {
     await insertar('r', 'item-A');
     stubPost(_err(409, data: {
       'detail': {'tipo': 'solicitud_en_proceso', 'mensaje': 'en vuelo'},
-    }),);
+    },),);
 
     await ciclo().ejecutar();
     final f = await leer('r');
@@ -218,6 +219,23 @@ void main() {
     final f = await leer('r');
     expect(f.estado, EstadoSyncLocal.pendiente.valor);
     expect(f.intentosRed, 1);
+  });
+
+  test('unknown + SocketException (corte mid-request) → transitorio de red → intentos_red '
+      '(CTT-142: la cola no cambia; ultimo_error_codigo NULL para liberarBackoffRed)', () async {
+    await insertar('r', 'item-A');
+    stubPost(DioException(
+      requestOptions: RequestOptions(path: '/items/x/transicion'),
+      type: DioExceptionType.unknown,
+      error: const SocketException('Connection reset by peer'),
+    ),);
+
+    await ciclo().ejecutar();
+    final f = await leer('r');
+    expect(f.estado, EstadoSyncLocal.pendiente.valor);
+    expect(f.intentosRed, 1);
+    expect(f.intentosServidor, 0); // I1: una falla sin respuesta nunca toca intentos_servidor
+    expect(f.ultimoErrorCodigo, isNull); // I2: liberarBackoffRed depende de este NULL
   });
 
   test('429 SIN Retry-After → intentos_red, backoff con jitter (Random=0.5)', () async {

@@ -21,6 +21,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:ctt_mobile/core/config/environment.dart';
 import 'package:ctt_mobile/core/device/device_id_service.dart';
+import 'package:ctt_mobile/core/network/clasificacion_dio.dart';
 import 'package:ctt_mobile/core/network/dio_client.dart';
 import 'package:ctt_mobile/core/network/extraer_detalle_backend.dart';
 import 'package:ctt_mobile/core/sync/decision_sync.dart';
@@ -369,7 +370,16 @@ class CicloSync {
     final detalle = extraerDetalleBackend(error);
     final retryAfter = extraerRetryAfter(error);
 
-    // Sin respuesta (red/timeout) → transitorio de red.
+    // Sin respuesta (red/timeout/corte interno) → transitorio de red. Las DOS clases sin
+    // respuesta (transporte e interna) caen acá: la cola NUNCA descarta por red (I1/I2) y
+    // deja ultimo_error_codigo NULL. La clasificación vive en clasificarFallaDio (fuente
+    // única, CTT-142); equivale al viejo `status == null` (conRespuesta ⇔ response != null).
+    if (clasificarFallaDio(error) != ClaseFallaDio.conRespuesta) {
+      return _clas(SenalSync.fallaTransitoriaRed, detalle: detalle);
+    }
+    // conRespuesta ⇒ hay respuesta HTTP con status. Defensa (no debería ocurrir): un
+    // response sin statusCode se trata como transitorio —igual que antes—, nunca descarta;
+    // además promueve `status` a no-nulo para las ramas de abajo.
     if (status == null) {
       return _clas(SenalSync.fallaTransitoriaRed, detalle: detalle);
     }
