@@ -25,8 +25,14 @@ class Entorno {
     defaultValue: 'mock',
   );
 
-  /// Tiempo máximo de conexión y recepción para requests HTTP.
-  static const Duration timeoutConexion = Duration(seconds: 30);
+  /// Tiempos máximos por fase de un request HTTP (CTT-142). Fuente ÚNICA para TODOS los Dio
+  /// (interactivo, cola/headless vía crearDioSync, rescate), aplicados en [opcionesBaseDio].
+  /// - Conexión 5 s: el camino interactivo falla rápido cuando no hay red (3G débil en obra),
+  ///   en vez de bloquear 30 s.
+  /// - Envío (sendTimeout) 15 s: acota el envío del cuerpo; en los GET sin cuerpo es no-op.
+  /// - Recepción 30 s: holgado para la respuesta del servidor.
+  static const Duration timeoutConexion = Duration(seconds: 5);
+  static const Duration timeoutEnvio = Duration(seconds: 15);
   static const Duration timeoutRecepcion = Duration(seconds: 30);
 
   /// Detectado automáticamente por Flutter en tiempo de compilación.

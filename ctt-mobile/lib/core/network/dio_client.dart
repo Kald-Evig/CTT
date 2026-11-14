@@ -42,9 +42,15 @@ Logger logger(LoggerRef ref) => crearLogger();
 /// comunes. Fuente única — no copiar esta configuración. El mapa de headers es NUEVO
 /// y mutable por llamada, para que cada Dio agregue los suyos (p. ej. X-Sync-Origen
 /// del sync) sin pisar a los demás.
+///
+/// `sendTimeout` va acá (no solo en la cola/rescate): en dio 5.9.2 un `sendTimeout` con
+/// cuerpo vacío es un no-op silencioso —el adapter solo lo aplica si hay `requestStream`
+/// (io_adapter.dart:142) y no emite ningún aviso—, así que los GET del Dio interactivo no
+/// se ven afectados. Mantenerlo en la fuente única evita duplicar la config (CTT-142).
 BaseOptions opcionesBaseDio() => BaseOptions(
       baseUrl: Entorno.urlBaseApi,
       connectTimeout: Entorno.timeoutConexion,
+      sendTimeout: Entorno.timeoutEnvio,
       receiveTimeout: Entorno.timeoutRecepcion,
       headers: {
         'Content-Type': 'application/json',

@@ -115,10 +115,15 @@ class CicloSync {
   /// solo acota un caso patológico; si se alcanza, se deja un log de advertencia.
   static const kMaxPasadasPorCorrida = 50;
 
-  /// Duración del lease (I4): cota superior de un envío (conexión + recepción del Dio
-  /// de sync) + margen. 30s + 30s + 30s = 90s.
+  /// Duración del lease (I4): cota superior de un envío COMPLETO (conexión + envío +
+  /// recepción) + margen. El lease TIENE que acotar el peor caso de un envío entero: si no
+  /// incluyera el envío (sendTimeout, CTT-142), un envío lento podría superar el lease y
+  /// otra corrida reclamaría la fila en pleno envío (doble envío). 5 + 15 + 30 + 30 = 80s.
   static Duration get duracionLease =>
-      Entorno.timeoutConexion + Entorno.timeoutRecepcion + _margenLease;
+      Entorno.timeoutConexion +
+      Entorno.timeoutEnvio +
+      Entorno.timeoutRecepcion +
+      _margenLease;
 
   /// Parámetros del backoff exponencial con full jitter (CTT-103). [backoffBase] es público
   /// porque el planificador de primer plano (CTT-141) lo reutiliza como cadencia de su red de
