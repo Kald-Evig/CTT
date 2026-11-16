@@ -1,19 +1,22 @@
 /// detalle_item_screen.dart — Detalle de un ítem con acciones del trabajador.
 ///
-/// Máquina de estados visible (Sección 6.2):
-///   abierto → [Iniciar] → en_progreso
-///   en_progreso → [Terminar] → pendiente_revision
-///   en_progreso → [Reportar problema] → problema
-///   problema → [Reanudar] → en_progreso
+/// Los botones de transición NO se deciden acá: salen de `accionesPermitidas` sobre el
+/// contrato generado del backend (`domain/acciones_permitidas.dart`). La UI solo elige
+/// el texto/ícono de cada acción y los mensajes de los estados sin acciones.
+///   abierto → [Iniciar trabajo] → en_progreso (si está asignado)
+///   en_progreso → [Marcar como terminado] / [Reportar problema]
+///   problema → sin transiciones (CTT-153): solo el Residente/Coordinador cierra el problema
 ///   pendiente_revision / terminado → solo lectura para el trabajador
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart' show ItemConOverlay;
+import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart'
+    show ItemConOverlay;
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
+import 'package:ctt_mobile/domain/acciones_permitidas.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
@@ -108,7 +111,8 @@ class _CuerpoDetalle extends ConsumerWidget {
           const SizedBox(height: 32),
           const Divider(),
           const SizedBox(height: 16),
-          GateCapturaOffline(acciones: _AccionesEstado(item: item, estado: estado)),
+          GateCapturaOffline(
+              acciones: _AccionesEstado(item: item, estado: estado),),
         ],
       ),
     );
@@ -138,7 +142,7 @@ class _AvisoConflicto extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(Icons.sync_problem_outlined,
-                size: 20, color: Colors.amber.shade800),
+                size: 20, color: Colors.amber.shade800,),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -161,55 +165,79 @@ class _AccionesEstado extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return switch (estado) {
-      EstadoItem.abierto => _BotonPrimario(
-          label: 'Iniciar trabajo',
-          icono: Icons.play_arrow_rounded,
-          color: Theme.of(context).colorScheme.primary,
-          onTap: () => _ejecutarCambio(context, ref, EstadoItem.enProgreso),
-        ),
-      EstadoItem.enProgreso => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _BotonPrimario(
-              label: 'Marcar como terminado',
-              icono: Icons.check_circle_outline,
-              color: Colors.green.shade700,
-              onTap: () => _ejecutarCambio(
-                context,
-                ref,
-                EstadoItem.pendienteRevision,
-              ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.warning_amber_outlined),
-              label: const Text('Reportar problema'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red.shade700,
-                side: BorderSide(color: Colors.red.shade300),
-              ),
-              onPressed: () => _mostrarDialogoProblema(context, ref),
-            ),
-          ],
-        ),
-      EstadoItem.problema => _BotonPrimario(
-          label: 'Reanudar trabajo',
-          icono: Icons.replay_rounded,
-          color: Colors.orange.shade700,
-          onTap: () => _ejecutarCambio(context, ref, EstadoItem.enProgreso),
-        ),
-      EstadoItem.pendienteRevision => const ItemDetalleMensajeEstado(
-          icono: Icons.hourglass_top_rounded,
-          texto:
-              'Ítem enviado a revisión. Aguarda la confirmación del coordinador.',
-        ),
-      EstadoItem.terminado => const ItemDetalleMensajeEstado(
-          icono: Icons.verified_outlined,
-          texto: 'Este ítem fue marcado como terminado.',
-        ),
-    };
+    // La pantalla del Trabajador solo carga ítems asignados a él (require_item_access
+    // del backend), así que esAsignado = true.
+    final acciones = accionesPermitidas(
+      estado,
+      RolUsuario.trabajador,
+      esAsignado: true,
+    );
+    if (acciones.isEmpty) {
+      return _mensajeEstado(estado);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < acciones.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          _botonAccion(context, ref, acciones[i]),
+        ],
+      ],
+    );
   }
+
+  /// Botón para una acción del contrato. El texto/ícono son decisión de la UI; la
+  /// disponibilidad ya la decidió [accionesPermitidas].
+  Widget _botonAccion(BuildContext context, WidgetRef ref, AccionItem accion) {
+    if (accion is AccionTransicion) {
+      return switch (accion.hacia) {
+        EstadoItem.enProgreso => _BotonPrimario(
+            label: 'Iniciar trabajo',
+            icono: Icons.play_arrow_rounded,
+            color: Theme.of(context).colorScheme.primary,
+            onTap: () => _ejecutarCambio(context, ref, EstadoItem.enProgreso),
+          ),
+        EstadoItem.pendienteRevision => _BotonPrimario(
+            label: 'Marcar como terminado',
+            icono: Icons.check_circle_outline,
+            color: Colors.green.shade700,
+            onTap: () =>
+                _ejecutarCambio(context, ref, EstadoItem.pendienteRevision),
+          ),
+        EstadoItem.problema => OutlinedButton.icon(
+            icon: const Icon(Icons.warning_amber_outlined),
+            label: const Text('Reportar problema'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red.shade700,
+              side: BorderSide(color: Colors.red.shade300),
+            ),
+            onPressed: () => _mostrarDialogoProblema(context, ref),
+          ),
+        // El Trabajador no tiene otras transiciones en el contrato.
+        _ => const SizedBox.shrink(),
+      };
+    }
+    // Acciones especiales (cerrar problema / revertir terminado) no son del Trabajador.
+    return const SizedBox.shrink();
+  }
+
+  /// Mensaje de solo lectura para los estados sin acciones del Trabajador.
+  Widget _mensajeEstado(EstadoItem estado) => switch (estado) {
+        EstadoItem.problema => const ItemDetalleMensajeEstado(
+            icono: Icons.warning_amber_outlined,
+            texto: 'Problema reportado. Esperando que el Residente lo cierre.',
+          ),
+        EstadoItem.pendienteRevision => const ItemDetalleMensajeEstado(
+            icono: Icons.hourglass_top_rounded,
+            texto: 'Ítem enviado a revisión. Esperando aprobación.',
+          ),
+        EstadoItem.terminado => const ItemDetalleMensajeEstado(
+            icono: Icons.verified_outlined,
+            texto: 'Este ítem fue marcado como terminado.',
+          ),
+        // abierto / en_progreso siempre tienen acciones para el asignado.
+        _ => const SizedBox.shrink(),
+      };
 
   Future<void> _ejecutarCambio(
     BuildContext context,

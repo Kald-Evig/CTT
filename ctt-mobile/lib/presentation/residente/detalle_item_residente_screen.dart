@@ -1,10 +1,13 @@
 /// detalle_item_residente_screen.dart — Detalle de ítem para el Residente.
 ///
 /// Muestra datos del ítem + historial, comentarios, y evidencias (widgets
-/// compartidos vía ItemDetalleCuerpo). Acciones disponibles según estado:
-///   pendiente_revision → Aprobar / Rechazar (comentario obligatorio)
+/// compartidos vía ItemDetalleCuerpo). Los botones de TRANSICIÓN salen de
+/// `accionesPermitidas` sobre el contrato generado del backend; la UI solo elige el
+/// texto/ícono. "Asignar a trabajador" NO es una transición y se mantiene aparte.
+///   pendiente_revision → Aprobar / Rechazar (comentario obligatorio) / Marcar problema
+///   en_progreso        → Marcar problema
 ///   problema           → Cerrar problema
-///   cualquier estado editable → Marcar problema, Asignar trabajador
+///   abierto            → (sin transiciones; CTT-153: ya no se ofrece "Marcar problema")
 library;
 
 import 'package:flutter/material.dart';
@@ -12,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart' show ResultadoEspera;
 import 'package:ctt_mobile/data/repositories/residente_repository.dart';
+import 'package:ctt_mobile/domain/acciones_permitidas.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
 import 'package:ctt_mobile/presentation/residente/residente_providers.dart';
@@ -38,7 +42,8 @@ class DetalleItemResidenteScreen extends ConsumerWidget {
         ),
         data: (item) => ItemDetalleCuerpo(
           item: item,
-          acciones: GateCapturaOffline(acciones: _AccionesResidente(item: item)),
+          acciones:
+              GateCapturaOffline(acciones: _AccionesResidente(item: item)),
         ),
       ),
     );
@@ -62,47 +67,20 @@ class _AccionesResidente extends ConsumerWidget {
       );
     }
 
+    // Los botones de TRANSICIÓN salen del contrato generado del backend. El Residente
+    // no es el asignado (esAsignado solo habilita ABIERTO→EN_PROGRESO del Trabajador).
+    final acciones =
+        accionesPermitidas(estado, RolUsuario.residente, esAsignado: false);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (estado == EstadoItem.pendienteRevision) ...[
-          ItemDetalleBotonAccion(
-            label: 'Aprobar',
-            icono: Icons.verified_outlined,
-            color: Colors.green.shade700,
-            filled: true,
-            onTap: () => _aprobar(context, ref),
-          ),
-          const SizedBox(height: 12),
-          ItemDetalleBotonAccion(
-            label: 'Rechazar',
-            icono: Icons.close,
-            color: Colors.red.shade700,
-            filled: false,
-            onTap: () => _mostrarDialogoRechazar(context, ref),
-          ),
+        for (final accion in acciones) ...[
+          _botonAccion(context, ref, accion),
           const SizedBox(height: 12),
         ],
-        if (estado == EstadoItem.problema) ...[
-          ItemDetalleBotonAccion(
-            label: 'Cerrar problema',
-            icono: Icons.check_circle_outline,
-            color: Colors.orange.shade700,
-            filled: true,
-            onTap: () => _cerrarProblema(context, ref),
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (estado != EstadoItem.problema) ...[
-          ItemDetalleBotonAccion(
-            label: 'Marcar problema',
-            icono: Icons.warning_amber_outlined,
-            color: Colors.red.shade700,
-            filled: false,
-            onTap: () => _mostrarDialogoProblema(context, ref),
-          ),
-          const SizedBox(height: 12),
-        ],
+        // "Asignar a trabajador" NO es una transición de la máquina de estados: se
+        // mantiene aparte, independiente del contrato.
         ItemDetalleBotonAccion(
           label: 'Asignar a trabajador',
           icono: Icons.person_add_outlined,
@@ -112,6 +90,49 @@ class _AccionesResidente extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  /// Botón para una acción del contrato. El texto/ícono los elige la UI; la
+  /// disponibilidad ya la decidió [accionesPermitidas].
+  Widget _botonAccion(BuildContext context, WidgetRef ref, AccionItem accion) {
+    if (accion is AccionTransicion) {
+      return switch (accion.hacia) {
+        EstadoItem.terminado => ItemDetalleBotonAccion(
+            label: 'Aprobar',
+            icono: Icons.verified_outlined,
+            color: Colors.green.shade700,
+            filled: true,
+            onTap: () => _aprobar(context, ref),
+          ),
+        EstadoItem.enProgreso => ItemDetalleBotonAccion(
+            label: 'Rechazar',
+            icono: Icons.close,
+            color: Colors.red.shade700,
+            filled: false,
+            onTap: () => _mostrarDialogoRechazar(context, ref),
+          ),
+        EstadoItem.problema => ItemDetalleBotonAccion(
+            label: 'Marcar problema',
+            icono: Icons.warning_amber_outlined,
+            color: Colors.red.shade700,
+            filled: false,
+            onTap: () => _mostrarDialogoProblema(context, ref),
+          ),
+        _ => const SizedBox.shrink(),
+      };
+    }
+    if (accion is AccionEspecialItem &&
+        accion.accion == AccionEspecial.cerrarProblema) {
+      return ItemDetalleBotonAccion(
+        label: 'Cerrar problema',
+        icono: Icons.check_circle_outline,
+        color: Colors.orange.shade700,
+        filled: true,
+        onTap: () => _cerrarProblema(context, ref),
+      );
+    }
+    // revertir_terminado no es del Residente (solo Admin, fuera de alcance CTT-153).
+    return const SizedBox.shrink();
   }
 
   Future<void> _aprobar(BuildContext context, WidgetRef ref) async {
@@ -345,7 +366,9 @@ class _AccionesResidente extends ConsumerWidget {
     String mensajeExito = 'Cambio aplicado.',
   }) {
     mostrarMensaje(
-        context, mensajeDeResultadoEspera(resultado, exito: mensajeExito),);
+      context,
+      mensajeDeResultadoEspera(resultado, exito: mensajeExito),
+    );
   }
 
   void _mostrarError(BuildContext context, Object e) {
