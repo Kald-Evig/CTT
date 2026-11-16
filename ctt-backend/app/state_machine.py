@@ -64,6 +64,18 @@ TRANSICIONES: list[Transicion] = [
 ]
 
 
+# ── Roles de las acciones especiales (fuera de la tabla TRANSICIONES) ────────
+# Fuente ÚNICA de estos roles: los usan las funciones de abajo (cerrar_problema /
+# revertir_terminado) Y el generador del contrato Dart
+# (scripts/generar_contrato_dart.py). cerrar_problema coincide con
+# MATRIZ_PERMISOS["cerrar_problema"] (permissions.py); revertir_terminado no está
+# en la matriz (es la excepción R3, solo Admin).
+ROLES_CERRAR_PROBLEMA: frozenset[Rol] = frozenset(
+    {Rol.RESIDENTE, Rol.COORDINADOR, Rol.ADMIN}
+)
+ROLES_REVERTIR_TERMINADO: frozenset[Rol] = frozenset({Rol.ADMIN})
+
+
 def _buscar_transicion(desde: ItemEstado, hacia: ItemEstado) -> Transicion | None:
     for t in TRANSICIONES:
         if t.desde == desde and t.hacia == hacia:
@@ -174,7 +186,7 @@ def cerrar_problema(
 
     Roles permitidos: Residente, Coordinador, Admin.
     """
-    if rol not in (Rol.RESIDENTE, Rol.COORDINADOR, Rol.ADMIN):
+    if rol not in ROLES_CERRAR_PROBLEMA:
         raise TransicionInvalida(
             f"El rol '{rol.value}' no puede cerrar problemas."
         )
@@ -214,7 +226,7 @@ def revertir_terminado(
 
     Vuelve a PENDIENTE_REVISION para re-evaluación. Requiere motivo.
     """
-    if rol != Rol.ADMIN:
+    if rol not in ROLES_REVERTIR_TERMINADO:
         raise TransicionInvalida("Solo un Admin puede revertir un ítem terminado.")
     if item.estado != ItemEstado.TERMINADO:
         raise TransicionInvalida("El ítem no está TERMINADO.")
