@@ -82,3 +82,24 @@ ahí. Todo lo pesado (AVDs, caché de Gradle, builds) va a **D:**.
   la terminal o VS Code — no las exportes a mano como solución.
 - `emulator -list-avds` debe listar `CTT_API30` y `Pixel_6`; `D:\Android\avd\*.ini`
   tiene `path=` apuntando a D:.
+
+## Regla de trabajo permanente: encoding de las salidas guardadas
+
+Toda salida de texto que se guarde desde **PowerShell** se escribe en **UTF-8**
+(el contrato de evidencia exige UTF-8), nunca con el operador `>` ni con
+`Tee-Object`/`Out-File` por defecto: en Windows PowerShell 5.1 el `>` produce
+**UTF-16 LE con BOM**, que no es UTF-8.
+
+- Texto: usar `Out-File -Encoding utf8` o `Set-Content -Encoding utf8` (o, para
+  UTF-8 **sin BOM**, `[System.IO.File]::WriteAllText(path, texto, (New-Object System.Text.UTF8Encoding $false))`).
+  Preferible aún: escribir los archivos de evidencia con la herramienta Write.
+- **Binarios** (PNG, APK, .db): nunca redirigir la salida de un comando nativo a un
+  archivo con `>` (lo corrompe). Sacarlos con `adb pull`, `Copy-Item`, o
+  `[System.IO.File]::WriteAllBytes`.
+- Verificar el encoding con `file <archivo>` (tool Bash) cuando importe.
+
+Incidentes que originaron la regla:
+- **CTT-142:** un screenshot capturado con `adb exec-out screencap -p > login1.png`
+  quedó en UTF-16 y no era un PNG válido; hubo que recapturarlo con `adb pull`.
+- **CTT-153:** `.evidencia/ctt153_pre_{cliente,backend}.txt` se guardaron con
+  `Tee-Object`/`>` en UTF-16 LE y hubo que reconvertirlos a UTF-8.
