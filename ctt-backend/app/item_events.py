@@ -12,8 +12,12 @@ commit: el endpoint es dueño de la transacción, igual que `record_audit`
 (audit.py). Así el historial, el audit y el cambio de negocio quedan atómicos.
 """
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
+from app.clock import get_now
+from app.enums import ItemEstado
 from app.models import Item, ItemHistorial
 
 
@@ -30,6 +34,7 @@ def registrar_escritura_item(
     detalle: str | None = None,
     dispositivo_id: str | None = None,
     idempotency_key: str | None = None,
+    now: datetime | None = None,
 ) -> int:
     """Materializa el bump de `version` y escribe una fila de `item_historial`.
 
@@ -37,6 +42,20 @@ def registrar_escritura_item(
     mutó el `item` (estado/asignado/campos) o lo acaba de crear; aquí solo se
     flushea para que version_id_col asigne la versión y se registra el evento.
     """
+    # CTT-161: este helper es también el ÚNICO que mantiene items.terminado_en. Al ENTRAR a
+    # TERMINADO lo sella con el instante [now] (el reloj inyectable get_now() que el endpoint
+    # resuelve y pasa; fallback al mismo reloj si no se pasó); al SALIR de terminado lo limpia
+    # a NULL. Escribe SOLO cuando el valor cambia de verdad (no toca una creación ni una
+    # transición entre estados no-terminales): así no re-ensucia el ítem ni provoca un segundo
+    # bump de version. Las escrituras SIN cambio de estado (edicion_datos, asignacion →
+    # estado_nuevo=None) tampoco lo tocan. Por eso las rutas de transición llaman a este helper
+    # ANTES de record_audit: el sello de terminado_en viaja en el MISMO UPDATE que el estado
+    # (un solo bump de version, invariante de CTT-143).
+    if estado_nuevo == ItemEstado.TERMINADO.value:
+        if item.terminado_en is None:
+            item.terminado_en = now if now is not None else get_now()
+    elif estado_nuevo is not None and item.terminado_en is not None:
+        item.terminado_en = None
     # Flush: version_id_col asigna/incrementa items.version sobre el ítem ya mutado
     # (o lo inserta, con version=1, si es nuevo). Recién ahí item.version es el valor
     # POSTERIOR a esta escritura. Un flush previo de record_audit no vuelve a subirla:
