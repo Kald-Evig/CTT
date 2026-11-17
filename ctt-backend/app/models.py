@@ -22,8 +22,8 @@ from datetime import date, datetime, timezone
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, Enum as _SAEnum, Float, ForeignKey, Index, Integer,
-    String, Text, JSON, UniqueConstraint, text,
+    Boolean, CheckConstraint, Date, DateTime, Enum as _SAEnum, Float, ForeignKey,
+    Index, Integer, String, Text, JSON, UniqueConstraint, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -60,6 +60,10 @@ def _now() -> datetime:
 # ─────────────────────────────────────────────────────────────────────────────
 class Empresa(Base):
     __tablename__ = "empresas"
+    # CTT-161: N de días que /items/mis-items sigue enviando un terminado (> 0).
+    __table_args__ = (
+        CheckConstraint("dias_ventana_terminados > 0", name="dias_ventana_terminados_pos"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     nombre: Mapped[str] = mapped_column(String(255))
@@ -67,6 +71,12 @@ class Empresa(Base):
     email_contacto: Mapped[str] = mapped_column(String(255))
     plan: Mapped[EmpresaPlan] = mapped_column(SAEnum(EmpresaPlan, native_enum=False, create_constraint=True, name="plan"), default=EmpresaPlan.TRIAL)
     estado: Mapped[EmpresaEstado] = mapped_column(SAEnum(EmpresaEstado, native_enum=False, create_constraint=True, name="estado"), default=EmpresaEstado.TRIAL)
+    # CTT-161: ventana de terminados por empresa. Default 30 (un ciclo 14x14 deja el
+    # borde exacto en 28; 30 lo cubre). La edición y el N por usuario llegan con el
+    # ticket del modelo de turnos. Convención naive=UTC como el resto del esquema.
+    dias_ventana_terminados: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("30"), default=30,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
     # Relaciones
@@ -164,6 +174,15 @@ class ProyectoUsuario(Base):
 # ─────────────────────────────────────────────────────────────────────────────
 class Item(Base):
     __tablename__ = "items"
+    # CTT-161: índice parcial para la ventana de terminados en /items/mis-items
+    # (filtra asignado_a + terminado_en solo sobre las filas en estado 'terminado').
+    __table_args__ = (
+        Index(
+            "ix_items_asignado_terminado_en", "asignado_a", "terminado_en",
+            sqlite_where=text("estado = 'terminado'"),
+            postgresql_where=text("estado = 'terminado'"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     proyecto_id: Mapped[str] = mapped_column(ForeignKey("proyectos.id"))
@@ -179,6 +198,11 @@ class Item(Base):
     fecha_inicio_estimada: Mapped[datetime | None] = mapped_column(Date, nullable=True)
     duracion_estimada_horas: Mapped[float | None] = mapped_column(Float, nullable=True)
     fecha_limite: Mapped[datetime | None] = mapped_column(Date, nullable=True)  # para reporte de retraso
+    # CTT-161: instante en que el ítem pasó a TERMINADO (naive=UTC, convención del
+    # esquema). Lo escribe SOLO registrar_escritura_item (now al entrar a terminado,
+    # NULL al salir). NULL para los ítems que nunca terminaron. Da la ventana de
+    # /items/mis-items. Backfill en la migración desde item_historial o updated_at.
+    terminado_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     orden: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
