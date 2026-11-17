@@ -199,6 +199,33 @@ def test_e_consistencia_con_historial(client, seeded, db):
         f"terminado_en ({obtenido}) debe ser el created_at del ULTIMO evento a terminado")
 
 
+# ── (e-runtime) un SOLO instante: terminado_en == created_at del evento == reloj ─
+def test_e_runtime_un_solo_instante(client, seeded, db):
+    # En RUNTIME (no backfill): una transición real pendiente_revision -> terminado por el
+    # endpoint, con el reloj fijo en T0, debe dejar terminado_en y el created_at de la fila de
+    # historial de ESE cambio en el MISMO instante T0.
+    iid = _crear_item(db, seeded.proyecto, seeded.trab_id, ItemEstado.PENDIENTE_REVISION,
+                      terminado_en=None, nombre="run")
+    db.expire_all()
+    v = db.query(Item.version).filter(Item.id == iid).scalar()
+
+    with reloj_fijo(T0):
+        r = client.post(f"/items/{iid}/transicion", headers=_h(seeded, seeded.resid),
+                        json={"nuevo_estado": "terminado", "version_base": v})
+        assert r.status_code == 200, r.text
+
+    db.expire_all()
+    terminado_en = db.get(Item, iid).terminado_en
+    created_at = (db.query(ItemHistorial.created_at)
+                  .filter(ItemHistorial.item_id == iid,
+                          ItemHistorial.accion == "cambio_estado",
+                          ItemHistorial.estado_nuevo == "terminado")
+                  .scalar())
+    assert terminado_en == T0, f"terminado_en ({terminado_en}) debe ser el instante del reloj T0"
+    assert created_at == T0, f"created_at del historial ({created_at}) debe ser T0"
+    assert terminado_en == created_at, "terminado_en y el created_at del evento deben coincidir"
+
+
 # ── (f) backfill sin historial: usa updated_at ────────────────────────────────
 def test_f_backfill_sin_historial_usa_updated_at(client, seeded, db):
     upd = datetime(2026, 4, 20, 8, 15, 0)
