@@ -27,6 +27,7 @@ from app.auth import (
     requiere_empresa,
 )
 from app.authz import scope_orm
+from app.clock import get_now
 from app.database import get_db
 from app.enums import (
     ConflictoEstado,
@@ -155,6 +156,7 @@ def resolver_conflicto(
     body: ConflictoResolverIn,
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),  # CTT-161: reloj para terminado_en si 'local' gana hacia TERMINADO
 ):
     """Resuelve un conflicto eligiendo la versión local o la del servidor.
 
@@ -225,6 +227,7 @@ def resolver_conflicto(
                 actor_rol=ctx.rol.value if ctx.rol else None,
                 estado_anterior=estado_anterior_local, estado_nuevo=nuevo_estado_str,
                 detalle=f"Conflicto {conflicto.id}: ganó local.",
+                now=now,  # CTT-161: sella/limpia terminado_en según el estado ganador
             )
 
         # Fix A — preservar comentario del cambio local en item_comentarios con

@@ -11,7 +11,7 @@ Incluye:
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
@@ -31,13 +31,14 @@ from app.authz import (
     resolver_item_access,
 )
 from app.item_events import registrar_escritura_item
+from app.clock import get_now
 from app.config import settings
 from app.database import get_db
 from app.enums import (
     ConflictoEstado, EvidenciaSyncStatus, ItemEstado, RechazoMotivo, Rol, UsuarioEstado,
 )
 from app.models import (
-    AuditLog, Item, ItemComentario, ItemEvidencia, ItemHistorial,
+    AuditLog, Empresa, Item, ItemComentario, ItemEvidencia, ItemHistorial,
     Proyecto, ProyectoUsuario, SyncConflicto, SyncRechazo, Usuario,
 )
 from app.notifications import notificar
@@ -287,19 +288,29 @@ def listar_items(
 def mis_items(
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),  # CTT-161: reloj inyectable para el corte de la ventana
 ):
     """Ítems asignados al usuario autenticado en la empresa activa.
 
     Incluye proyecto_nombre para que el cliente pueda agrupar sin consultas
-    adicionales. Devuelve todos los estados (el cliente filtra según vista).
+    adicionales. Devuelve los estados activos SIEMPRE; los TERMINADO solo dentro de la
+    ventana de N días de la empresa (CTT-161): un terminado cuyo `terminado_en` es más
+    viejo que el corte deja de enviarse (y el cliente lo retira — CTT-149).
     """
     empresa_id = requiere_empresa(ctx)
+    # N por empresa (NOT NULL, default 30). El corte se calcula en Python con el reloj
+    # inyectable (naive UTC), NO con now() de Postgres: terminado_en es DateTime sin tz y
+    # comparar contra now() del server dependería de la zona horaria de la sesión (CTT-161).
+    dias_ventana = db.query(Empresa.dias_ventana_terminados).filter(
+        Empresa.id == empresa_id).scalar()
+    corte = now - timedelta(days=dias_ventana)
     filas = (
         db.query(Item, Proyecto.nombre)
         .join(Proyecto, Item.proyecto_id == Proyecto.id)
         .filter(
             Proyecto.empresa_id == empresa_id,
             Item.asignado_a == ctx.usuario.id,
+            (Item.estado != ItemEstado.TERMINADO) | (Item.terminado_en >= corte),
         )
         .order_by(Item.orden, Item.created_at)
         .all()
@@ -562,6 +573,7 @@ def transicion_item(
     request: Request,
     ctx: AuthContext = Depends(get_current_context),
     db: Session = Depends(get_db),
+    now: datetime = Depends(get_now),  # CTT-161: reloj inyectable para sellar terminado_en
 ):
     """Aplica una transición de estado (Sección 6). La autorización fina por
     transición la resuelve la máquina de estados.
@@ -736,6 +748,20 @@ def transicion_item(
                       titulo=f"Problema: {item.nombre}",
                       cuerpo=body.descripcion_problema, email_destino=sup.email)
 
+    # CTT-143 D1: historial del cambio de estado (antes lo escribía state_machine).
+    # dispositivo_id/idempotency_key quedan registrados en la fila (origen del comando).
+    # CTT-161: va ANTES de record_audit para que el sello de terminado_en viaje en el MISMO
+    # UPDATE que el estado (record_audit hace su propio flush; si corriera primero, el sello
+    # posterior haría un segundo bump de version — ver item_events.py). Ambos quedan en la
+    # misma transacción, igual que antes.
+    registrar_escritura_item(
+        db, item, accion="cambio_estado",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        estado_anterior=estado_anterior, estado_nuevo=body.nuevo_estado.value,
+        detalle=body.comentario or body.descripcion_problema,
+        dispositivo_id=body.dispositivo_id, idempotency_key=idem_key,
+        now=now,  # CTT-161: sella terminado_en si la transición es hacia TERMINADO
+    )
     # ── Audit log (CTT-48) — misma transacción que ItemHistorial y el cambio ──
     # device_timestamp presente → cambio vino de la cola offline del SyncService.
     record_audit(
@@ -750,15 +776,6 @@ def transicion_item(
         detalle=body.comentario or body.descripcion_problema,
         device_ts=body.device_timestamp,
         synced_offline=body.device_timestamp is not None,
-    )
-    # CTT-143 D1: historial del cambio de estado (antes lo escribía state_machine).
-    # dispositivo_id/idempotency_key quedan registrados en la fila (origen del comando).
-    registrar_escritura_item(
-        db, item, accion="cambio_estado",
-        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
-        estado_anterior=estado_anterior, estado_nuevo=body.nuevo_estado.value,
-        detalle=body.comentario or body.descripcion_problema,
-        dispositivo_id=body.dispositivo_id, idempotency_key=idem_key,
     )
 
     # CTT-143 (21-oct): esta transición del propio usuario sobre el ítem deja OBSOLETO
@@ -832,6 +849,16 @@ def revertir_terminado_item(
         revertir_terminado(db, item, rol=ctx.rol, usuario_id=ctx.usuario.id, motivo=motivo)
     except TransicionInvalida as e:
         raise HTTPException(status_code=409, detail=str(e))
+    # CTT-143 D1: historial de la reversión (antes lo escribía state_machine).
+    # CTT-161: ANTES de record_audit para que el borrado de terminado_en (salir de TERMINADO
+    # → NULL) viaje en el MISMO UPDATE que el estado y haya un solo bump de version.
+    registrar_escritura_item(
+        db, item, accion="reversion_terminado",
+        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
+        estado_anterior=ItemEstado.TERMINADO.value,
+        estado_nuevo=ItemEstado.PENDIENTE_REVISION.value,
+        detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
+    )
     record_audit(
         db,
         empresa_id=empresa_id,
@@ -841,14 +868,6 @@ def revertir_terminado_item(
         entidad_id=item.id,
         proyecto_id=item.proyecto_id,
         diff={"estado": [ItemEstado.TERMINADO.value, ItemEstado.PENDIENTE_REVISION.value]},
-        detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
-    )
-    # CTT-143 D1: historial de la reversión (antes lo escribía state_machine).
-    registrar_escritura_item(
-        db, item, accion="reversion_terminado",
-        usuario_id=ctx.usuario.id, actor_rol=ctx.rol.value if ctx.rol else None,
-        estado_anterior=ItemEstado.TERMINADO.value,
-        estado_nuevo=ItemEstado.PENDIENTE_REVISION.value,
         detalle=f"Reversión excepcional (Admin): {motivo.strip()}",
     )
     db.commit()
