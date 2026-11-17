@@ -7,6 +7,7 @@ items no asignados al usuario e inclusión de proyecto_nombre.
 
 import pytest
 
+from app.clock import get_now
 from app.database import Base, SessionLocal, engine
 from app.enums import EmpresaPlan, ItemEstado, Rol
 from app.main import app
@@ -146,8 +147,13 @@ def test_mis_items_incluye_todos_los_estados(client, db_limpia):
 
     for estado in (ItemEstado.ABIERTO, ItemEstado.EN_PROGRESO,
                    ItemEstado.PENDIENTE_REVISION, ItemEstado.TERMINADO):
+        # CTT-161: un TERMINADO solo aparece si su terminado_en está dentro de la ventana de
+        # la empresa. Se sella reciente (get_now) para que este caso siga comprobando que los
+        # 4 estados aparecen; la exclusión del terminado viejo la cubre test_ventana_terminados.
+        terminado_en = get_now() if estado == ItemEstado.TERMINADO else None
         db_limpia.add(Item(proyecto_id=proy.id, nombre=f"Tarea {estado.value}",
-                           nivel_profundidad=0, asignado_a=trab.id, estado=estado))
+                           nivel_profundidad=0, asignado_a=trab.id, estado=estado,
+                           terminado_en=terminado_en))
     db_limpia.commit()
 
     r = client.get("/items/mis-items", headers=_headers("uid-trab-mi"))
