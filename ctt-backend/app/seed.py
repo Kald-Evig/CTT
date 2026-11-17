@@ -20,6 +20,7 @@ from datetime import date, timedelta
 from alembic import command
 from alembic.config import Config
 
+from app.clock import get_now
 from app.database import Base, SessionLocal, engine
 from app.enums import EmpresaPlan, ItemEstado, Rol
 from app.models import (
@@ -124,9 +125,11 @@ def run():
                     nombre="Compactación base", asignado_a=trab2.id,
                     estado=ItemEstado.ABIERTO, orden=2,
                     fecha_limite=date.today() + timedelta(days=5))
+        # CTT-161: un terminado sembrado DEBE llevar terminado_en (lo exige el alcance 4).
+        # get_now() (reloj del backend) lo deja dentro de la ventana → visible en /mis-items.
         sub3 = Item(proyecto_id=proyecto.id, parent_item_id=raiz.id, nivel_profundidad=1,
                     nombre="Retiro de escombros", asignado_a=trab1.id,
-                    estado=ItemEstado.TERMINADO, orden=3)
+                    estado=ItemEstado.TERMINADO, orden=3, terminado_en=get_now())
         db.add_all([sub1, sub2, sub3])
 
         db.commit()
