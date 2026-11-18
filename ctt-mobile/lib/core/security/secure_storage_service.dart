@@ -36,6 +36,10 @@ class SecureStorageService {
 
   Future<String?> obtenerEmpresaId() => _storage.read(key: _claveEmpresaId);
 
+  /// Borra SOLO la empresa activa (CTT-164): cuando el id persistido ya no pertenece al perfil
+  /// actual, se descarta sin tocar el resto de la sesión (a diferencia de [limpiarSesion]).
+  Future<void> eliminarEmpresaId() => _storage.delete(key: _claveEmpresaId);
+
   // ── Identificadores de sesión ─────────────────────────────────────────────
 
   Future<void> guardarUsuarioId(String usuarioId) =>

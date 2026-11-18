@@ -35,21 +35,31 @@ enum ModoSesion { online, offline, revocada, sinSesion, requiereSanar }
 
 /// Resultado de resolver la sesión: el modo + el perfil (presente en online/offline).
 class ResultadoSesion {
-  const ResultadoSesion.online(PerfilUsuario this.perfil) : modo = ModoSesion.online;
-  const ResultadoSesion.offline(PerfilUsuario this.perfil)
+  const ResultadoSesion.online(PerfilUsuario this.perfil, {this.empresaActivaId})
+      : modo = ModoSesion.online;
+  const ResultadoSesion.offline(PerfilUsuario this.perfil, {this.empresaActivaId})
       : modo = ModoSesion.offline;
   const ResultadoSesion.revocada()
       : modo = ModoSesion.revocada,
-        perfil = null;
+        perfil = null,
+        empresaActivaId = null;
   const ResultadoSesion.sinSesion()
       : modo = ModoSesion.sinSesion,
-        perfil = null;
+        perfil = null,
+        empresaActivaId = null;
   const ResultadoSesion.requiereSanar()
       : modo = ModoSesion.requiereSanar,
-        perfil = null;
+        perfil = null,
+        empresaActivaId = null;
 
   final ModoSesion modo;
   final PerfilUsuario? perfil;
+
+  /// Empresa activa YA resuelta y validada contra `perfil.empresas` (CTT-164):
+  ///   · online → la única (N=1) o la persistida válida (N>1), o null si hay que elegir;
+  ///   · offline → la de `usuario_activo`.
+  /// `EmpresaActiva.build()` la lee de forma síncrona; es la única fuente del provider.
+  final String? empresaActivaId;
 }
 
 /// Roles con sesión offline (decisión de Kald, CTT-138): solo Trabajador y Residente.
@@ -120,9 +130,10 @@ class PerfilSesion extends _$PerfilSesion {
       return _resolverErrorMe(e, usuario.uid, dao);
     }
 
-    // Persistir empresa en SecureStorage solo cuando hay una sola. Con múltiples,
-    // el usuario elige en SeleccionEmpresaScreen y EmpresaActiva guarda la elección.
-    final empresa = perfil.empresas.length == 1 ? perfil.empresas.first : null;
+    // Resolver y validar la empresa activa (CTT-164): N=1 → esa; N>1 → la persistida en
+    // `_ctt_empresa_id` si sigue en perfil.empresas (si no, se borra y se pide selección);
+    // 0 empresas (p. ej. super admin) → null. `_ctt_empresa_id` queda como la verdad validada.
+    final empresa = await _resolverEmpresaActiva(perfil, storage);
     if (empresa != null) {
       await storage.guardarEmpresaId(empresa.empresaId);
     }
@@ -130,6 +141,8 @@ class PerfilSesion extends _$PerfilSesion {
 
     // Persistir sesión en Drift para acceso offline. firebaseUid = usuario.uid
     // (Firebase), para que el fallback offline case contra el uid de authStateChanges.
+    // Con una empresa resuelta se escribe ESA (nunca '' cuando hay una válida: '' rompería
+    // el fallback offline, que exige empresa no vacía — ver `_resolverErrorMe`).
     await dao.guardarPerfil(
       perfil: perfil,
       firebaseUid: usuario.uid,
@@ -138,7 +151,28 @@ class PerfilSesion extends _$PerfilSesion {
       rolActual: empresa?.rol.valor ?? '',
     );
 
-    return ResultadoSesion.online(perfil);
+    return ResultadoSesion.online(perfil, empresaActivaId: empresa?.empresaId);
+  }
+
+  /// Resuelve la empresa activa del perfil online y la valida (CTT-164):
+  ///   · exactamente una empresa → esa;
+  ///   · varias → la persistida en `_ctt_empresa_id` si sigue en `perfil.empresas`; si el id
+  ///     persistido ya no pertenece (o no hay ninguno) → se borra la clave y se devuelve null
+  ///     (el router pide la selección);
+  ///   · ninguna (p. ej. super admin sin empresa) → null.
+  Future<EmpresaPerfil?> _resolverEmpresaActiva(
+    PerfilUsuario perfil,
+    SecureStorageService storage,
+  ) async {
+    if (perfil.empresas.length == 1) return perfil.empresas.first;
+    if (perfil.empresas.isEmpty) return null;
+    final persistida = await storage.obtenerEmpresaId();
+    for (final e in perfil.empresas) {
+      if (e.empresaId == persistida) return e;
+    }
+    // Id ausente o ajeno al perfil actual: no se restaura una empresa inválida.
+    await storage.eliminarEmpresaId();
+    return null;
   }
 
   /// Decide qué hacer cuando /me falla, según el clasificador (CTT-138).
@@ -165,7 +199,10 @@ class PerfilSesion extends _$PerfilSesion {
         if (!_rolConSesionOffline(fila.rolActual)) {
           return const ResultadoSesion.sinSesion();
         }
-        return ResultadoSesion.offline(_perfilDesdeFila(fila));
+        return ResultadoSesion.offline(
+          _perfilDesdeFila(fila),
+          empresaActivaId: fila.empresaId,
+        );
     }
   }
 

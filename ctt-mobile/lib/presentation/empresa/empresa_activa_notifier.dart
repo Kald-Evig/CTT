@@ -1,8 +1,10 @@
 /// empresa_activa_notifier.dart — Empresa en la que el usuario está operando.
 ///
-/// Cuando el perfil tiene una sola empresa, se auto-selecciona.
-/// Cuando hay múltiples, el estado empieza en null hasta que el usuario
-/// elige en SeleccionEmpresaScreen; el router detecta el null y redirige.
+/// El estado lo resuelve y valida `PerfilSesion.build()` (CTT-164) y lo expone en
+/// `ResultadoSesion.empresaActivaId`; acá solo se lee de forma síncrona. Con N=1 queda esa
+/// empresa; con N>1 queda la persistida válida, o null (y el router manda a
+/// SeleccionEmpresaScreen). `seleccionar()` persiste la elección (SecureStorage + usuario_activo)
+/// y actualiza el estado.
 library;
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -17,12 +19,10 @@ part 'empresa_activa_notifier.g.dart';
 class EmpresaActiva extends _$EmpresaActiva {
   @override
   String? build() {
-    final perfil = ref.watch(perfilSesionProvider).valueOrNull?.perfil;
-    if (perfil == null) return null;
-    // Una sola empresa: auto-selección transparente.
-    if (perfil.empresas.length == 1) return perfil.empresas.first.empresaId;
-    // Múltiples empresas: espera a que el usuario elija.
-    return null;
+    // CTT-164: la empresa activa ya la resolvió y validó `PerfilSesion.build()` (online: N=1 o
+    // la persistida válida; offline: la de `usuario_activo`). Acá solo se lee de forma síncrona;
+    // `_ctt_empresa_id` es la fuente de verdad, ya validada contra el perfil.
+    return ref.watch(perfilSesionProvider).valueOrNull?.empresaActivaId;
   }
 
   /// Persiste la empresa elegida y actualiza el estado para que el router redirija.
