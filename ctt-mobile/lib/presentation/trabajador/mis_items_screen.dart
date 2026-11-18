@@ -95,11 +95,7 @@ class _ListaAgrupada extends StatelessWidget {
       ),);
       GrupoAccion? grupoPrevio;
       for (final item in entrada.value) {
-        final grupo = grupoAccion(
-          EstadoItem.fromString(item.estadoMostrado),
-          rol: RolUsuario.trabajador,
-          esAsignado: true,
-        );
+        final grupo = grupoDeMiItem(item); // CTT-162: fuente única; tolera estado desconocido
         if (grupo != grupoPrevio) {
           children.add(_CabeceraGrupo(grupo: grupo));
           grupoPrevio = grupo;

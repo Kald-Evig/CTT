@@ -49,15 +49,22 @@ Stream<List<ItemConOverlay>> misItems(MisItemsRef ref) async* {
 /// convención que el detalle). `fecha_limite` es ISO 'YYYY-MM-DD', así que el orden
 /// lexicográfico coincide con el cronológico (igual que el ORDER BY de CTT-145 que
 /// reemplaza).
+/// Grupo de un ítem de "Mis ítems" (CTT-162) — FUENTE ÚNICA, la usan [ordenarMisItems] y
+/// la lista (`mis_items_screen.dart`). Fija rol Trabajador y esAsignado: true (todos los
+/// ítems de Mis ítems son suyos y asignados, misma convención que el detalle). Un
+/// `estadoMostrado` desconocido (un estado nuevo del backend que esta versión aún no
+/// conoce) NO lanza: cae en "Esperando a otros", como la lista toleraba antes de CTT-162
+/// (el badge igual muestra el crudo). Ver [EstadoItem.tryFromString].
+GrupoAccion grupoDeMiItem(ItemConOverlay item) {
+  final estado = EstadoItem.tryFromString(item.estadoMostrado);
+  if (estado == null) return GrupoAccion.esperaAOtros;
+  return grupoAccion(estado, rol: RolUsuario.trabajador, esAsignado: true);
+}
+
 List<ItemConOverlay> ordenarMisItems(List<ItemConOverlay> items) {
   // Precalcula el grupo de cada ítem (evita recomputar accionesPermitidas en el comparador).
   final grupoPorId = <String, int>{
-    for (final it in items)
-      it.id: grupoAccion(
-        EstadoItem.fromString(it.estadoMostrado),
-        rol: RolUsuario.trabajador,
-        esAsignado: true,
-      ).index,
+    for (final it in items) it.id: grupoDeMiItem(it).index,
   };
   final ordenada = [...items];
   ordenada.sort((a, b) {

@@ -12,6 +12,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
+import 'package:ctt_mobile/domain/grupo_accion.dart';
+import 'package:ctt_mobile/presentation/shared/error_vista.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart';
 import 'package:ctt_mobile/presentation/trabajador/mis_items_screen.dart';
 
@@ -149,6 +151,27 @@ void main() {
           ordenarMisItems([problema, conConflicto]).map((e) => e.id).toList();
       expect(ids, ['c', 'q']);
     });
+
+    // CTT-162 fix: un estado desconocido (un estado nuevo del backend) NO debe lanzar.
+    test('grupoDeMiItem con estado desconocido → esperaAOtros (no lanza)', () {
+      final item = _item(
+          id: 'f', proyectoId: 'p', proyectoNombre: 'Obra',
+          estado: 'estado_futuro');
+      expect(grupoDeMiItem(item), GrupoAccion.esperaAOtros);
+    });
+
+    test('ordenarMisItems tolera un estado desconocido y ordena el resto', () {
+      final ids = ordenarMisItems([
+        _item(id: 'term', proyectoId: 'p', proyectoNombre: 'Obra',
+            estado: 'terminado'),
+        _item(id: 'fut', proyectoId: 'p', proyectoNombre: 'Obra',
+            estado: 'estado_futuro'), // desconocido → grupo 2
+        _item(id: 'ab', proyectoId: 'p', proyectoNombre: 'Obra',
+            estado: 'abierto'),
+      ]).map((e) => e.id).toList();
+      // abierto (grupo 1) → estado_futuro (grupo 2) → terminado (grupo 3).
+      expect(ids, ['ab', 'fut', 'term']);
+    });
   });
 
   group('MisItemsScreen — encabezados de grupo', () {
@@ -203,6 +226,25 @@ void main() {
       expect(find.text('Esperando a otros'), findsNothing);
       // Chip de conflicto C4c (no cambia el grupo).
       expect(find.text('En revisión por el Coordinador'), findsOneWidget);
+    });
+
+    // CTT-162 fix: un estado desconocido NO rompe el render de la lista.
+    testWidgets('un estado desconocido se renderiza (sin ErrorVista) en "Esperando a otros"',
+        (tester) async {
+      await pump(tester, [
+        _item(
+            id: 'ab', proyectoId: 'p', proyectoNombre: 'Obra', estado: 'abierto',
+            nombre: 'Tarea abierta'),
+        _item(
+            id: 'fut', proyectoId: 'p', proyectoNombre: 'Obra',
+            estado: 'estado_futuro', nombre: 'Tarea futura'),
+      ]);
+      expect(find.byType(ErrorVista), findsNothing);
+      expect(find.text('Le toca a ti'), findsOneWidget);
+      expect(find.text('Esperando a otros'), findsOneWidget);
+      // El ítem de estado desconocido se muestra igual (no se pierde la lista).
+      expect(find.text('Tarea futura'), findsOneWidget);
+      expect(find.text('Tarea abierta'), findsOneWidget);
     });
   });
 }

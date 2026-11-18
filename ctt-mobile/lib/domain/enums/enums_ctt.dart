@@ -101,6 +101,16 @@ enum EstadoItem {
         (e) => e.valor == s,
         orElse: () => throw ArgumentError('EstadoItem desconocido: $s'),
       );
+
+  /// Variante tolerante de [fromString]: devuelve null en vez de lanzar si el valor es
+  /// desconocido (CTT-162). La usa la lista de "Mis ítems" para no tirar toda la lista a
+  /// ErrorVista cuando el backend manda un estado que esta versión aún no conoce.
+  static EstadoItem? tryFromString(String s) {
+    for (final e in values) {
+      if (e.valor == s) return e;
+    }
+    return null;
+  }
 }
 
 // ── Estado de problema ────────────────────────────────────────────────────────
