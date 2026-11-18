@@ -142,10 +142,11 @@ class ItemsCacheDao extends DatabaseAccessor<BaseDatosCTT>
   ) =>
       customSelect(
         'SELECT $_columnasConOverlay FROM items_cache ic '
-        'WHERE ic.asignado_a = ?1 AND ic.empresa_id = ?2 '
-        // CTT-145: orden por fecha límite ASC, los ítems sin fecha al final; desempate por
-        // nombre y luego por id (determinista; `id` evita orden arbitrario con nombres iguales).
-        'ORDER BY ic.fecha_limite IS NULL, ic.fecha_limite ASC, ic.nombre ASC, ic.id ASC',
+        'WHERE ic.asignado_a = ?1 AND ic.empresa_id = ?2',
+        // CTT-162: el orden NO vive más acá. La lista se ordena en una sola fuente,
+        // `ordenarMisItems` (mis_items_provider.dart): proyecto → grupo de acción →
+        // fecha_limite ASC (sin fecha al final) → nombre → id. El `ORDER BY` del DAO
+        // (CTT-145) quedaba muerto bajo ese re-orden y duplicaba el desempate.
         variables: [Variable.withString(usuarioId), Variable.withString(empresaId)],
         readsFrom: _tablasOverlay,
       ).watch().map((filas) => filas.map(_aItemConOverlay).toList());

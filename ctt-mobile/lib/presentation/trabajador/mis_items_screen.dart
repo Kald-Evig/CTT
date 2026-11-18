@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart' show ItemConOverlay;
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
+import 'package:ctt_mobile/domain/grupo_accion.dart';
 import 'package:ctt_mobile/presentation/shared/badge_estado_item.dart';
 import 'package:ctt_mobile/presentation/shared/chip_estado.dart';
 import 'package:ctt_mobile/presentation/shared/error_vista.dart';
@@ -78,23 +79,57 @@ class _ListaAgrupada extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // La lista llega ya ordenada por `ordenarMisItems` (proyecto → grupo → …), así que los
+    // ítems de cada proyecto son contiguos y, dentro, contiguos por grupo. Se agrupa por
+    // proyecto conservando ese orden y se intercala un encabezado de grupo en cada cambio
+    // de grupo (CTT-162). Los grupos sin ítems no aparecen: no se emite su encabezado.
     final grupos = <String, List<ItemConOverlay>>{};
     for (final item in items) {
       grupos.putIfAbsent(item.proyectoId, () => []).add(item);
     }
 
+    final children = <Widget>[];
+    for (final entrada in grupos.entries) {
+      children.add(_CabeceraProyecto(
+        proyectoNombre: entrada.value.first.proyectoNombre,
+      ),);
+      GrupoAccion? grupoPrevio;
+      for (final item in entrada.value) {
+        final grupo = grupoAccion(
+          EstadoItem.fromString(item.estadoMostrado),
+          rol: RolUsuario.trabajador,
+          esAsignado: true,
+        );
+        if (grupo != grupoPrevio) {
+          children.add(_CabeceraGrupo(grupo: grupo));
+          grupoPrevio = grupo;
+        }
+        children.add(_TarjetaItem(item: item));
+      }
+    }
+
     return ListView(
       padding: const EdgeInsets.only(bottom: 16),
-      children: [
-        for (final entrada in grupos.entries) ...[
-          _CabeceraProyecto(
-            proyectoNombre: entrada.value.first.proyectoNombre,
-          ),
-          for (final item in entrada.value) _TarjetaItem(item: item),
-        ],
-      ],
+      children: children,
     );
   }
+}
+
+class _CabeceraGrupo extends StatelessWidget {
+  const _CabeceraGrupo({required this.grupo});
+  final GrupoAccion grupo;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+        child: Text(
+          grupo.etiqueta,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+      );
 }
 
 class _CabeceraProyecto extends StatelessWidget {

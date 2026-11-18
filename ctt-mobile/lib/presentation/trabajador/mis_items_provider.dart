@@ -8,6 +8,7 @@ import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
 import 'package:ctt_mobile/domain/enums/enums_ctt.dart';
+import 'package:ctt_mobile/domain/grupo_accion.dart';
 
 part 'mis_items_provider.g.dart';
 
@@ -32,11 +33,53 @@ Stream<List<ItemConOverlay>> misItems(MisItemsRef ref) async* {
     return;
   }
   // El pull estampa la empresa activa y retira dentro de (usuario, empresa); el listado se
-  // lee reactivo y aislado por empresa.
+  // lee reactivo y aislado por empresa. CTT-162: el orden se aplica acá (una sola fuente),
+  // no en el DAO.
   await ref.watch(itemsRepositoryProvider).obtenerMisItems(usuarioId, empresaId);
   yield* ref
       .watch(itemsCacheDaoProvider)
-      .observarAsignadosConOverlay(usuarioId, empresaId);
+      .observarAsignadosConOverlay(usuarioId, empresaId)
+      .map(ordenarMisItems);
+}
+
+/// Ordena "Mis ítems" (CTT-162), función PURA — fuente única del orden de la lista:
+/// proyecto (`proyectoNombre` ASC, desempate `proyectoId`) → grupo de acción
+/// ([GrupoAccion], su `.index`) → `fecha_limite` ASC (los sin fecha al final) → `nombre`
+/// → `id`. El grupo sale de [grupoAccion] (rol Trabajador, esAsignado: true — misma
+/// convención que el detalle). `fecha_limite` es ISO 'YYYY-MM-DD', así que el orden
+/// lexicográfico coincide con el cronológico (igual que el ORDER BY de CTT-145 que
+/// reemplaza).
+List<ItemConOverlay> ordenarMisItems(List<ItemConOverlay> items) {
+  // Precalcula el grupo de cada ítem (evita recomputar accionesPermitidas en el comparador).
+  final grupoPorId = <String, int>{
+    for (final it in items)
+      it.id: grupoAccion(
+        EstadoItem.fromString(it.estadoMostrado),
+        rol: RolUsuario.trabajador,
+        esAsignado: true,
+      ).index,
+  };
+  final ordenada = [...items];
+  ordenada.sort((a, b) {
+    final pNombre = a.proyectoNombre.compareTo(b.proyectoNombre);
+    if (pNombre != 0) return pNombre;
+    final pId = a.proyectoId.compareTo(b.proyectoId);
+    if (pId != 0) return pId;
+    final g = grupoPorId[a.id]!.compareTo(grupoPorId[b.id]!);
+    if (g != 0) return g;
+    final fa = a.fechaLimite;
+    final fb = b.fechaLimite;
+    if (fa == null && fb != null) return 1; // sin fecha → al final
+    if (fa != null && fb == null) return -1;
+    if (fa != null && fb != null) {
+      final f = fa.compareTo(fb);
+      if (f != 0) return f;
+    }
+    final n = a.nombre.compareTo(b.nombre);
+    if (n != 0) return n;
+    return a.id.compareTo(b.id);
+  });
+  return ordenada;
 }
 
 /// Detalle de un ítem con el estado MOSTRADO (base + overlay). Stream reactivo: los
