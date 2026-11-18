@@ -42,13 +42,6 @@ Stream<List<ItemConOverlay>> misItems(MisItemsRef ref) async* {
       .map(ordenarMisItems);
 }
 
-/// Ordena "Mis ítems" (CTT-162), función PURA — fuente única del orden de la lista:
-/// proyecto (`proyectoNombre` ASC, desempate `proyectoId`) → grupo de acción
-/// ([GrupoAccion], su `.index`) → `fecha_limite` ASC (los sin fecha al final) → `nombre`
-/// → `id`. El grupo sale de [grupoAccion] (rol Trabajador, esAsignado: true — misma
-/// convención que el detalle). `fecha_limite` es ISO 'YYYY-MM-DD', así que el orden
-/// lexicográfico coincide con el cronológico (igual que el ORDER BY de CTT-145 que
-/// reemplaza).
 /// Grupo de un ítem de "Mis ítems" (CTT-162) — FUENTE ÚNICA, la usan [ordenarMisItems] y
 /// la lista (`mis_items_screen.dart`). Fija rol Trabajador y esAsignado: true (todos los
 /// ítems de Mis ítems son suyos y asignados, misma convención que el detalle). Un
@@ -61,6 +54,13 @@ GrupoAccion grupoDeMiItem(ItemConOverlay item) {
   return grupoAccion(estado, rol: RolUsuario.trabajador, esAsignado: true);
 }
 
+/// Ordena "Mis ítems" (CTT-162), función PURA — fuente única del orden de la lista:
+/// proyecto (`proyectoNombre` ASC, desempate `proyectoId`) → grupo de acción
+/// ([GrupoAccion], su `.index`) → `fecha_limite` ASC (los sin fecha al final) → `nombre`
+/// → `id`. El grupo sale de [grupoDeMiItem] (rol Trabajador, esAsignado: true — misma
+/// convención que el detalle). `fecha_limite` es ISO 'YYYY-MM-DD', así que el orden
+/// lexicográfico coincide con el cronológico (igual que el ORDER BY de CTT-145 que
+/// reemplaza).
 List<ItemConOverlay> ordenarMisItems(List<ItemConOverlay> items) {
   // Precalcula el grupo de cada ítem (evita recomputar accionesPermitidas en el comparador).
   final grupoPorId = <String, int>{
