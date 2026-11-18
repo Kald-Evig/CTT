@@ -21,6 +21,8 @@ import 'package:ctt_mobile/data/local/daos/items_cache_dao.dart';
 import 'package:ctt_mobile/data/local/daos/sync_dao.dart';
 import 'package:ctt_mobile/data/local/database.dart';
 import 'package:ctt_mobile/data/repositories/items_repository.dart';
+import 'package:ctt_mobile/presentation/trabajador/mis_items_provider.dart'
+    show ordenarMisItems;
 
 class _MockDio extends Mock implements Dio {}
 
@@ -98,7 +100,9 @@ void main() {
 
   // ── Orden (camino real del pull) ─────────────────────────────────────────────
   test('orden: fecha ASC, NULL al final, desempate por nombre y luego por id', () async {
-    // Entregados en orden ARBITRARIO; se espera que la lista salga ordenada por el ORDER BY.
+    // CTT-162: el orden ya NO lo da el DAO (se le quitó el ORDER BY); lo da ordenarMisItems.
+    // Como todos los ítems son 'abierto' (grupo 1) y del mismo proyecto, el orden se reduce
+    // al desempate de CTT-145: fecha ASC → nombre → id, con los sin fecha al final.
     mockMisItems([
       j('c1', 'C', 1, '2026-01-10'),
       j('z1', 'Z', 1, null),
@@ -110,7 +114,8 @@ void main() {
 
     await repo.obtenerMisItems(_user, _empresa);
 
-    final lista = await cacheDao.observarAsignadosConOverlay(_user, _empresa).first;
+    final lista = ordenarMisItems(
+        await cacheDao.observarAsignadosConOverlay(_user, _empresa).first,);
     expect(
       lista.map((e) => e.id).toList(),
       ['a1', 'a2', 'b1', 'c1', 'm1', 'z1'],
