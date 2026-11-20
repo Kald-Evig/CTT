@@ -13,6 +13,7 @@ import 'package:dio/dio.dart';
 import 'package:logger/logger.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:ctt_mobile/core/config/environment.dart';
+import 'package:ctt_mobile/core/network/indicio_conexion.dart';
 import 'package:ctt_mobile/core/network/interceptors/auth_interceptor.dart';
 import 'package:ctt_mobile/core/network/interceptors/error_interceptor.dart';
 import 'package:ctt_mobile/core/network/interceptors/ultimo_contacto_interceptor.dart';
@@ -87,8 +88,12 @@ Dio dioClient(DioClientRef ref) {
       // TODO Fase 1.3: disparar evento de logout en el AuthNotifier de Riverpod.
     },
   ),);
-  // CTT-138: registra el último contacto 2xx (ventana offline).
-  dio.interceptors.add(UltimoContactoInterceptor(storage));
+  // CTT-138: registra el último contacto 2xx (ventana offline). CTT-157: un 2xx foreground es un
+  // indicio de red recuperada → bombea `indicioConexion` (lo escucha el revalidador de sesión).
+  dio.interceptors.add(UltimoContactoInterceptor(
+    storage,
+    alContacto2xx: () => ref.read(indicioConexionProvider.notifier).notificar(),
+  ),);
   _agregarLogDebug(dio, log);
   return dio;
 }
@@ -100,10 +105,13 @@ Dio dioClient(DioClientRef ref) {
 /// `AuthInterceptor`; el isolate headless de WorkManager setea Authorization/
 /// X-Empresa-Id a mano. Así el 2xx de una corrida en background también actualiza
 /// `ultimo_contacto_servidor`.
-Dio crearDioSync(SecureStorageService storage, Logger log) {
+Dio crearDioSync(SecureStorageService storage, Logger log,
+    {void Function()? alContacto2xx,}) {
   final dio = Dio(opcionesBaseDio());
   dio.options.headers['X-Sync-Origen'] = 'cola';
-  dio.interceptors.add(UltimoContactoInterceptor(storage));
+  // CTT-157: `alContacto2xx` solo lo pasa el Dio foreground (dioSync); el headless lo deja null,
+  // así no toca Riverpod ni cambia de comportamiento.
+  dio.interceptors.add(UltimoContactoInterceptor(storage, alContacto2xx: alContacto2xx));
   _agregarLogDebug(dio, log);
   return dio;
 }
@@ -113,7 +121,12 @@ Dio crearDioSync(SecureStorageService storage, Logger log) {
 @riverpod
 Dio dioSync(DioSyncRef ref) {
   final storage = ref.watch(secureStorageProvider);
-  final dio = crearDioSync(storage, ref.watch(loggerProvider));
+  final dio = crearDioSync(
+    storage,
+    ref.watch(loggerProvider),
+    // CTT-157: la cola foreground también avisa del 2xx (indicio de red recuperada).
+    alContacto2xx: () => ref.read(indicioConexionProvider.notifier).notificar(),
+  );
   dio.interceptors.add(AuthInterceptor(storage));
   return dio;
 }

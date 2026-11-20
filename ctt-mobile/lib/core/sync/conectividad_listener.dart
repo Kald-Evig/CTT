@@ -14,6 +14,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:workmanager/workmanager.dart';
 
+import 'package:ctt_mobile/core/network/indicio_conexion.dart';
 import 'package:ctt_mobile/core/sync/ciclo_sync_ui.dart';
 import 'package:ctt_mobile/core/sync/guarda_reconciliacion.dart';
 import 'package:ctt_mobile/core/sync/sync_service.dart';
@@ -46,6 +47,9 @@ class ConectividadListener extends _$ConectividadListener {
       teniaRed = tieneRed;
 
       if (flancoAOnline) {
+        // CTT-157: el flanco es un INDICIO de red recuperada → avisa al revalidador de sesión
+        // (que decide con su guarda offline + single-flight). Es solo un indicio: el árbitro es /me.
+        ref.read(indicioConexionProvider.notifier).notificar();
         try {
           // Red recuperada: soltar el backoff de las filas que fallaron por RED
           // (ultimo_error_codigo NULL) para que salgan YA; el backoff de servidor y el

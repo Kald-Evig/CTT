@@ -11,9 +11,14 @@ import 'package:dio/dio.dart';
 import 'package:ctt_mobile/core/security/secure_storage_service.dart';
 
 class UltimoContactoInterceptor extends Interceptor {
-  UltimoContactoInterceptor(this._storage);
+  UltimoContactoInterceptor(this._storage, {void Function()? alContacto2xx})
+      : _alContacto2xx = alContacto2xx;
 
   final SecureStorageService _storage;
+
+  /// CTT-157: aviso OPCIONAL de que el backend respondió 2xx (indicio de red recuperada). Los Dio
+  /// foreground lo cablean al revalidador; el headless lo deja en null (corre sin Riverpod).
+  final void Function()? _alContacto2xx;
 
   @override
   void onResponse(Response<dynamic> response, ResponseInterceptorHandler handler) {
@@ -21,6 +26,7 @@ class UltimoContactoInterceptor extends Interceptor {
     if (code >= 200 && code < 300) {
       // Fire-and-forget: no bloquea la cadena de respuesta.
       _storage.guardarUltimoContacto(DateTime.now().toUtc());
+      _alContacto2xx?.call();
     }
     handler.next(response);
   }

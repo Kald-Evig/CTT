@@ -20,6 +20,7 @@ import 'package:ctt_mobile/presentation/arranque/pantalla_cerrar_ctt.dart';
 import 'package:ctt_mobile/presentation/arranque/pantalla_recuperacion.dart';
 import 'package:ctt_mobile/presentation/auth/login_screen.dart';
 import 'package:ctt_mobile/presentation/auth/perfil_notifier.dart';
+import 'package:ctt_mobile/presentation/auth/revalidador_foreground.dart';
 import 'package:ctt_mobile/domain/entities/coordinador_models.dart';
 import 'package:ctt_mobile/domain/entities/residente_models.dart';
 import 'package:ctt_mobile/presentation/coordinador/conflictos_screen.dart';
@@ -380,13 +381,16 @@ class _AppConRouter extends ConsumerWidget {
     ref.watch(conectividadListenerProvider);
     final goRouter = ref.watch(routerProvider);
 
-    // Monta el planificador de sync de primer plano (CTT-141); invisible, envuelve la app.
-    return PlanificadorForeground(
-      child: MaterialApp.router(
-        title: 'CTT',
-        debugShowCheckedModeBanner: false,
-        routerConfig: goRouter,
-        theme: _temaCTT(),
+    // Monta el planificador de sync (CTT-141) y el revalidador de sesión offline (CTT-157);
+    // ambos invisibles, envuelven la app.
+    return RevalidadorForeground(
+      child: PlanificadorForeground(
+        child: MaterialApp.router(
+          title: 'CTT',
+          debugShowCheckedModeBanner: false,
+          routerConfig: goRouter,
+          theme: _temaCTT(),
+        ),
       ),
     );
   }

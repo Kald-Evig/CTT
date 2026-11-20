@@ -130,6 +130,15 @@ class PerfilSesion extends _$PerfilSesion {
       return _resolverErrorMe(e, usuario.uid, dao);
     }
 
+    // Carrera (CTT-157): /me pudo tardar y, mientras, un logout (u otro login) cambió el usuario de
+    // Firebase. build() NO es cancelable, así que antes de escribir el perfil local verificamos que
+    // el uid siga siendo el mismo con el que arrancó este build. Si cambió, no escribimos nada: el
+    // build que ganó (el del logout) ya limpió usuario_activo y re-escribir lo re-poblaría. El
+    // valor devuelto se descarta (gana el build nuevo); se usa sinSesion por coherencia.
+    if (ref.read(firebaseAuthStreamProvider).valueOrNull?.uid != usuario.uid) {
+      return const ResultadoSesion.sinSesion();
+    }
+
     // Resolver y validar la empresa activa (CTT-164): N=1 → esa; N>1 → la persistida en
     // `_ctt_empresa_id` si sigue en perfil.empresas (si no, se borra y se pide selección);
     // 0 empresas (p. ej. super admin) → null. `_ctt_empresa_id` queda como la verdad validada.
